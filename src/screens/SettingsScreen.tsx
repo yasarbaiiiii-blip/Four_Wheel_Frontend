@@ -19,7 +19,7 @@ import { RTKInjectionScreen } from "../components/missionreport/RTKInjectionScre
 import { getRtkStatus, stopRtk } from "../services/rtkService";
 import { toRtkControlView } from "../adapters/rtkControlAdapter";
 import { useAuth } from "../hooks/useAuth";
-import { getSprayConfig, setSprayConfig } from "../services/sprayConfigService";
+import { getSprayConfig, enableSpray, disableSpray, testSpray } from "../services/sprayConfigService";
 import { Toast } from "../components/shared/Toast";
 
 interface SettingsScreenProps {
@@ -584,9 +584,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
   const handleServoEnabledToggle = async (enabled: boolean) => {
     setIsLoadingServo(true);
     try {
-      const response = await services.updateMissionServoConfig({
-        servo_enabled: enabled,
-      });
+      const response = enabled ? await enableSpray() : await disableSpray();
       if (response.success) {
         setServoEnabled(enabled);
         console.log("[Settings] Servo", enabled ? "enabled" : "disabled");
@@ -606,94 +604,17 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
   };
 
   // Servo Test Handler
-  const handleServoTest = async (config: any) => {
+  const handleServoTest = async (duration: number) => {
     try {
-      console.log("[Settings] Testing servo config:", config);
-      const response = await services.testMissionServoConfig(config);
+      console.log("[Settings] Testing spray config duration:", duration);
+      const response = await testSpray(duration);
       console.log("[Settings] Test response:", response);
       return response;
     } catch (error) {
-      console.error("[Settings] Servo test error:", error);
+      console.error("[Settings] Spray test error:", error);
       return {
         success: false,
-        message: "Failed to test servo configuration",
-        status: "fail",
-      };
-    }
-  };
-
-  // Servo Save Handler
-  const handleServoSave = async (config: any) => {
-    try {
-      console.log("[Settings] Updating spray PWM:", {
-        press_pwm_us: config.servo_pwm_on,
-
-        release_pwm_us: config.servo_pwm_off,
-      });
-
-      const response = await setSprayConfig({
-        press_pwm_us: Number(config.servo_pwm_on),
-
-        release_pwm_us: Number(config.servo_pwm_off),
-      });
-
-      if (!response.success) {
-        return {
-          success: false,
-          message:
-            response.message || "Backend rejected spray PWM configuration.",
-        };
-      }
-
-      const saved = response.config;
-
-      if (typeof saved.press_pwm_us === "number") {
-        setServoPwmOn(saved.press_pwm_us);
-      }
-
-      if (typeof saved.release_pwm_us === "number") {
-        setServoPwmOff(saved.release_pwm_us);
-      }
-
-      if (typeof saved.spray_duration_sec === "number") {
-        setServoSprayDuration(saved.spray_duration_sec);
-      }
-
-      setServoEnabled(saved.available === true && saved.fault_latched !== true);
-
-      setServoChannel(5);
-
-      setSuccessMessage("Spray PWM configuration saved successfully");
-
-      setTimeout(() => setSuccessMessage(""), 3000);
-
-      console.log("[Settings] Spray PWM accepted by controller:", {
-        press_pwm_us: saved.press_pwm_us,
-
-        release_pwm_us: saved.release_pwm_us,
-
-        press_value: saved.press_value,
-
-        release_value: saved.release_value,
-
-        result: saved.config_result,
-      });
-
-      return {
-        success: true,
-        message: response.message || "Spray PWM updated successfully.",
-      };
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to save spray PWM configuration.";
-
-      console.error("[Settings] Spray PWM save failed:", error);
-
-      return {
-        success: false,
-        message,
+        message: "Failed to test spray",
       };
     }
   };
@@ -1044,16 +965,13 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                     AUX5 production spray controller
                   </Text>
                 </View>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    servoEnabled ? styles.statusBadgeOn : styles.statusBadgeOff,
-                  ]}
-                >
-                  <Text style={styles.statusBadgeText}>
-                    {servoEnabled ? "AVAILABLE" : "OFFLINE"}
-                  </Text>
-                </View>
+                <Switch
+                  value={servoEnabled}
+                  onValueChange={handleServoEnabledToggle}
+                  disabled={isLoadingServo}
+                  trackColor={{ false: "#4a5568", true: "#10b981" }}
+                  thumbColor={servoEnabled ? "#ffffff" : "#d1d5db"}
+                />
               </View>
 
               <View style={styles.divider} />
@@ -1348,7 +1266,6 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           currentConfig={servoConfig}
           onClose={() => setShowServoConfigModal(false)}
           onTest={handleServoTest}
-          onSave={handleServoSave}
         />
 
         {/* MAVLink Param Browser Modal */}
