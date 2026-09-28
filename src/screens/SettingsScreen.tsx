@@ -19,7 +19,7 @@ import { RTKInjectionScreen } from "../components/missionreport/RTKInjectionScre
 import { getRtkStatus, stopRtk } from "../services/rtkService";
 import { toRtkControlView } from "../adapters/rtkControlAdapter";
 import { useAuth } from "../hooks/useAuth";
-import { getSprayConfig, enableSpray, disableSpray, testSpray } from "../services/sprayConfigService";
+import { getSprayConfig, enableSpray, disableSpray, testSpray, setSprayDuration } from "../services/sprayConfigService";
 import { Toast } from "../components/shared/Toast";
 
 interface SettingsScreenProps {
@@ -600,6 +600,28 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       Alert.alert("Error", "Failed to update servo settings");
     } finally {
       setIsLoadingServo(false);
+    }
+  };
+
+  // Spray Duration Save Handler
+  const handleSaveDuration = async (duration: number) => {
+    try {
+      console.log("[Settings] Saving spray duration:", duration);
+      const response = await setSprayDuration(duration);
+      if (response.success) {
+        setServoSprayDuration(duration);
+        setSuccessMessage("Spray duration saved successfully");
+        setTimeout(() => setSuccessMessage(""), 3000);
+      } else {
+        Alert.alert("Save Error", response.message || "Failed to save spray duration");
+      }
+      return response;
+    } catch (error) {
+      console.error("[Settings] Spray save error:", error);
+      return {
+        success: false,
+        message: "Failed to save spray duration",
+      };
     }
   };
 

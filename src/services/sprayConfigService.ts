@@ -43,6 +43,13 @@ export async function disableSpray(): Promise<SprayBasicResponse> {
   return apiPost<SprayBasicResponse>(PX4_SPRAY.DISABLE, {});
 }
 
+export async function setSprayDuration(spray_duration_sec: number): Promise<SprayBasicResponse> {
+  if (!Number.isFinite(spray_duration_sec) || spray_duration_sec < 0) {
+    throw new Error("Spray duration must be a valid positive number.");
+  }
+  return apiPost<SprayBasicResponse>("/api/spray/duration", { spray_duration_sec });
+}
+
 export async function testSpray(spray_duration_sec: number): Promise<SprayBasicResponse> {
   if (!Number.isFinite(spray_duration_sec) || spray_duration_sec < 0) {
     throw new Error("Spray duration must be a valid positive number.");
@@ -54,5 +61,6 @@ export default {
   getSprayConfig,
   enableSpray,
   disableSpray,
+  setSprayDuration,
   testSpray,
 };

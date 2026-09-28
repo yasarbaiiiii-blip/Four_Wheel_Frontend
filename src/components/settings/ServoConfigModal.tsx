@@ -24,10 +24,13 @@ interface ServoConfigModalProps {
   visible: boolean;
   currentConfig: ServoConfig;
   onClose: () => void;
-  onTest?: (duration: number) => Promise<{
+  onSave: (duration: number) => Promise<{
     success: boolean;
     message?: string;
-    status?: string;
+  }>;
+  onTest: (duration: number) => Promise<{
+    success: boolean;
+    message?: string;
   }>;
 }
 
@@ -35,6 +38,7 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
   visible,
   currentConfig,
   onClose,
+  onSave,
   onTest,
 }) => {
   const [sprayTimeText, setSprayTimeText] = useState(
@@ -42,11 +46,14 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
   );
   const [isTesting, setIsTesting] = useState(false);
   const [testSuccess, setTestSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
     setSprayTimeText(String(currentConfig.servo_spray_duration));
     setTestSuccess(false);
+    setSaveSuccess(false);
   }, [visible, currentConfig.servo_spray_duration]);
 
   const parseDuration = (text: string): number | null => {
@@ -85,13 +92,37 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
         return;
       }
       setTestSuccess(true);
-      setTimeout(() => {
-        onClose();
-      }, 1000);
+      setTimeout(() => setTestSuccess(false), 2000);
     } catch (error) {
       Alert.alert("Test Error", error instanceof Error ? error.message : "Failed to test spray.");
     } finally {
       setIsTesting(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!onSave) return;
+    const duration = parseDuration(sprayTimeText);
+    if (duration === null) return;
+
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      const response = await onSave(duration);
+
+      if (!response.success) {
+        Alert.alert("Save Failed", response.message || "Failed to save spray duration.");
+        return;
+      }
+      setSaveSuccess(true);
+      setTimeout(() => {
+        onClose();
+      }, 1000);
+    } catch (error) {
+      Alert.alert("Save Error", error instanceof Error ? error.message : "Failed to save spray duration.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -107,11 +138,11 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
           <View style={styles.header}>
             <View>
               <Text style={styles.title}>Spray Servo Configuration</Text>
-              <Text style={styles.subtitle}>Test spray functionality</Text>
+              <Text style={styles.subtitle}>Test and save spray duration</Text>
             </View>
             <TouchableOpacity
               onPress={onClose}
-              disabled={isTesting}
+              disabled={isTesting || isSaving}
               style={styles.closeButton}
             >
               <Text style={styles.closeText}>✕</Text>
@@ -121,14 +152,14 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
           <View style={styles.infoBox}>
             <Text style={styles.infoTitle}>Spray Time</Text>
             <Text style={styles.infoText}>
-              Set the duration in seconds for the spray test.
+              Set the duration in seconds for the spray test and operation.
             </Text>
           </View>
 
           <View style={styles.field}>
             <Text style={styles.label}>SPRAY TIME (s)</Text>
             <Text style={styles.description}>
-              Duration the spray will stay on during the test (e.g. 0.5, 1.2).
+              Duration the spray will stay on (e.g. 0.5, 1.2).
             </Text>
             <View style={styles.inputRow}>
               <TouchableOpacity
@@ -153,19 +184,36 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
             </View>
           </View>
 
-          <TouchableOpacity
-            style={[styles.saveButton, testSuccess && styles.successButton]}
-            onPress={handleTest}
-            disabled={isTesting}
-          >
-            {isTesting ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <Text style={styles.saveText}>
-                {testSuccess ? "✓ TEST PASSED" : "SPRAY TEST"}
-              </Text>
-            )}
-          </TouchableOpacity>
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.testButton, testSuccess && styles.successButton]}
+              onPress={handleTest}
+              disabled={isTesting || isSaving}
+            >
+              {isTesting ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.saveText}>
+                  {testSuccess ? "✓ TEST PASSED" : "SPRAY TEST"}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionButton, styles.saveButton, saveSuccess && styles.successButton]}
+              onPress={handleSave}
+              disabled={isTesting || isSaving}
+            >
+              {isSaving ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.saveText}>
+                  {saveSuccess ? "✓ SAVED" : "SAVE"}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
         </View>
       </View>
     </Modal>
@@ -274,12 +322,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
   },
-  saveButton: {
+  buttonRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  actionButton: {
+    flex: 1,
     minHeight: 50,
     borderRadius: 11,
-    backgroundColor: "#2563eb",
     alignItems: "center",
     justifyContent: "center",
+  },
+  testButton: {
+    backgroundColor: "#4f46e5",
+  },
+  saveButton: {
+    backgroundColor: "#059669",
   },
   successButton: {
     backgroundColor: "#059669",
