@@ -14,6 +14,7 @@ import { RobotSettingsModal } from '../components/dashboard/RobotSettingsModal';
 import { saveParamsToFile, loadParamsFromFile } from '../services/paramFileService';
 import { CATEGORIES } from '../types/robotSettings';
 import { asFiniteNumber, formatCoord } from '../utils/formatCoord';
+import { getBatteryDisplayBand } from '../utils/batteryDisplay';
 
 const ROBOT_PARAM_COUNT = Object.values(CATEGORIES).reduce(
   (sum, cat) => sum + cat.params.length,
@@ -81,10 +82,12 @@ function gradeGps(fixType: number): Grade {
 }
 
 function gradeBattery(pct: number | null): Grade {
-  if (pct == null) return 'idle';
-  if (pct > 50) return 'healthy';
-  if (pct > 20) return 'average';
-  return 'critical';
+  const band = getBatteryDisplayBand(pct);
+
+  if (band === 'GREEN') return 'healthy';
+  if (band === 'YELLOW') return 'average';
+  if (band === 'RED') return 'critical';
+  return 'idle';
 }
 
 function gradeSignal(connected: boolean, rssi: number): Grade {
