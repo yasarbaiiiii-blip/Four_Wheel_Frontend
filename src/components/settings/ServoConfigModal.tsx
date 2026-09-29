@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { sprayDurationError } from "../../services/sprayConfigService";
 
 interface ServoConfig {
   servo_channel: number;
@@ -60,8 +61,9 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
 
   const parseDuration = (text: string): number | null => {
     const value = Number.parseFloat(text);
-    if (!Number.isFinite(value) || value <= 0 || value > maxDurationSec) {
-      Alert.alert("Invalid Spray Time", `Spray time must be greater than 0 and no more than ${maxDurationSec} seconds.`);
+    const error = sprayDurationError(value, maxDurationSec);
+    if (error) {
+      Alert.alert("Invalid Spray Time", error);
       return null;
     }
     return value;

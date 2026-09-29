@@ -251,8 +251,12 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
       const config = response.config;
 
+      // `enabled` is the controller's runtime master gate (POST /enable,
+      // /disable). Older backends omit it, so only an explicit false disables.
       setServoEnabled(
-        config.enabled === true,
+        config.available === true &&
+          config.fault_latched !== true &&
+          config.enabled !== false,
       );
 
       // Hardware mapping is fixed to AUX5.
@@ -604,7 +608,13 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       }
     } catch (error) {
       console.error("[Settings] Servo toggle error:", error);
-      Alert.alert("Error", "Failed to update servo settings");
+      // ApiError.message carries the backend's detail.message.
+      Alert.alert(
+        "Error",
+        error instanceof Error && error.message
+          ? error.message
+          : "Failed to update servo settings",
+      );
     } finally {
       setIsLoadingServo(false);
     }
@@ -616,7 +626,13 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       console.log("[Settings] Saving spray duration:", duration);
       const response = await setSprayDuration(duration);
       if (response.success) {
-        setServoSprayDuration(duration);
+        // Prefer the value the controller reports it applied.
+        const applied = response.config?.spray_duration_sec;
+        setServoSprayDuration(
+          typeof applied === "number" && Number.isFinite(applied)
+            ? applied
+            : duration,
+        );
         setSuccessMessage("Spray duration saved successfully");
         setTimeout(() => setSuccessMessage(""), 3000);
       } else {
@@ -625,9 +641,13 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       return response;
     } catch (error) {
       console.error("[Settings] Spray save error:", error);
+      // e.g. "Spray configuration rejected: SPRAY_CONTROLLER_NOT_IDLE".
       return {
         success: false,
-        message: "Failed to save spray duration",
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : "Failed to save spray duration",
       };
     }
   };
@@ -641,9 +661,13 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       return response;
     } catch (error) {
       console.error("[Settings] Spray test error:", error);
+      // e.g. "PX4_STATE_UNSAFE" (not armed) or the active-mission refusal.
       return {
         success: false,
-        message: "Failed to test spray",
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : "Failed to test spray",
       };
     }
   };
@@ -1289,14 +1313,14 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           disabled={isMissionActive}
         />
 
-          maxDurationSec={manualOverrideTimeoutSec}
         {/* Servo Configuration Modal */}
         <ServoConfigModal
           visible={showServoConfigModal}
           currentConfig={servoConfig}
           onClose={() => setShowServoConfigModal(false)}
-          onTest={handleServoTest}
           onSave={handleSaveDuration}
+          onTest={handleServoTest}
+          maxDurationSec={manualOverrideTimeoutSec}
         />
 
         {/* MAVLink Param Browser Modal */}
