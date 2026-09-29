@@ -50,7 +50,7 @@ import { toNetworkData } from "../adapters/px4NetworkAdapter";
 import { rtkStatusToEnvelope } from "../adapters/px4RtkStatusAdapter";
 import { toRtkUiState } from "../adapters/px4RtkUiStateAdapter";
 import { normalizePx4Mode } from "../adapters/px4ModeAdapter";
-import { PX4_SYSTEM, PX4_TELEMETRY, PX4_RTK, PX4_TTS } from "../config/px4Endpoints";
+import { PX4_SYSTEM, PX4_TELEMETRY, PX4_RTK, PX4_TTS, PX4_OBSTACLE } from "../config/px4Endpoints";
 import type { Px4HealthzResponse } from "../types/px4/telemetry";
 import {
   getRtkStatus,
@@ -2733,8 +2733,16 @@ if (envelope.within_test_tolerance !== undefined) {
       controlServo: () => nrpRosLegacyDisabled("controlServo"),
       updateMissionParameters: () =>
         nrpRosLegacyDisabled("updateMissionParameters"),
-      updateObstacleZones: () => nrpRosLegacyDisabled("updateObstacleZones"),
-      setObstacleDetection: () => nrpRosLegacyDisabled("setObstacleDetection"),
+      // Forward ultrasonic obstacle stop-and-wait (rover_backend
+      // /api/obstacle/config; saved on the rover). The 4WD has one danger
+      // and one warning distance, so NRP_ROS's *_max_mm fields map onto them.
+      updateObstacleZones: (zones) =>
+        postService(PX4_OBSTACLE.CONFIG, {
+          ...(zones.danger_max_mm !== undefined ? { danger_mm: zones.danger_max_mm } : {}),
+          ...(zones.warning_max_mm !== undefined ? { warning_mm: zones.warning_max_mm } : {}),
+        }),
+      setObstacleDetection: (enabled: boolean) =>
+        postService(PX4_OBSTACLE.CONFIG, { enabled }),
       setLEDController: () => nrpRosLegacyDisabled("setLEDController"),
       getLEDControllerStatus: () =>
         nrpRosLegacyDisabled("getLEDControllerStatus"),

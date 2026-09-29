@@ -189,6 +189,14 @@ export const PX4_SPRAY = {
     "/api/spray/params",
 } as const;
 
+// ── Forward obstacle sensor (stop and wait) ──────────────────────────────────
+// rover_ws rover_backend obstacle_routes.py.
+
+export const PX4_OBSTACLE = {
+  STATUS: "/api/obstacle/status",
+  CONFIG: "/api/obstacle/config",
+} as const;
+
 // ── Voice announcements (rover USB speaker) ─────────────────────────────────
 // rover_ws rover_backend voice_routes.py; same contract as NRP_ROS /api/tts/*.
 
