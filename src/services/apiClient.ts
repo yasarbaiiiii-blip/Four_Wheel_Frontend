@@ -14,6 +14,7 @@ import {
 } from "../config";
 
 import {
+  ApiError,
   NetworkError,
   UnauthorizedError,
   classifyHttpError,
@@ -251,15 +252,14 @@ async function request<T>(
     }
 
     /*
-     * Preserve errors already created by classifyHttpError.
+     * Preserve errors already created by classifyHttpError: the rover
+     * answered, so its reason must reach the operator. (This used to test
+     * `"status" in error`, but ApiError stores `statusCode`, so every 4xx/5xx
+     * refusal was rewrapped as "Unable to reach backend".)
      */
     if (
-      error instanceof Error &&
-      (
-        "status" in error ||
-        error instanceof UnauthorizedError ||
-        error instanceof NetworkError
-      )
+      error instanceof ApiError ||
+      error instanceof NetworkError
     ) {
       throw error;
     }
