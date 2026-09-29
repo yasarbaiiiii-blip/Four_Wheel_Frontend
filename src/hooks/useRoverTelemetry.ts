@@ -50,7 +50,7 @@ import { toNetworkData } from "../adapters/px4NetworkAdapter";
 import { rtkStatusToEnvelope } from "../adapters/px4RtkStatusAdapter";
 import { toRtkUiState } from "../adapters/px4RtkUiStateAdapter";
 import { normalizePx4Mode } from "../adapters/px4ModeAdapter";
-import { PX4_SYSTEM, PX4_TELEMETRY, PX4_RTK } from "../config/px4Endpoints";
+import { PX4_SYSTEM, PX4_TELEMETRY, PX4_RTK, PX4_TTS } from "../config/px4Endpoints";
 import type { Px4HealthzResponse } from "../types/px4/telemetry";
 import {
   getRtkStatus,
@@ -2711,14 +2711,26 @@ if (envelope.within_test_tolerance !== undefined) {
           downloadProgressCallbackRef.current.delete(cb);
         };
       },
-      // NRP_ROS LEGACY DISABLED — servo PWM, TTS, mission config socket, LED, bulk MAVLink params
+      // Voice announcements on the rover's USB speaker (rover_backend
+      // /api/tts/*, same contract as NRP_ROS). Settings persist on the rover.
+      getTTSStatus: () =>
+        getService<
+          ServiceResponse & { enabled?: boolean; engine?: string; language?: string }
+        >(PX4_TTS.STATUS),
+      controlTTS: (enabled: boolean) =>
+        postService(PX4_TTS.CONTROL, { enabled }) as Promise<
+          ServiceResponse & { enabled?: boolean }
+        >,
+      testTTS: (message?: string) =>
+        postService(PX4_TTS.TEST, message ? { message } : {}),
+      setTTSLanguage: (language: string) =>
+        postService(PX4_TTS.LANGUAGE, { language }),
+      getTTSGender: () =>
+        getService<ServiceResponse & { gender?: string }>(PX4_TTS.GENDER),
+      setTTSGender: (gender: "male" | "female") =>
+        postService(PX4_TTS.GENDER, { gender }),
+      // NRP_ROS LEGACY DISABLED — servo PWM, mission config socket, LED, bulk MAVLink params
       controlServo: () => nrpRosLegacyDisabled("controlServo"),
-      getTTSStatus: () => nrpRosLegacyDisabled("getTTSStatus"),
-      controlTTS: () => nrpRosLegacyDisabled("controlTTS"),
-      testTTS: () => nrpRosLegacyDisabled("testTTS"),
-      setTTSLanguage: () => nrpRosLegacyDisabled("setTTSLanguage"),
-      getTTSGender: () => nrpRosLegacyDisabled("getTTSGender"),
-      setTTSGender: () => nrpRosLegacyDisabled("setTTSGender"),
       updateMissionParameters: () =>
         nrpRosLegacyDisabled("updateMissionParameters"),
       updateObstacleZones: () => nrpRosLegacyDisabled("updateObstacleZones"),

@@ -189,6 +189,18 @@ export const PX4_SPRAY = {
     "/api/spray/params",
 } as const;
 
+// ── Voice announcements (rover USB speaker) ─────────────────────────────────
+// rover_ws rover_backend voice_routes.py; same contract as NRP_ROS /api/tts/*.
+
+export const PX4_TTS = {
+  STATUS: "/api/tts/status",
+  CONTROL: "/api/tts/control",
+  TEST: "/api/tts/test",
+  LANGUAGES: "/api/tts/languages",
+  LANGUAGE: "/api/tts/language",
+  GENDER: "/api/tts/gender",
+} as const;
+
 // ── Legacy RPP compatibility ──────────────────────────────────────────────────
 
 export const PX4_RPP = {
