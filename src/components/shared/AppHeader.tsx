@@ -19,6 +19,7 @@ import { ModeSelectionDialog } from "../pathplan/ModeSelectionDialog";
 import { DashConfigDialog } from "../pathplan/DashConfigDialog";
 import { setMissionMode as setBackendMissionMode } from "../../services/missionModeService";
 import { LayerControlsPanel } from "../pathplan/LayerControlsPanel";
+import { EstopControls } from "./EstopControls";
 import {
   MissionProgressPanelKey,
   useMissionProgressOverlayOptional,
@@ -380,6 +381,11 @@ const AppHeaderInner: React.FC<Props> = ({ activeTab, onTabChange, isLightMode, 
             <Text style={[styles.modeCapsuleValue, { color: rtkTone.title }]}>{missionMode}</Text>
           </View>
         </TouchableOpacity>
+
+        <View style={[styles.rightDivider, { backgroundColor: rtkTone.divider }]} />
+
+        {/* Emergency stop: on every tab, never hidden behind a menu. */}
+        <EstopControls />
 
         <View style={[styles.rightDivider, { backgroundColor: rtkTone.divider }]} />
 
