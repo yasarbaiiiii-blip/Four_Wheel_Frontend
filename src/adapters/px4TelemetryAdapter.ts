@@ -18,6 +18,7 @@ import type {
   TelemetryEnvelope,
 } from "../types/telemetry";
 import { normalizePx4Mode } from "./px4ModeAdapter";
+import { toObstacleView } from "../utils/obstacleStatus";
 
 export function isPx4Payload(data: unknown): data is Px4TelemetryData {
   if (!data || typeof data !== "object") return false;
@@ -831,6 +832,7 @@ rpp_along_position: rppAlongPosition,
       flat.joystick_last_valid_cmd_age_ms ?? null,
     joystick_stop_reason: flat.joystick_stop_reason ?? null,
     control_owner: flat.control_owner ?? null,
+    obstacle: toObstacleView(flat.obstacle),
   };
 }
 
@@ -900,6 +902,7 @@ export function toLiveTelemetryEnvelope(
     joystick_last_valid_cmd_age_ms: adapted.joystick_last_valid_cmd_age_ms,
     joystick_stop_reason: adapted.joystick_stop_reason,
     control_owner: adapted.control_owner,
+    obstacle: adapted.obstacle,
   };
 }
 

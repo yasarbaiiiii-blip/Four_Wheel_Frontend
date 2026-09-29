@@ -217,6 +217,9 @@ export interface Px4TelemetryData {
   joystick_stop_reason?: string | null;
   control_owner?: string | null;
 
+  // Forward ultrasonic obstacle section (rover_state "obstacle").
+  obstacle?: Record<string, unknown> | null;
+
 
   accuracy_available?: boolean;
 

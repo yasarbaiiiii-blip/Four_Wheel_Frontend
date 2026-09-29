@@ -8,6 +8,7 @@ import {
   Switch,
   Modal,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "../theme/colors";
@@ -21,6 +22,20 @@ import { toRtkControlView } from "../adapters/rtkControlAdapter";
 import { useAuth } from "../hooks/useAuth";
 import { getSprayConfig, enableSpray, disableSpray, testSpray, setSprayDuration } from "../services/sprayConfigService";
 import { Toast } from "../components/shared/Toast";
+import { getObstacleStatus, setObstacleConfig } from "../services/obstacleService";
+import {
+  ObstacleView,
+  formatMetres,
+  obstacleReadingText,
+} from "../utils/obstacleStatus";
+
+function obstacleZoneColor(view: ObstacleView | null): string {
+  if (!view || !view.healthy) return colors.textMuted;
+  if (view.zone === "danger") return colors.danger;
+  if (view.zone === "warning") return colors.warning;
+  if (view.zone === "clear") return colors.success;
+  return colors.textMuted;
+}
 
 interface SettingsScreenProps {
   visible: boolean;
@@ -71,11 +86,11 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
   const [ttsGender, setTtsGender] = useState<"male" | "female">("male");
   const [isLoadingTTS, setIsLoadingTTS] = useState(false);
 
-  // Obstacle Detection State
-  const [obstacleDetectionEnabled, setObstacleDetectionEnabled] =
-    useState(false);
+  // Obstacle Detection State: always what the rover reports, never a
+  // locally remembered value (GET /api/obstacle/status, 1 Hz while open).
+  const [obstacleStatus, setObstacleStatus] = useState<ObstacleView | null>(null);
+  const [obstacleStatusError, setObstacleStatusError] = useState<string | null>(null);
   const [isLoadingObstacle, setIsLoadingObstacle] = useState(false);
-  const [lastObstacleUpdate, setLastObstacleUpdate] = useState<string>("");
 
   // Servo Configuration State
   const [servoEnabled, setServoEnabled] = useState(false);
@@ -206,27 +221,6 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     // Load LED controller status from backend and AsyncStorage
     await loadLedStatus();
 
-    // Load obstacle detection state from AsyncStorage
-    try {
-      const savedObstacleState = await AsyncStorage.getItem(
-        "obstacle_detection_enabled",
-      );
-      if (savedObstacleState !== null) {
-        const isEnabled = savedObstacleState === "true";
-        setObstacleDetectionEnabled(isEnabled);
-        console.log(
-          "✅ Obstacle Detection (from storage):",
-          isEnabled ? "ENABLED" : "DISABLED",
-        );
-      } else {
-        console.log(
-          "⚠️  No saved obstacle detection state found, defaulting to DISABLED",
-        );
-      }
-    } catch (error) {
-      console.error("❌ Failed to load obstacle detection state:", error);
-    }
-
     // GPS Failsafe mode is loaded from backend via RoverContext
     console.log(
       "✅ GPS Failsafe Mode (from backend via context):",
@@ -352,74 +346,25 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // Listen for obstacle detection status changes from backend
-  React.useEffect(() => {
+  // Obstacle sensor status from the rover, polled while Settings is open.
+  const refreshObstacleStatus = useCallback(async () => {
+    try {
+      const status = await getObstacleStatus();
+      setObstacleStatus(status);
+      setObstacleStatusError(null);
+    } catch (error) {
+      setObstacleStatusError(
+        error instanceof Error ? error.message : "Obstacle status unavailable",
+      );
+    }
+  }, []);
+
+  useEffect(() => {
     if (!visible) return;
-
-    const unsubscribe = onMissionEvent((event: any) => {
-      if (
-        event.type === "obstacle_detection_changed" &&
-        event.data?.enabled !== undefined
-      ) {
-        const timestamp = new Date().toLocaleTimeString();
-        const status = event.data.enabled ? "ENABLED ✅" : "DISABLED ⛔";
-
-        console.log("═══════════════════════════════════════");
-        console.log("🔔 BACKEND CONFIRMATION RECEIVED");
-        console.log("═══════════════════════════════════════");
-        console.log("Event Type:", event.type);
-        console.log("Obstacle Detection Status:", status);
-        console.log("Backend Timestamp:", event.data.timestamp || "N/A");
-        console.log("Frontend Received:", timestamp);
-        console.log("Full Event Data:", event.data);
-        console.log("═══════════════════════════════════════");
-
-        // Update state
-        setObstacleDetectionEnabled(event.data.enabled);
-        setLastObstacleUpdate(timestamp);
-        setIsLoadingObstacle(false);
-
-        // Persist to AsyncStorage
-        AsyncStorage.setItem(
-          "obstacle_detection_enabled",
-          String(event.data.enabled),
-        )
-          .then(() =>
-            console.log(
-              "[Settings] Obstacle detection state saved to storage:",
-              event.data.enabled,
-            ),
-          )
-          .catch((err) =>
-            console.error("[Settings] Failed to save obstacle state:", err),
-          );
-
-        // Show success message
-        setSuccessMessage(
-          `Obstacle detection ${event.data.enabled ? "enabled" : "disabled"} successfully`,
-        );
-        setTimeout(() => setSuccessMessage(""), 3000);
-      } else if (event.type === "obstacle_error") {
-        console.error("═══════════════════════════════════════");
-        console.error("❌ OBSTACLE DETECTION ERROR");
-        console.error("═══════════════════════════════════════");
-        console.error("Error Message:", event.message || "Unknown error");
-        console.error("Error Data:", event.data);
-        console.error("═══════════════════════════════════════");
-
-        setIsLoadingObstacle(false);
-        Alert.alert(
-          "Error",
-          `Failed to toggle obstacle detection: ${event.message || "Unknown error"}`,
-        );
-      }
-    });
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+    void refreshObstacleStatus();
+    const timer = setInterval(() => void refreshObstacleStatus(), 1000);
+    return () => clearInterval(timer);
+  }, [visible, refreshObstacleStatus]);
 
   // Listen for LED controller status changes from backend
   React.useEffect(() => {
@@ -685,44 +630,22 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
   const handleObstacleDetectionToggle = async (enabled: boolean) => {
     setIsLoadingObstacle(true);
-    const sendTime = new Date().toLocaleTimeString();
-
-    console.log("═══════════════════════════════════════");
-    console.log("📤 SENDING TO BACKEND");
-    console.log("═══════════════════════════════════════");
-    console.log("Action: Set Obstacle Detection");
-    console.log("Requested State:", enabled ? "ENABLE" : "DISABLE");
-    console.log("Time Sent:", sendTime);
-    console.log("═══════════════════════════════════════");
-
     try {
-      const response = await services.setObstacleDetection(enabled);
-
-      console.log("📥 Initial Response:", response);
-
-      if (response.success) {
-        // Optimistically update UI - will be confirmed by socket event
-        setObstacleDetectionEnabled(enabled);
-        setIsLoadingObstacle(false);
-        console.log(
-          "✅ Command sent successfully. Waiting for backend confirmation...",
-        );
-      } else {
-        setIsLoadingObstacle(false);
-        console.error("❌ Command failed:", response.message);
-        Alert.alert(
-          "Error",
-          response.message || "Failed to toggle obstacle detection",
-        );
-      }
+      // The switch shows the state the rover returns, not the one requested.
+      const result = await setObstacleConfig({ enabled });
+      if (result.status) setObstacleStatus(result.status);
+      setSuccessMessage(
+        `Obstacle detection ${result.status?.enabled ? "enabled" : "disabled"} on the rover`,
+      );
+      setTimeout(() => setSuccessMessage(""), 3000);
     } catch (error) {
-      console.error("═══════════════════════════════════════");
-      console.error("💥 EXCEPTION OCCURRED");
-      console.error("═══════════════════════════════════════");
-      console.error("Error:", error);
-      console.error("═══════════════════════════════════════");
+      Alert.alert(
+        "Obstacle detection not changed",
+        error instanceof Error ? error.message : "The rover did not accept the change.",
+      );
+    } finally {
       setIsLoadingObstacle(false);
-      Alert.alert("Error", "Failed to update obstacle detection");
+      void refreshObstacleStatus();
     }
   };
 
@@ -1235,35 +1158,57 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
               <View style={styles.settingRow}>
                 <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>
-                    Enable Ultrasonic Sensors
-                  </Text>
+                  <Text style={styles.settingLabel}>Stop for obstacles ahead</Text>
                   <Text style={styles.settingDescription}>
-                    Pause mission when obstacles detected ahead
+                    {obstacleStatus && obstacleStatus.danger_mm !== null && obstacleStatus.warning_mm !== null
+                      ? `Pauses the mission at ≤ ${formatMetres(obstacleStatus.danger_mm)} · announces at ≤ ${formatMetres(obstacleStatus.warning_mm)}`
+                      : "Pauses the mission when something is close ahead"}
                   </Text>
                 </View>
-                <Switch
-                  value={obstacleDetectionEnabled}
-                  onValueChange={handleObstacleDetectionToggle}
-                  disabled={isLoadingObstacle}
-                  trackColor={{ false: "#4a5568", true: "#10b981" }}
-                  thumbColor={obstacleDetectionEnabled ? "#ffffff" : "#d1d5db"}
-                />
+                {isLoadingObstacle ? (
+                  <ActivityIndicator color={colors.textSecondary} />
+                ) : (
+                  <Switch
+                    value={obstacleStatus?.enabled ?? false}
+                    onValueChange={handleObstacleDetectionToggle}
+                    disabled={!obstacleStatus}
+                    trackColor={{ false: "#4a5568", true: "#10b981" }}
+                    thumbColor={obstacleStatus?.enabled ? "#ffffff" : "#d1d5db"}
+                  />
+                )}
               </View>
 
-              {obstacleDetectionEnabled && (
-                <View style={styles.infoBox}>
-                  <Text style={styles.infoText}>
-                    ℹ️ Mission will automatically pause when obstacles are
-                    detected. Resume manually after clearing the obstacle.
-                  </Text>
-                </View>
+              <View style={styles.obstacleReadingRow}>
+                <View
+                  style={[
+                    styles.obstacleDot,
+                    { backgroundColor: obstacleZoneColor(obstacleStatus) },
+                  ]}
+                />
+                <Text style={styles.obstacleReadingText}>
+                  {obstacleStatusError && !obstacleStatus
+                    ? `Sensor status unavailable: ${obstacleStatusError}`
+                    : obstacleReadingText(obstacleStatus)}
+                </Text>
+              </View>
+
+              {obstacleStatus && !obstacleStatus.healthy && (
+                <Text style={styles.obstacleWarningText}>
+                  ⚠ Sensor not reporting
+                  {obstacleStatus.serial_error ? `: ${obstacleStatus.serial_error}` : ""}.
+                  {obstacleStatus.enabled
+                    ? " Missions continue WITHOUT obstacle protection."
+                    : ""}
+                </Text>
               )}
 
-              {lastObstacleUpdate && (
-                <Text style={styles.timestampText}>
-                  Last updated: {lastObstacleUpdate}
-                </Text>
+              {obstacleStatus?.enabled && obstacleStatus.zone === "danger" && (
+                <View style={styles.infoBox}>
+                  <Text style={styles.infoText}>
+                    START, RESUME and NEXT are blocked while something is inside
+                    the stop distance. Clear the path first.
+                  </Text>
+                </View>
               )}
             </View>
 
@@ -1557,6 +1502,15 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontStyle: "italic",
   },
+  obstacleReadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+  },
+  obstacleDot: { width: 10, height: 10, borderRadius: 5 },
+  obstacleReadingText: { color: colors.textSecondary, fontWeight: "600" },
+  obstacleWarningText: { color: colors.warning, marginTop: 6 },
   successToast: {
     position: "absolute",
     top: 20,

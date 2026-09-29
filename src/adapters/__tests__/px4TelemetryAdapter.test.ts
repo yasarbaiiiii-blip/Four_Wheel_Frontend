@@ -332,3 +332,31 @@ describe("px4 telemetry adapter — RPP and live backend ingest", () => {
     expect(merged.rpp_state_name).toBe("ARRIVED");
   });
 });
+
+describe("px4 telemetry adapter — obstacle section", () => {
+  it("carries the rover obstacle status into telemetry and the live envelope", () => {
+    const adapted = toRoverTelemetry({
+      obstacle: {
+        available: true,
+        enabled: true,
+        healthy: true,
+        zone: "warning",
+        distance_mm: 2100,
+        danger_mm: 1500,
+        warning_mm: 3000,
+        age_sec: 0.1,
+      },
+    } as never);
+    expect(adapted.obstacle).toMatchObject({
+      enabled: true,
+      healthy: true,
+      zone: "warning",
+      distance_mm: 2100,
+    });
+    expect(toLiveTelemetryEnvelope(adapted, 1).obstacle).toBe(adapted.obstacle);
+  });
+
+  it("reports no obstacle status when the packet has none", () => {
+    expect(toRoverTelemetry({} as never).obstacle).toBeNull();
+  });
+});

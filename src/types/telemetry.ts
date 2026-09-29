@@ -4,6 +4,7 @@
  */
 
 import type { RtkUiState } from "../adapters/px4RtkUiStateAdapter";
+import type { ObstacleView } from "../utils/obstacleStatus";
 
 export interface TelemetryState {
   armed: boolean;
@@ -163,6 +164,8 @@ within_test_tolerance?: boolean;
   joystick_commanded_steering?: number | null;
   joystick_stop_reason?: string | null;
   control_owner?: string | null;
+  /** Forward ultrasonic status; null until the rover reports one. */
+  obstacle?: ObstacleView | null;
   joystick_owned?: boolean | null;
   gateway_active?: boolean | null;
   gateway_command_age_ms?: number | null;
@@ -192,6 +195,7 @@ within_test_tolerance?: boolean;
 
 export interface TelemetryEnvelope {
   timestamp?: number;
+  obstacle?: ObstacleView | null;
   state?: Partial<TelemetryState>;
   global?: Partial<TelemetryGlobal>;
   battery?: Partial<TelemetryBattery>;

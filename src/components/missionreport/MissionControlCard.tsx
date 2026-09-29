@@ -27,6 +27,8 @@ import { Waypoint } from "./types";
 import { Toast } from "../shared/Toast";
 import { validateBulkSkip } from "../../utils/bulkSkipValidator";
 import { stopProgressLabel } from "../../utils/missionLifecycleState";
+import { pauseReasonText } from "../../utils/pauseReasonPresentation";
+import { formatMetres } from "../../utils/obstacleStatus";
 import {
   useActionGuard,
   useComponentLifecycle,
@@ -124,6 +126,11 @@ function selectMissionControlLive(s: LiveTelemetrySnapshot) {
     currentWp: s.telemetry.mission?.current_wp,
     totalWp: s.telemetry.mission?.total_wp,
     rtkFixType: s.telemetry.rtk?.fix_type,
+    // Primitives only, so shallowEqual skips unchanged obstacle packets.
+    obstacleEnabled: s.telemetry.obstacle?.enabled ?? false,
+    obstacleHealthy: s.telemetry.obstacle?.healthy ?? false,
+    obstacleZone: s.telemetry.obstacle?.zone ?? "unknown",
+    obstacleDistanceMm: s.telemetry.obstacle?.distance_mm ?? null,
   };
 }
 
@@ -155,7 +162,6 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
    defaultsSource,
    laserHoldMode = null,
    laserHoldPointId = null,
-   remainingPointCount = null,
   isMissionLoaded = false,
   isMissionReady = false,
   isPreparing = false,
@@ -430,12 +436,7 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
 
   const handleResume = async () => {
     if (!resumeAvailable) {
-      const reason =
-        pauseReason === "RTK_LOST"
-          ? rtkReason || "Waiting for RTK FIXED and healthy corrections."
-          : pauseReason
-            ? `Resume blocked: ${pauseReason}`
-            : "Resume is not available yet.";
+      const reason = pauseReasonText(pauseReason, rtkReason).blockedMessage;
 
       showLocalToast("info", reason, 4500);
 
@@ -605,7 +606,20 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   };
 
   const isLaserMission = markingTool === "LASER";
-  const isFinalLaserPoint = isLaserMission && isWaitingForNext && remainingPointCount === 0;
+  const obstacleChipText = !telemetryLive.obstacleHealthy
+    ? "Obstacle sensor: no reading (not protected)"
+    : telemetryLive.obstacleDistanceMm === null
+      ? `Obstacle: nothing in range · ${telemetryLive.obstacleZone.toUpperCase()}`
+      : `Obstacle: ${formatMetres(telemetryLive.obstacleDistanceMm)} · ${telemetryLive.obstacleZone.toUpperCase()}`;
+  const obstacleChipColor = !telemetryLive.obstacleHealthy
+    ? colors.warning
+    : telemetryLive.obstacleZone === "danger"
+      ? colors.danger
+      : telemetryLive.obstacleZone === "warning"
+        ? colors.warning
+        : telemetryLive.obstacleZone === "clear"
+          ? colors.success
+          : colors.textMuted;
   const laserBannerMessage = laserHoldMode === "STEADY"
     ? `Laser ON — mark at ${laserHoldPointId || "the dot"}. Press NEXT to continue.`
     : laserHoldMode === "BLINK"
@@ -683,6 +697,17 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
             </View>
           )}
 
+          {/* Forward obstacle sensor: shown only while detection is enabled. */}
+          {telemetryLive.obstacleEnabled && (
+            <View
+              style={styles.obstacleChip}
+              accessibilityLabel={`Obstacle sensor ${obstacleChipText}`}
+            >
+              <View style={[styles.obstacleDot, { backgroundColor: obstacleChipColor }]} />
+              <Text style={styles.obstacleChipText}>{obstacleChipText}</Text>
+            </View>
+          )}
+
         <View style={styles.buttonsContainer}>
           <TouchableOpacity
             style={[
@@ -750,9 +775,7 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
                 : isPaused
                   ? resumeAvailable
                     ? "RESUME"
-                    : pauseReason === "RTK_LOST"
-                      ? "WAIT RTK"
-                      : "RESUME BLOCKED"
+                    : pauseReasonText(pauseReason, rtkReason).blockedLabel
                   : "PAUSE"}
             </Text>
           </TouchableOpacity>
@@ -773,8 +796,8 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
                 {isNexting
                   ? isLaserMission ? "⏳ Turning laser off..." : "⏳ Moving..."
                   : waitingForManual
-                    ? isLaserMission ? (isFinalLaserPoint ? "👆 FINISH (laser off)" : "👆 NEXT (laser off)") : "👆 NEXT MARK"
-                    : isLaserMission ? (isFinalLaserPoint ? "FINISH (laser off)" : "NEXT (laser off)") : "NEXT MARK"}
+                    ? isLaserMission ? "👆 NEXT (laser off)" : "👆 NEXT MARK"
+                    : isLaserMission ? "NEXT (laser off)" : "NEXT MARK"}
               </Text>
             </TouchableOpacity>
           )}
@@ -1689,6 +1712,19 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   laserHint: { color: "#F59E0B", textAlign: "center", marginTop: 6 },
+  obstacleChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    borderRadius: 14,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+  },
+  obstacleDot: { width: 10, height: 10, borderRadius: 5 },
+  obstacleChipText: { color: colors.textSecondary, fontWeight: "700" },
   defaultsCaption: { color: colors.textSecondary, textAlign: "center", marginTop: 8 },
   defaultsButton: { marginTop: 8, borderRadius: 8, paddingVertical: 10, backgroundColor: "#2563EB", alignItems: "center" },
   defaultsButtonText: { color: "#FFFFFF", fontWeight: "700" },

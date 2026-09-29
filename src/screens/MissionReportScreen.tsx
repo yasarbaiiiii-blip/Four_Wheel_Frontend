@@ -131,6 +131,7 @@ import { useVerifiedMissionContext } from "../context/VerifiedMissionContext";
 import { useVerifiedMissionProgress } from "../hooks/useVerifiedMissionProgress";
 import { verifiedProgressToLegacy } from "../adapters/verifiedTargetBridge";
 import { getMissionProgressRef } from "../utils/missionStatusPresentation";
+import { pauseReasonText } from "../utils/pauseReasonPresentation";
 import {
   getMissionStartEligibility,
   isMissionStoredOnRover,
@@ -3409,11 +3410,7 @@ export default function MissionReportScreen({
 
   const handleResume = async () => {
     if (!backendResumeAvailable) {
-      const reason = backendRtkReason
-        ? backendRtkReason
-        : backendPauseReason
-          ? `Resume blocked: ${backendPauseReason}`
-          : "Mission is not ready to resume.";
+      const reason = pauseReasonText(backendPauseReason, backendRtkReason).blockedMessage;
 
       showNotification("info", "Resume Blocked", reason, 4500);
 

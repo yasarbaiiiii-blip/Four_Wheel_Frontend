@@ -51,6 +51,7 @@ import { rtkStatusToEnvelope } from "../adapters/px4RtkStatusAdapter";
 import { toRtkUiState } from "../adapters/px4RtkUiStateAdapter";
 import { normalizePx4Mode } from "../adapters/px4ModeAdapter";
 import { PX4_SYSTEM, PX4_TELEMETRY, PX4_RTK, PX4_TTS, PX4_OBSTACLE } from "../config/px4Endpoints";
+import { sameObstacleView } from "../utils/obstacleStatus";
 import type { Px4HealthzResponse } from "../types/px4/telemetry";
 import {
   getRtkStatus,
@@ -1173,6 +1174,14 @@ if (envelope.within_test_tolerance !== undefined) {
     if (envelope.control_owner !== undefined) {
       next.control_owner = envelope.control_owner;
     }
+    // Keep the previous object when the reading is unchanged, so selectors
+    // comparing by reference do not re-render on every packet.
+    if (
+      envelope.obstacle !== undefined &&
+      !sameObstacleView(mutable.telemetry.obstacle, envelope.obstacle)
+    ) {
+      next.obstacle = envelope.obstacle;
+    }
 
     if (envelope.rpp_debug_available !== undefined) {
       next.rpp_debug_available = envelope.rpp_debug_available;
@@ -1449,6 +1458,7 @@ if (envelope.within_test_tolerance !== undefined) {
         changed || prev.joystick_stop_reason !== next.joystick_stop_reason;
     if (envelope.control_owner !== undefined)
       changed = changed || prev.control_owner !== next.control_owner;
+    changed = changed || prev.obstacle !== next.obstacle;
 
     if (!changed) {
       // No meaningful change; update timestamps but skip dispatch to prevent loops
