@@ -4,6 +4,12 @@ module.exports = {
   testMatch: ['**/src/**/__tests__/**/*.test.(ts|tsx|js)'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   transform: {
-    '^.+\\.(ts|tsx)$': 'ts-jest',
+    '^.+\\.(ts|tsx)$': ['ts-jest', {
+      tsconfig: { jsx: 'react-jsx' },
+    }],
   },
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '/\\.kilo/',
+  ],
 };

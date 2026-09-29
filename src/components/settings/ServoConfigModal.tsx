@@ -32,6 +32,7 @@ interface ServoConfigModalProps {
     success: boolean;
     message?: string;
   }>;
+  maxDurationSec?: number;
 }
 
 export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
@@ -40,6 +41,7 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
   onClose,
   onSave,
   onTest,
+  maxDurationSec = 3,
 }) => {
   const [sprayTimeText, setSprayTimeText] = useState(
     String(currentConfig.servo_spray_duration),
@@ -58,8 +60,8 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
 
   const parseDuration = (text: string): number | null => {
     const value = Number.parseFloat(text);
-    if (!Number.isFinite(value) || value < 0) {
-      Alert.alert("Invalid Spray Time", "Spray Time must be a valid positive number.");
+    if (!Number.isFinite(value) || value <= 0 || value > maxDurationSec) {
+      Alert.alert("Invalid Spray Time", `Spray time must be greater than 0 and no more than ${maxDurationSec} seconds.`);
       return null;
     }
     return value;
@@ -72,7 +74,7 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
   ) => {
     const current = Number.parseFloat(currentText);
     const safeCurrent = Number.isFinite(current) ? current : 0;
-    const next = Math.max(0, safeCurrent + amount);
+    const next = Math.min(maxDurationSec, Math.max(0.1, safeCurrent + amount));
     setter(next.toFixed(1));
   };
 
@@ -194,7 +196,7 @@ export const ServoConfigModal: React.FC<ServoConfigModalProps> = ({
                 <ActivityIndicator color="#ffffff" />
               ) : (
                 <Text style={styles.saveText}>
-                  {testSuccess ? "✓ TEST PASSED" : "SPRAY TEST"}
+                  {testSuccess ? "✓ TEST SENT" : "SPRAY TEST"}
                 </Text>
               )}
             </TouchableOpacity>

@@ -79,6 +79,8 @@ export const PX4_MISSION = {
 
   // Mission execution mode.
   EXECUTION_MODE: "/api/mission/execution-mode",
+  MARKING_TOOL: "/api/mission/marking-tool",
+  DEFAULTS: "/api/mission/defaults",
 
   // Mission controls.
   START: "/api/mission/start",
@@ -178,6 +180,7 @@ export const PX4_SPRAY = {
   ENABLE: "/api/spray/enable",
   DISABLE: "/api/spray/disable",
   TEST: "/api/spray/test",
+  LASER_CONFIG: "/api/spray/laser-config",
 
   PARAMS: (name: string) =>
     `/api/spray/params/${encodeURIComponent(name)}`,

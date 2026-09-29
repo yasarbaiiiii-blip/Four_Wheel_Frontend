@@ -72,7 +72,7 @@ export const PathPlanMapNative: React.FC<any> = ({
     // Preserve the original sequence before limiting points for rendering. A
     // sampled map marker must still show its real plan number, not its index in
     // the sampled array.
-    const features = limitMapPoints(
+    const features = limitMapPoints<{ waypoint: any; sequence: number }>(
       waypoints.map((waypoint: any, sequence: number) => ({
         waypoint,
         sequence,

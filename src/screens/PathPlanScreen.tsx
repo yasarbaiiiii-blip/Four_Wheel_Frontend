@@ -4890,7 +4890,7 @@ export default function PathPlanScreen({
         onModeChange={setGpsFailsafeMode}
         onClose={() => setShowFailsafeModeSelector(false)}
         disabled={["running", "RUNNING", "active", "ACTIVE"].includes(
-          telemetry.mission.status,
+          telemetry.mission.status ?? "",
         )}
       />
 

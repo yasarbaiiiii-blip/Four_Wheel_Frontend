@@ -46,6 +46,15 @@ export type MissionControlCardProps = {
   onRestart?: () => void;
   mode: "AUTO" | "MANUAL" | "CONTINUOUS" | "DASH";
   onSetMode: (mode: "AUTO" | "MANUAL") => Promise<any> | void;
+  markingTool?: "LASER" | "SPRAY";
+  onSetMarkingTool?: (tool: "LASER" | "SPRAY") => Promise<any> | void;
+  onSaveMissionDefaults?: () => Promise<any> | void;
+  defaultExecutionMode?: "AUTO" | "MANUAL";
+  defaultMarkingTool?: "LASER" | "SPRAY";
+  defaultsSource?: "launch" | "saved";
+  laserHoldMode?: "STEADY" | "BLINK" | null;
+  laserHoldPointId?: string | null;
+  remainingPointCount?: number | null;
   missionMode?: string; // Backend mission mode (DGPS Mark, Dash, Continuous, etc.)
   isMissionActive?: boolean;
   waitingForManual?: boolean; // MANUAL mode: mission paused, user must press NEXT to continue
@@ -138,6 +147,15 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   rtkReason = null,
   stopStage = null,
   waitingForManual = false,
+   markingTool = "SPRAY",
+   onSetMarkingTool,
+   onSaveMissionDefaults,
+   defaultExecutionMode,
+   defaultMarkingTool,
+   defaultsSource,
+   laserHoldMode = null,
+   laserHoldPointId = null,
+   remainingPointCount = null,
   isMissionLoaded = false,
   isMissionReady = false,
   isPreparing = false,
@@ -170,6 +188,8 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   const [isBulkSubmitting, setIsBulkSubmitting] = React.useState(false);
   const [isPausing, setIsPausing] = React.useState(false);
   const [isResuming, setIsResuming] = React.useState(false);
+  const [isChangingMarkingTool, setIsChangingMarkingTool] = React.useState(false);
+  const [isSavingMissionDefaults, setIsSavingMissionDefaults] = React.useState(false);
 
   const [lockedState, setLockedState] = React.useState<{ isRunning?: boolean; isPaused?: boolean; expiresAt: number } | null>(null);
 
@@ -508,6 +528,11 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   };
 
   const handleModeToggle = async (newMode: "AUTO" | "MANUAL") => {
+    if (newMode === "AUTO" && markingTool === "LASER") {
+      showLocalToast("error", "Laser needs MANUAL execution. Select MANUAL before starting.");
+      return;
+    }
+
     if (isRunning) {
       showLocalToast(
         "info",
@@ -544,6 +569,49 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   const showConfirmDialog = (action: string, onConfirm: () => void) => {
     setConfirmAction({ action, onConfirm });
   };
+
+  const handleMarkingTool = async (tool: "LASER" | "SPRAY") => {
+    if (!onSetMarkingTool || isRunning || tool === markingTool) return;
+    setIsChangingMarkingTool(true);
+    try {
+      const response = await onSetMarkingTool(tool);
+      if (response?.success === false) {
+        showLocalToast("error", response.message || "Backend rejected the marking tool change.");
+        return;
+      }
+      showLocalToast("success", `${tool} selected. Waiting for rover confirmation.`);
+    } catch (error) {
+      showLocalToast("error", error instanceof Error ? error.message : "Failed to change marking tool.");
+    } finally {
+      setIsChangingMarkingTool(false);
+    }
+  };
+
+  const handleSaveDefaults = async () => {
+    if (!onSaveMissionDefaults || isRunning) return;
+    setIsSavingMissionDefaults(true);
+    try {
+      const response = await onSaveMissionDefaults();
+      if (response?.success === false) {
+        showLocalToast("error", response.message || "Backend rejected mission defaults.");
+        return;
+      }
+      showLocalToast("success", "Mission defaults saved on the rover.");
+    } catch (error) {
+      showLocalToast("error", error instanceof Error ? error.message : "Failed to save mission defaults.");
+    } finally {
+      setIsSavingMissionDefaults(false);
+    }
+  };
+
+  const isLaserMission = markingTool === "LASER";
+  const isFinalLaserPoint = isLaserMission && isWaitingForNext && remainingPointCount === 0;
+  const laserBannerMessage = laserHoldMode === "STEADY"
+    ? `Laser ON — mark at ${laserHoldPointId || "the dot"}. Press NEXT to continue.`
+    : laserHoldMode === "BLINK"
+      ? `Outside 30 mm — DO NOT MARK${laserHoldPointId ? ` at ${laserHoldPointId}` : ""}. Laser blinking. Press NEXT to skip.`
+      : isLaserMission && isWaitingForNext ? "Point failed — laser off. Press NEXT." : null;
+
 
   return (
     <View style={styles.container}>
@@ -609,6 +677,12 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
       </OptionalGestureDetector>
       <View style={styles.cardPadding}>
         {/* Control Buttons */}
+          {laserBannerMessage && (
+            <View style={[styles.laserBanner, laserHoldMode === "STEADY" ? styles.laserBannerSafe : styles.laserBannerUnsafe]}>
+              <Text style={styles.laserBannerText}>{laserBannerMessage}</Text>
+            </View>
+          )}
+
         <View style={styles.buttonsContainer}>
           <TouchableOpacity
             style={[
@@ -697,10 +771,10 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
             >
               <Text style={styles.buttonText}>
                 {isNexting
-                  ? "⏳ Moving..."
+                  ? isLaserMission ? "⏳ Turning laser off..." : "⏳ Moving..."
                   : waitingForManual
-                    ? "👆 NEXT MARK"
-                    : "NEXT MARK"}
+                    ? isLaserMission ? (isFinalLaserPoint ? "👆 FINISH (laser off)" : "👆 NEXT (laser off)") : "👆 NEXT MARK"
+                    : isLaserMission ? (isFinalLaserPoint ? "FINISH (laser off)" : "NEXT (laser off)") : "NEXT MARK"}
               </Text>
             </TouchableOpacity>
           )}
@@ -739,7 +813,7 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
                 isRunning && mode !== "AUTO" && styles.modeButtonFaded,
               ]}
               onPress={() => handleModeToggle("AUTO")}
-              disabled={isRunning}
+              disabled={isRunning || isLaserMission}
             >
               <Text
                 style={[
@@ -771,6 +845,28 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
             </TouchableOpacity>
           </View>
         </View>
+          <View style={styles.modeToggle}>
+            {(["LASER", "SPRAY"] as const).map((tool) => (
+              <TouchableOpacity key={tool}
+                style={[styles.modeButton, markingTool === tool && styles.modeButtonActive, (isRunning || isChangingMarkingTool) && styles.buttonDisabled]}
+                onPress={() => void handleMarkingTool(tool)} disabled={isRunning || isChangingMarkingTool}>
+                <Text style={[styles.modeText, markingTool === tool && styles.modeTextActive]}>{tool}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {isLaserMission && <Text style={styles.laserHint}>Laser needs MANUAL execution.</Text>}
+          {defaultExecutionMode && defaultMarkingTool && (
+            <Text style={styles.defaultsCaption}>Default: {defaultExecutionMode} · {defaultMarkingTool} ({defaultsSource === "saved" ? "saved" : "launch"})</Text>
+          )}
+          {onSaveMissionDefaults && (
+            <TouchableOpacity
+              style={[styles.defaultsButton, (isRunning || isSavingMissionDefaults) && styles.buttonDisabled]}
+              disabled={isRunning || isSavingMissionDefaults}
+              onPress={() => showConfirmDialog("Save mission defaults", () => void handleSaveDefaults())}
+            >
+              <Text style={styles.defaultsButtonText}>{isSavingMissionDefaults ? "SAVING..." : "SAVE AS DEFAULT"}</Text>
+            </TouchableOpacity>
+          )}
 
         {/* Loading Mission Modal */}
         <Modal transparent visible={isLoadingMission} animationType="fade">
@@ -1573,6 +1669,29 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "700",
   },
+  laserBanner: {
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 10,
+    marginBottom: 10,
+  },
+  laserBannerSafe: {
+    backgroundColor: "rgba(16, 185, 129, 0.18)",
+    borderColor: "#10B981",
+  },
+  laserBannerUnsafe: {
+    backgroundColor: "rgba(245, 158, 11, 0.18)",
+    borderColor: "#F59E0B",
+  },
+  laserBannerText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  laserHint: { color: "#F59E0B", textAlign: "center", marginTop: 6 },
+  defaultsCaption: { color: colors.textSecondary, textAlign: "center", marginTop: 8 },
+  defaultsButton: { marginTop: 8, borderRadius: 8, paddingVertical: 10, backgroundColor: "#2563EB", alignItems: "center" },
+  defaultsButtonText: { color: "#FFFFFF", fontWeight: "700" },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.7)",

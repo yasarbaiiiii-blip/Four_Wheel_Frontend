@@ -34,6 +34,8 @@ export type MissionExecutionMode =
   | "AUTO"
   | "MANUAL";
 
+export type MissionMarkingTool = "LASER" | "SPRAY";
+
 export interface MissionUploadOptions {
   file: DocumentPickerAsset;
 
@@ -166,6 +168,13 @@ arrival_settle_required_sec?: number;
     MissionExtensionMode;
 
   execution_mode?: MissionExecutionMode;
+  marking_tool?: MissionMarkingTool;
+  default_execution_mode?: MissionExecutionMode;
+  default_marking_tool?: MissionMarkingTool;
+  defaults_source?: "launch" | "saved";
+  laser_hold_point_id?: string | null;
+  laser_hold_mode?: "STEADY" | "BLINK" | null;
+  laser_on?: boolean;
 
   dummy_point_distance_m?:
     number | null;
@@ -710,6 +719,23 @@ export async function setMissionExecutionMode(
   );
 }
 
+/** Select the backend-authoritative marking actuator for the next mission. */
+export async function setMissionMarkingTool(
+  markingTool: MissionMarkingTool,
+): Promise<MissionControlResponse> {
+  if (markingTool !== "LASER" && markingTool !== "SPRAY") {
+    throw new Error("Mission marking tool must be LASER or SPRAY.");
+  }
+  return apiPost<MissionControlResponse>(PX4_MISSION.MARKING_TOOL, {
+    marking_tool: markingTool,
+  });
+}
+
+/** Persist the currently backend-confirmed execution mode and marking tool. */
+export async function saveMissionDefaults(): Promise<MissionControlResponse> {
+  return apiPost<MissionControlResponse>(PX4_MISSION.DEFAULTS);
+}
+
 export async function startMission(missionId?: string):
 Promise<MissionControlResponse> {
   return apiPost<MissionControlResponse>(
@@ -795,6 +821,8 @@ export default {
 
   prepareMission,
   setMissionExecutionMode,
+  setMissionMarkingTool,
+  saveMissionDefaults,
 
   startMission,
   pauseMission,

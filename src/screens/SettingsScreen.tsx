@@ -90,6 +90,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
   const [servoDelayBefore, setServoDelayBefore] = useState(0.0);
   const [servoSprayDuration, setServoSprayDuration] = useState(0.5);
   const [servoDelayAfter, setServoDelayAfter] = useState(0.0);
+  const [manualOverrideTimeoutSec, setManualOverrideTimeoutSec] = useState(3);
   const [isLoadingServo, setIsLoadingServo] = useState(false);
   const [servoConfigLoaded, setServoConfigLoaded] = useState(false);
   const [showServoConfigModal, setShowServoConfigModal] = useState(false);
@@ -251,7 +252,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       const config = response.config;
 
       setServoEnabled(
-        config.available === true && config.fault_latched !== true,
+        config.enabled === true,
       );
 
       // Hardware mapping is fixed to AUX5.
@@ -279,6 +280,12 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
         Number.isFinite(config.spray_duration_sec)
       ) {
         setServoSprayDuration(config.spray_duration_sec);
+      }
+
+      if (typeof config.manual_override_timeout_sec === "number" &&
+          Number.isFinite(config.manual_override_timeout_sec) &&
+          config.manual_override_timeout_sec > 0) {
+        setManualOverrideTimeoutSec(config.manual_override_timeout_sec);
       }
 
       setServoConfigLoaded(true);
@@ -1282,12 +1289,14 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           disabled={isMissionActive}
         />
 
+          maxDurationSec={manualOverrideTimeoutSec}
         {/* Servo Configuration Modal */}
         <ServoConfigModal
           visible={showServoConfigModal}
           currentConfig={servoConfig}
           onClose={() => setShowServoConfigModal(false)}
           onTest={handleServoTest}
+          onSave={handleSaveDuration}
         />
 
         {/* MAVLink Param Browser Modal */}

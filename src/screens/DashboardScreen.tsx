@@ -752,7 +752,6 @@ const styles = StyleSheet.create({
 
   pageHead: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
     justifyContent: 'space-between',
     paddingHorizontal: 4,
     alignItems: 'center',

@@ -158,6 +158,8 @@ import {
   loadMission,
   restoreMission,
   setMissionExecutionMode,
+  setMissionMarkingTool,
+  saveMissionDefaults,
   prepareMission,
   startMission,
   pauseMission,
@@ -2915,7 +2917,7 @@ export default function MissionReportScreen({
     ) {
       const liveMission = backendMissionRef.current;
       if (isSameMission(liveMission) && isReadyForLoad(liveMission)) {
-        restoredMission = liveMission;
+        restoredMission = liveMission!;
         break;
       }
 
@@ -3009,6 +3011,34 @@ export default function MissionReportScreen({
       };
     }
   };
+  const handleSetMarkingTool = async (tool: "LASER" | "SPRAY") => {
+    try {
+      const response = await setMissionMarkingTool(tool);
+      if (!response.success) {
+        return { success: false, message: response.message || response.mission?.message || "Backend rejected marking tool." };
+      }
+      setBackendMission(response.mission);
+      return response;
+    } catch (error) {
+      void refreshBackendMission();
+      return { success: false, message: error instanceof Error ? error.message : "Failed to change marking tool." };
+    }
+  };
+
+  const handleSaveMissionDefaults = async () => {
+    try {
+      const response = await saveMissionDefaults();
+      if (!response.success) {
+        return { success: false, message: response.message || response.mission?.message || "Backend rejected mission defaults." };
+      }
+      setBackendMission(response.mission);
+      return response;
+    } catch (error) {
+      void refreshBackendMission();
+      return { success: false, message: error instanceof Error ? error.message : "Failed to save mission defaults." };
+    }
+  };
+
 
   const handleStart = async () => {
     if (!mountedRef.current) {
@@ -3138,6 +3168,12 @@ export default function MissionReportScreen({
 
       const executionMode: "AUTO" | "MANUAL" =
         mode === "MANUAL" ? "MANUAL" : "AUTO";
+
+      if (latestMission?.marking_tool === "LASER" && executionMode === "AUTO") {
+        const message = "Laser marking requires MANUAL execution. Select MANUAL before starting.";
+        showNotification("error", "Laser needs MANUAL", message, 5000);
+        return { success: false, message };
+      }
 
       if (eligibility.needsPrepare) {
         setIsPreparingMission(true);
@@ -5205,6 +5241,15 @@ export default function MissionReportScreen({
             waypoints={waypoints}
             mode={mode}
             onSetMode={handleSetExecutionMode}
+            markingTool={backendMission?.marking_tool}
+            onSetMarkingTool={handleSetMarkingTool}
+            onSaveMissionDefaults={handleSaveMissionDefaults}
+            defaultExecutionMode={backendMission?.default_execution_mode}
+            defaultMarkingTool={backendMission?.default_marking_tool}
+            defaultsSource={backendMission?.defaults_source}
+            laserHoldMode={backendMission?.laser_hold_mode}
+            laserHoldPointId={backendMission?.laser_hold_point_id}
+            remainingPointCount={backendMission?.remaining_points}
             onStart={handleStart}
             onPause={handlePause}
             resumeAvailable={backendResumeAvailable}
