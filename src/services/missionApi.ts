@@ -170,6 +170,8 @@ export interface MissionRuntimeState {
   mission_enable?: boolean;
   emergency_stop?: boolean;
   px4_connected?: boolean;
+  px4_link_ok?: boolean;
+  px4_link_reason?: string | null;
   px4_armed?: boolean;
 
   arrival_settle_elapsed_sec?: number;

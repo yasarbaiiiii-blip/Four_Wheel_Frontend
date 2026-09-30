@@ -16,6 +16,7 @@ import { RtkRuntimeNotice } from "../components/rtk/RtkRuntimeNotice";
 import { BatteryCriticalNotice } from "../components/battery/BatteryCriticalNotice";
 import { MissionRecoveryNotice } from "../components/recovery/MissionRecoveryNotice";
 import { SystemEventNotice } from "../components/notifications/SystemEventNotice";
+import { Px4LinkNotice } from "../components/px4/Px4LinkNotice";
 
 const MemoDashboardScreen = React.memo(DashboardScreen);
 const MemoPathPlanScreen = React.memo(PathPlanScreen);
@@ -105,6 +106,7 @@ function TabNavigatorInner() {
         <RtkRuntimeNotice />
         <BatteryCriticalNotice />
         <SystemEventNotice />
+        <Px4LinkNotice />
         <MissionRecoveryNotice
           onUploadNewMission={() => handleTabChange("Marking Plan")}
         />

@@ -54,6 +54,9 @@ export interface BackendMissionStatus {
   recoveryError: string | null;
 
   px4Connected: boolean;
+  /** Fresh MAVROS state from Mission Manager; null until reported. */
+  px4LinkOk: boolean | null;
+  px4LinkReason: string | null;
   px4Armed: boolean;
 
   rtkState: string | null;
@@ -150,6 +153,8 @@ const EMPTY_MISSION: BackendMissionStatus = {
   recoveryError: null,
 
   px4Connected: false,
+  px4LinkOk: null,
+  px4LinkReason: null,
   px4Armed: false,
 
   rtkState: null,
@@ -727,6 +732,16 @@ function mergeMissionPayload(
       source.px4_connected !== undefined
         ? toBoolean(source.px4_connected)
         : previous.px4Connected,
+
+    px4LinkOk:
+      source.px4_link_ok !== undefined
+        ? toBoolean(source.px4_link_ok)
+        : previous.px4LinkOk,
+
+    px4LinkReason:
+      source.px4_link_reason !== undefined
+        ? toStringOrNull(source.px4_link_reason)
+        : previous.px4LinkReason,
 
     px4Armed:
       source.px4_armed !== undefined
