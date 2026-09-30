@@ -15,8 +15,10 @@ import {
   resumeMission,
   stopMission,
 } from "../../services/missionApi";
+import { releaseEmergencyStop } from "../../services/vehicleControlService";
 import { useConnection } from "../../context/ConnectionContext";
 import { useMission } from "../../context/MissionContext";
+import { useTelemetryControl } from "../../context/TelemetryContext";
 import {
   shallowEqual,
   useLiveTelemetrySelector,
@@ -82,6 +84,8 @@ export const MissionRecoveryNotice: React.FC<MissionRecoveryNoticeProps> = ({
     }),
     shallowEqual,
   );
+  const { missionLifecycle } = useTelemetryControl();
+  const emergencyStopActive = missionLifecycle.emergency_stop === true;
 
   const [action, setAction] = useState<RecoveryAction>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -103,6 +107,7 @@ export const MissionRecoveryNotice: React.FC<MissionRecoveryNoticeProps> = ({
       missionState: mission.state,
       resumeAvailable: mission.resumeAvailable,
       batteryLockout: battery.lockout,
+      emergencyStopActive,
     });
 
   const canDiscard =
@@ -143,7 +148,32 @@ export const MissionRecoveryNotice: React.FC<MissionRecoveryNoticeProps> = ({
     setActionError(null);
 
     try {
-      await resumeMission();
+      // Same smart release as Start: the backend boots with E-stop latched,
+      // and the latch is not always visible as emergency_stop=true, so
+      // always RELEASE before RESUME. A refusal only aborts when the rover
+      // says the E-stop is on; otherwise RESUME reports the real blocker.
+      try {
+        const release = await releaseEmergencyStop();
+        if (!release?.success && emergencyStopActive) {
+          throw new Error(
+            release?.message || "The rover did not release the E-stop.",
+          );
+        }
+      } catch (releaseError) {
+        if (emergencyStopActive) throw releaseError;
+        console.log(
+          "[MissionRecoveryNotice] Pre-resume E-stop release skipped/failed:",
+          releaseError,
+        );
+      }
+
+      const response = await resumeMission();
+      if (!response.success) {
+        throw new Error(
+          response.mission?.message ||
+            "The backend rejected the resume request.",
+        );
+      }
       await refresh();
     } catch (error) {
       setActionError(
@@ -328,7 +358,9 @@ export const MissionRecoveryNotice: React.FC<MissionRecoveryNoticeProps> = ({
                   />
                 )}
                 <Text style={styles.buttonText}>
-                  Resume Mission
+                  {emergencyStopActive
+                    ? "Release E-stop & Resume"
+                    : "Resume Mission"}
                 </Text>
               </TouchableOpacity>
 

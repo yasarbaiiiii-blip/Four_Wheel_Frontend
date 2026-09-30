@@ -5,6 +5,12 @@ export interface RecoveryUiInput {
   missionState: string;
   resumeAvailable: boolean;
   batteryLockout: boolean;
+  /**
+   * Rover-reported E-stop latch. The backend boots with E-stop asserted, and
+   * Mission Manager withholds resume_available while it is set, so a
+   * recovered mission would otherwise never offer Resume.
+   */
+  emergencyStopActive: boolean;
 }
 
 const HIDDEN_STATES = new Set([
@@ -30,7 +36,7 @@ export function canResumeRecoveredMission(
     input.recoveryAvailable &&
     input.recoveryState.trim().toUpperCase() === "READY" &&
     input.missionState.trim().toUpperCase() === "PAUSED" &&
-    input.resumeAvailable &&
+    (input.resumeAvailable || input.emergencyStopActive) &&
     !input.batteryLockout
   );
 }

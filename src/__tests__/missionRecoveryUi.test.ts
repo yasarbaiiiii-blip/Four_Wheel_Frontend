@@ -22,6 +22,7 @@ describe("missionRecoveryUi", () => {
       missionState: "PAUSED",
       resumeAvailable: true,
       batteryLockout: false,
+      emergencyStopActive: false,
     };
 
     expect(canResumeRecoveredMission(base)).toBe(true);
@@ -36,6 +37,29 @@ describe("missionRecoveryUi", () => {
         ...base,
         recoveryAvailable: false,
       }),
+    ).toBe(false);
+  });
+
+  test("latched E-stop still offers Resume (released before RESUME)", () => {
+    const booted = {
+      recoveryRequired: true,
+      recoveryAvailable: true,
+      recoveryState: "READY",
+      missionState: "PAUSED",
+      resumeAvailable: false,
+      batteryLockout: false,
+      emergencyStopActive: true,
+    };
+
+    expect(canResumeRecoveredMission(booted)).toBe(true);
+    expect(
+      canResumeRecoveredMission({ ...booted, emergencyStopActive: false }),
+    ).toBe(false);
+    expect(
+      canResumeRecoveredMission({ ...booted, batteryLockout: true }),
+    ).toBe(false);
+    expect(
+      canResumeRecoveredMission({ ...booted, missionState: "RUNNING" }),
     ).toBe(false);
   });
 
