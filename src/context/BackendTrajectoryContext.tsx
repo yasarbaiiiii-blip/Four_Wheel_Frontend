@@ -64,6 +64,9 @@ export function BackendTrajectoryProvider({
   const missionIdAtHoldRef = useRef<string | null>(null);
   const authoringVersionRef = useRef(0);
   const awaitingAuthoringVersionRef = useRef<number | null>(null);
+  // Path downloads are intentionally opt-in. Screen navigation and ordinary
+  // status polling must not re-download a path that the operator did not edit.
+  const pathRefreshRequestedRef = useRef(false);
   // A Socket.IO packet can arrive after a successful delete. Keep the deleted
   // ID as a small tombstone until the next intentional upload so that packet
   // cannot redraw a mission that no longer exists on the rover.
@@ -93,6 +96,7 @@ export function BackendTrajectoryProvider({
     // Keep Load and Start blocked until a path generated for this exact editor
     // revision returns from the backend.
     awaitingAuthoringVersionRef.current = authoringVersionRef.current;
+    pathRefreshRequestedRef.current = true;
     apply({ type: "UPLOAD_STARTED", epoch: epochRef.current });
   }, [apply]);
 
@@ -120,6 +124,7 @@ export function BackendTrajectoryProvider({
     missionIdAtHoldRef.current = null;
     awaitingAuthoringVersionRef.current = null;
     authoringVersionRef.current += 1;
+    pathRefreshRequestedRef.current = false;
 
     const cleared = {
       ...EMPTY_TRAJECTORY_PREVIEW,
@@ -222,6 +227,7 @@ export function BackendTrajectoryProvider({
         connectionState,
         loaded: mission.loaded === true,
         trajectoryReady,
+        pathRefreshRequested: pathRefreshRequestedRef.current,
       });
 
       const alreadyDrawn =
@@ -264,6 +270,9 @@ export function BackendTrajectoryProvider({
               }
             : undefined,
       });
+      // This request satisfied the edit/replacement that caused it. Keep the
+      // ready path in memory; later navigation must not request it again.
+      pathRefreshRequestedRef.current = false;
     } catch {
       if (epochAtStart === epochRef.current) {
         apply({ type: "STATUS_ERROR" });

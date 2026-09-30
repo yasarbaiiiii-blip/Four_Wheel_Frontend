@@ -34,6 +34,10 @@ type Props = {
     planNeedsUpload?: boolean;
     /** A settled editor revision is being staged with the rover. */
     trajectoryUpdating?: boolean;
+    /** A file import or mission restore is in progress, so opening a second picker is unsafe. */
+    uploadBusy?: boolean;
+    /** Operator-facing explanation for a temporarily unavailable upload action. */
+    uploadBusyLabel?: string;
     /**
      * Called when user selects Manual Control mode to open fullscreen control UI
      */
@@ -76,6 +80,8 @@ const MissionOpsPanel = React.memo(({
     onRequestUpload,
     planNeedsUpload = false,
     trajectoryUpdating = false,
+    uploadBusy = false,
+    uploadBusyLabel = 'Preparing…',
     onManualControlOpen,
     dragGesture,
     isDraggingActive,
@@ -387,14 +393,14 @@ const MissionOpsPanel = React.memo(({
             {/* Action Buttons */}
             <View style={styles.buttonsRow}>
                 <TouchableOpacity
-                    style={[styles.button, styles.uploadBtn, (trajectoryUpdating || clearInProgress) && styles.disabledBtn]}
+                    style={[styles.button, styles.uploadBtn, (trajectoryUpdating || uploadBusy || clearInProgress) && styles.disabledBtn]}
                     onPress={handleUpload}
-                    disabled={trajectoryUpdating || clearInProgress}
+                    disabled={trajectoryUpdating || uploadBusy || clearInProgress}
                     activeOpacity={0.75}
                 >
-                    <MaterialCommunityIcons name="upload" size={20} color={trajectoryUpdating ? "rgba(255,255,255,0.45)" : "#10B981"} />
-                    <Text style={[styles.buttonText, { color: '#10B981' }]}>
-                        {trajectoryUpdating ? "Updating…" : "Upload"}
+                    <MaterialCommunityIcons name="upload" size={20} color={trajectoryUpdating || uploadBusy ? "rgba(255,255,255,0.45)" : "#10B981"} />
+                    <Text style={[styles.buttonText, { color: trajectoryUpdating || uploadBusy ? 'rgba(255,255,255,0.45)' : '#10B981' }]}>
+                        {trajectoryUpdating ? "Updating…" : uploadBusy ? uploadBusyLabel : "Upload"}
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity

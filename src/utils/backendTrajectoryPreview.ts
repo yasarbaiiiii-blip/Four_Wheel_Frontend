@@ -276,11 +276,14 @@ export function shouldFetchLoadedPath(args: {
   connectionState: string;
   loaded: boolean;
   trajectoryReady: boolean;
+  /** A user edit or mission replacement explicitly requested a new path. */
+  pathRefreshRequested: boolean;
 }): boolean {
   return (
     shouldPollMissionStatus(args) &&
     args.loaded === true &&
-    args.trajectoryReady === true
+    args.trajectoryReady === true &&
+    args.pathRefreshRequested === true
   );
 }
 

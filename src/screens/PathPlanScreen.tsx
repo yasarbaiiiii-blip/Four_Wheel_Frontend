@@ -498,6 +498,8 @@ export default function PathPlanScreen({
   const pendingReloadMissionIdRef = useRef<string | null>(null);
   const [isAutoTrajectoryUpdating, setIsAutoTrajectoryUpdating] = useState(false);
   const [isClearingControllerMission, setIsClearingControllerMission] = useState(false);
+  const [isRestoringMission, setIsRestoringMission] = useState(false);
+  const [isImportingFile, setIsImportingFile] = useState(false);
   const autoTrajectoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -1398,9 +1400,11 @@ export default function PathPlanScreen({
         const wpId = wp.sn;
         return wpId === id ? { ...wp, mark: newMarkValue } : wp;
       });
+      userEditedWaypointsRef.current = true;
+      markAuthoringChanged();
       setMissionWaypoints(updatedWaypoints);
     },
-    [missionWaypoints, setMissionWaypoints],
+    [markAuthoringChanged, missionWaypoints, setMissionWaypoints],
   );
 
   const handleAddWaypoints = (
@@ -2804,9 +2808,11 @@ export default function PathPlanScreen({
     }: { silent?: boolean; allowPersistedReplacement?: boolean } = {}): Promise<boolean> => {
     if (isRestoringMissionRef.current) return false;
     isRestoringMissionRef.current = true;
+    if (mountedRef.current) setIsRestoringMission(true);
     if (roverUploadBlockedReason) {
       if (!silent) Alert.alert("Connect Rover", roverUploadBlockedReason);
       isRestoringMissionRef.current = false;
+      if (mountedRef.current) setIsRestoringMission(false);
       return false;
     }
     try {
@@ -2900,6 +2906,7 @@ export default function PathPlanScreen({
       return false;
     } finally {
       isRestoringMissionRef.current = false;
+      if (mountedRef.current) setIsRestoringMission(false);
     }
     },
     [
@@ -2912,42 +2919,9 @@ export default function PathPlanScreen({
     ],
   );
 
-  // Hydrate the latest archived mission once when Marking Plan becomes visible.
-  // Persisted waypoints are retained when the rover still owns a live mission;
-  // after terminal cleanup they are refreshed from the verified archive. User
-  // edits always win and can never be overwritten by this background operation.
-  useEffect(() => {
-    if (
-      !isVisible ||
-      !missionStateHydrated ||
-      connectionState !== "connected" ||
-      roverUploadBlockedReason ||
-      autoRestoreAttemptedRef.current ||
-      userEditedWaypointsRef.current
-    ) {
-      return undefined;
-    }
-
-    autoRestoreAttemptedRef.current = true;
-    const timer = setTimeout(() => {
-      if (
-        !mountedRef.current ||
-        isUploadingRef.current ||
-        userEditedWaypointsRef.current
-      ) {
-        return;
-      }
-      void restoreLatestMission({ silent: true, allowPersistedReplacement: true });
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [
-    connectionState,
-    isVisible,
-    missionStateHydrated,
-    restoreLatestMission,
-    roverUploadBlockedReason,
-    waypoints.length,
-  ]);
+  // Do not restore or regenerate a mission merely because this screen mounts.
+  // MissionContext already retains the local plan across tab changes. A new
+  // backend path is requested only by an import, replacement, or user edit.
 
   const handleRequestUpload = async () => {
     if (isRestoringMissionRef.current) {
@@ -2960,11 +2934,12 @@ export default function PathPlanScreen({
       return;
     }
     if (isUploadingRef.current) {
-      // Prevent re-entrant calls that can cause stack overflows
-      if (DEBUG_LOG)
-        console.log(
-          "[PathPlan] Upload already in progress, ignoring re-entrant call",
-        );
+      showPathPlanToast(
+        "info",
+        "File Import In Progress",
+        "The file picker is already open or the selected file is being prepared.",
+        3000,
+      );
       return;
     }
 
@@ -2975,6 +2950,7 @@ export default function PathPlanScreen({
     }
 
     isUploadingRef.current = true;
+    setIsImportingFile(true);
     try {
       if (DEBUG_LOG)
         console.log(
@@ -3260,11 +3236,10 @@ export default function PathPlanScreen({
         },
       ]);
     } finally {
-      // Release the guard after a short tick to avoid immediate re-entry
-      const timer = setTimeout(() => {
-        isUploadingRef.current = false;
-      }, 0);
-      addTimer(timer);
+      // The guard and visible busy state are released together.  Delaying this
+      // by a timer made a fast follow-up tap appear to do nothing.
+      isUploadingRef.current = false;
+      if (mountedRef.current) setIsImportingFile(false);
     }
   };
 
@@ -3897,6 +3872,8 @@ export default function PathPlanScreen({
                   onRequestUpload={handleRequestUpload}
                   planNeedsUpload={planNeedsUpload}
                   trajectoryUpdating={isAutoTrajectoryUpdating}
+                  uploadBusy={isRestoringMission || isImportingFile}
+                  uploadBusyLabel={isRestoringMission ? "Preparing…" : "Opening…"}
                   onLoadMission={handleLoadMissionToController}
                   roverUploadBlockedReason={roverUploadBlockedReason}
                   loadEnabled={

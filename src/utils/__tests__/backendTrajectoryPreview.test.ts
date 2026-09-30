@@ -107,6 +107,7 @@ describe("backend trajectory display contract", () => {
         connectionState: "connected",
         loaded: true,
         trajectoryReady: true,
+        pathRefreshRequested: false,
       }),
     ).toBe(false);
     expect(
@@ -155,6 +156,7 @@ describe("backend trajectory display contract", () => {
         connectionState: "connected",
         loaded: true,
         trajectoryReady: false,
+        pathRefreshRequested: true,
       }),
     ).toBe(false);
 
@@ -179,6 +181,7 @@ describe("backend trajectory display contract", () => {
         connectionState: "connected",
         loaded: true,
         trajectoryReady: true,
+        pathRefreshRequested: true,
       }),
     ).toBe(true);
 
@@ -203,6 +206,18 @@ describe("backend trajectory display contract", () => {
       [80.2003, 13.1004],
       [80.2008, 13.1009],
     ]);
+  });
+
+  test("does not fetch a ready path until an edit or replacement requests it", () => {
+    expect(
+      shouldFetchLoadedPath({
+        isOffline: false,
+        connectionState: "connected",
+        loaded: true,
+        trajectoryReady: true,
+        pathRefreshRequested: false,
+      }),
+    ).toBe(false);
   });
 
   test("finished run keeps the last path even when loaded drops", () => {
