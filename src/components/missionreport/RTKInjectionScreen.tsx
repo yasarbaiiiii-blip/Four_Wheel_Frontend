@@ -14,6 +14,7 @@ import { RtkProfileEditor } from "../rtk/RtkProfileEditor";
 import { RtkProfileList } from "../rtk/RtkProfileList";
 import { RtkSourceSelector } from "../rtk/RtkSourceSelector";
 import { RtkStatusStrip } from "../rtk/RtkStatusStrip";
+import { useConnection } from "../../context/ConnectionContext";
 import { useRtkControl } from "../../hooks/useRtkControl";
 import {
   importSelectedLocalRtkProfiles,
@@ -43,9 +44,11 @@ export const RTKInjectionScreen: React.FC<Props> = ({
   isConnected,
   asModal = true,
 }) => {
+  const { socket } = useConnection();
   const control = useRtkControl({
     visible,
     connected: isConnected,
+    socket,
   });
   const [creating, setCreating] = useState(false);
   const [localProfiles, setLocalProfiles] =

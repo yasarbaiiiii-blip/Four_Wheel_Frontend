@@ -244,6 +244,60 @@ describe("useRtkControl", () => {
     expect(mockStatus).toHaveBeenCalledTimes(3);
   });
 
+  it("takes status from the rtk_status socket event and pauses the REST poll", async () => {
+    const listeners = new Map<string, (payload: unknown) => void>();
+    const socket = {
+      on: jest.fn((event: string, listener: (payload: unknown) => void) => {
+        listeners.set(event, listener);
+      }),
+      off: jest.fn((event: string) => {
+        listeners.delete(event);
+      }),
+    };
+    const { result, unmount } = renderHook(() =>
+      useRtkControl({
+        visible: true,
+        connected: true,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        socket: socket as any,
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockStatus).toHaveBeenCalledTimes(1); // initial REST load
+
+    await act(async () => {
+      listeners.get("rtk_status")?.(statusResponse("RUNNING", "RUNNING"));
+    });
+    expect(result.current.status?.status.persisted.desired_state).toBe("RUNNING");
+
+    // Socket keeps streaming: no REST poll.
+    await act(async () => {
+      jest.advanceTimersByTime(RTK_STATUS_POLL_MS - 500);
+      listeners.get("rtk_status")?.(statusResponse("RUNNING", "RUNNING"));
+      jest.advanceTimersByTime(500);
+      await Promise.resolve();
+    });
+    expect(mockStatus).toHaveBeenCalledTimes(1);
+
+    // Malformed payload is ignored.
+    await act(async () => {
+      listeners.get("rtk_status")?.({ status: { nope: true } });
+    });
+    expect(result.current.status?.status.persisted.desired_state).toBe("RUNNING");
+
+    // Socket goes silent: REST fallback resumes.
+    await act(async () => {
+      jest.advanceTimersByTime(RTK_STATUS_POLL_MS * 2);
+      await Promise.resolve();
+    });
+    expect(mockStatus).toHaveBeenCalledTimes(2);
+
+    unmount();
+    expect(socket.off).toHaveBeenCalledWith("rtk_status", expect.any(Function));
+  });
+
   it("does not poll when the screen is not visible", async () => {
     renderHook(() => useRtkControl({ visible: false, connected: true }));
     await act(async () => {

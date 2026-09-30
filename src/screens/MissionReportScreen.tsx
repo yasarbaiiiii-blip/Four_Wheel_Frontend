@@ -94,6 +94,7 @@ import { formatRtkApiError } from "../services/rtkService";
 import {
   decideMissionRtkQuickStart,
   toRtkControlView,
+  unwrapRtkStatus,
   type RtkHeadlineState,
 } from "../adapters/rtkControlAdapter";
 import {
@@ -667,6 +668,7 @@ export default function MissionReportScreen({
   const [quickRtkState, setQuickRtkState] =
     useState<RtkHeadlineState>("off");
   const quickRtkStatusInFlightRef = useRef(false);
+  const lastQuickRtkSocketAtRef = useRef(0);
   const [isManualPreparing, setIsManualPreparing] = useState(false);
   const [isManualDriveVisible, setIsManualDriveVisible] = useState(false);
   const missionControlsRestoreRef = useRef(false);
@@ -1971,6 +1973,25 @@ export default function MissionReportScreen({
     }
   }, [connectionState]);
 
+  // Quick RTK badge: the socket rtk_status stream (~1 Hz, same body as
+  // GET /api/rtk/status); the REST poll only runs while that stream is silent.
+  useEffect(() => {
+    if (!isVisible || !socket || connectionState !== "connected") {
+      return undefined;
+    }
+    const handleRtkStatus = (payload: unknown) => {
+      const status = unwrapRtkStatus(payload as Parameters<typeof unwrapRtkStatus>[0]);
+      if (!status) return;
+      const view = toRtkControlView(status, { connected: true });
+      lastQuickRtkSocketAtRef.current = Date.now();
+      setQuickRtkState(view.headline);
+    };
+    socket.on("rtk_status", handleRtkStatus);
+    return () => {
+      socket.off("rtk_status", handleRtkStatus);
+    };
+  }, [isVisible, socket, connectionState]);
+
   useEffect(() => {
     if (
       !isVisible ||
@@ -1983,6 +2004,7 @@ export default function MissionReportScreen({
     void refreshQuickNtripStatus();
 
     const timer = setInterval(() => {
+      if (Date.now() - lastQuickRtkSocketAtRef.current < 3000) return;
       void refreshQuickNtripStatus();
     }, 3000);
 

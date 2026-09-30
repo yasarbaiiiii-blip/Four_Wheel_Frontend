@@ -1,12 +1,17 @@
 /**
  * Screen-local RTK control lifecycle.
  *
- * Polls GET /api/rtk/status every 3 seconds only while the shared RTK UI is
- * visible. One in-flight poll at a time. Mutations are exclusive. Stale async
+ * Status arrives on the Socket.IO `rtk_status` event (same body as
+ * GET /api/rtk/status, ~1 Hz and at once after an RTK change) while the shared
+ * RTK UI is visible. GET /api/rtk/status is the fallback: it runs on open and
+ * every 3 seconds only while no socket status has arrived for
+ * RTK_SOCKET_FRESH_MS (older backend, socket down). One in-flight poll at a
+ * time; a socket status supersedes any poll still in flight. Mutations are exclusive. Stale async
  * completions after close/unmount are ignored.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Socket } from "socket.io-client";
 
 import {
   toRtkControlView,
@@ -41,10 +46,14 @@ import type {
 } from "../types/rtk";
 
 export const RTK_STATUS_POLL_MS = 3000;
+/** A socket rtk_status newer than this suppresses the REST poll. */
+export const RTK_SOCKET_FRESH_MS = 3000;
 
 export interface UseRtkControlOptions {
   visible: boolean;
   connected?: boolean;
+  /** Live rover socket; when it streams rtk_status the REST poll pauses. */
+  socket?: Pick<Socket, "on" | "off"> | null;
 }
 
 export interface RtkMutationResult<T> {
@@ -115,6 +124,7 @@ export function useRtkControl(
 ): UseRtkControlResult {
   const visible = options.visible;
   const connected = options.connected !== false;
+  const socket = options.socket ?? null;
 
   const [profiles, setProfiles] = useState<RtkProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
@@ -137,6 +147,7 @@ export function useRtkControl(
   const mutationBusyRef = useRef(false);
   const latestStatusRequestRef = useRef(0);
   const latestProfilesRequestRef = useRef(0);
+  const lastSocketStatusAtRef = useRef(0);
 
   visibleRef.current = visible;
   connectedRef.current = connected;
@@ -287,6 +298,10 @@ export function useRtkControl(
         return;
       }
 
+      if (Date.now() - lastSocketStatusAtRef.current < RTK_SOCKET_FRESH_MS) {
+        return;
+      }
+
       void loadStatus(generation);
     }, RTK_STATUS_POLL_MS);
 
@@ -295,6 +310,31 @@ export function useRtkControl(
       clearInterval(timer);
     };
   }, [connected, visible, loadStatus, refresh]);
+
+  useEffect(() => {
+    if (!visible || !connected || !socket) {
+      return undefined;
+    }
+
+    const onRtkStatus = (payload: unknown) => {
+      if (!visibleRef.current || !connectedRef.current) {
+        return;
+      }
+      const snapshot = unwrapRtkStatus(payload as RtkStatusResponse);
+      if (!snapshot) {
+        return;
+      }
+      lastSocketStatusAtRef.current = Date.now();
+      // Newer than any REST poll still in flight: make that poll stale.
+      latestStatusRequestRef.current += 1;
+      setStatus({ status: snapshot });
+    };
+
+    socket.on("rtk_status", onRtkStatus);
+    return () => {
+      socket.off("rtk_status", onRtkStatus);
+    };
+  }, [connected, socket, visible]);
 
   useEffect(() => {
     const snapshot = unwrapRtkStatus(status);
