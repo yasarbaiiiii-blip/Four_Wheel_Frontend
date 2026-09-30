@@ -112,15 +112,6 @@ export function SocketEventCoordinator({ children }: { children: React.ReactNode
       console.log('[SocketEventCoordinator] mission_completed', event);
     };
 
-    const handleMissionCompletionDegraded = (event: unknown) => {
-      console.warn('[SocketEventCoordinator] mission_completion_degraded', event);
-    };
-
-    // Safety abort (general)
-    const handleSafetyAbort = (event: unknown) => {
-      console.warn('[SocketEventCoordinator] safety_abort', event);
-    };
-
     const handleMissionStatus = (event: any) => {
       if (!event || typeof event !== "object") {
         return;
@@ -138,15 +129,11 @@ export function SocketEventCoordinator({ children }: { children: React.ReactNode
 
     socket.on('gps_safety_abort', handleGpsSafetyAbort);
     socket.on('mission_completed', handleMissionCompleted);
-    socket.on('mission_completion_degraded', handleMissionCompletionDegraded);
-    socket.on('safety_abort', handleSafetyAbort);
     socket.on('mission_status', handleMissionStatus);
 
     return () => {
       socket?.off('gps_safety_abort', handleGpsSafetyAbort);
       socket?.off('mission_completed', handleMissionCompleted);
-      socket?.off('mission_completion_degraded', handleMissionCompletionDegraded);
-      socket?.off('safety_abort', handleSafetyAbort);
       socket?.off('mission_status', handleMissionStatus);
     };
   }, [socket, connectionState, reportGpsSafetyAbort, setMissionLifecycle, refreshLoadedPath]);

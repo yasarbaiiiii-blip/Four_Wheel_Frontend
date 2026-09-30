@@ -26,10 +26,6 @@ export const PX4_SYSTEM = {
   HEALTHZ: "/api/healthz",
   NETWORK: "/api/network",
   SAFETY_STATUS: "/api/safety/status",
-
-  // Old frontend compatibility constants.
-  DISCOVER: "/api/discover",
-  HEALTH_BRIDGE: "/api/health/bridge",
 } as const;
 
 // ── Telemetry ─────────────────────────────────────────────────────────────────
@@ -91,20 +87,10 @@ export const PX4_MISSION = {
   STOP: "/api/mission/stop",
   CLEAR: "/api/mission/clear",
 
-  /*
-   * Compatibility aliases for existing frontend files.
-   * We will migrate their callers in the following steps.
-   */
-  POINT_CONTINUE: "/api/mission/next-point",
-  POINT_SKIP: "/api/mission/skip-point",
-
   // Not available in the current backend.
-  ABORT: "/api/mission/abort",
   RESTART: "/api/mission/restart",
   POINT_EVENTS: "/api/mission/point/events",
   POINT_STATUS: "/api/mission/point/status",
-  OBSTACLE: "/api/mission/obstacle",
-  DEBUG_CAPTURE_STATUS: "/api/mission/debug-capture/status",
 } as const;
 
 // ── Legacy path-staging compatibility ─────────────────────────────────────────

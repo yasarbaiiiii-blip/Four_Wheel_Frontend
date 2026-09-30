@@ -1954,10 +1954,6 @@ if (envelope.within_test_tolerance !== undefined) {
           }
         });
 
-        // NRP_ROS LEGACY DISABLED — custom ping/pong and subscription ack events.
-        // socket.on('pong', () => {});
-        // socket.on('mission_status_subscribed', (data: any) => { ... });
-
         socket.on("connect_error", (error: any) => {
           const message =
             error instanceof Error ? error.message : String(error);
@@ -2108,18 +2104,6 @@ if (envelope.within_test_tolerance !== undefined) {
           setConnectionState("error");
         });
 
-        // NRP_ROS LEGACY DISABLED — nested envelope + alias telemetry listeners.
-        // socket.on(SOCKET_EVENTS.TELEMETRY, handleBridgeTelemetry.current);
-        // socket.on(SOCKET_EVENTS.ROVER_DATA, handleRoverData.current);
-        // socket.on('lora_rtk_status', handleLoraRTKStatus.current);
-        // socket.on('rover_data_telemetry', handleRoverData.current);
-        // socket.on('telemetry_data', handleBridgeTelemetry.current);
-        // socket.on('gps_data', handleRoverData.current);
-        // socket.on('battery_data', handleBridgeTelemetry.current);
-        // socket.on('satellite_data', handleBridgeTelemetry.current);
-        // socket.on('rtk_data', handleRoverData.current);
-        // socket.on('vehicle_telemetry', handleBridgeTelemetry.current);
-
         // 4WD_SERVER — flat telemetry socket contract
 
         socket.on(SOCKET_EVENTS.TELEMETRY, (payload: unknown) => {
@@ -2228,12 +2212,6 @@ if (envelope.within_test_tolerance !== undefined) {
         //   }
         // });
 
-        // NRP_ROS LEGACY DISABLED — mission_event / server_activity / nested mission_status parsers.
-        // socket.on('mission_event', ...);
-        // socket.on('mission_logs_snapshot', ...);
-        // socket.on('server_activity', ...);
-        // socket.on('mission_status', (data) => { data.mission_state, data.current_waypoint ... });
-
         // 4WD_SERVER — flat mission_status socket contract
         socket.on(SOCKET_EVENTS.MISSION_STATUS, (data: any) => {
           countSocketPacket("mission_status");
@@ -2293,45 +2271,6 @@ if (envelope.within_test_tolerance !== undefined) {
           );
         });
 
-        socket.on(SOCKET_EVENTS.MISSION_COMPLETION_DEGRADED, (data: any) => {
-          missionEventCallbackRef.current.forEach((cb) =>
-            cb({ type: "mission_completion_degraded", ...data })
-          );
-        });
-
-        socket.on(SOCKET_EVENTS.MISSION_ERROR, (data: { error: string }) => {
-          console.error("[MISSION_ERROR]", data.error);
-          missionEventCallbackRef.current.forEach((cb) =>
-            cb({
-              type: "mission_error",
-              message: data.error,
-              timestamp: Date.now(),
-            } as any)
-          );
-        });
-
-        // NRP_ROS LEGACY DISABLED — mission_command_ack, upload/download progress, failsafe_*, obstacle, LED.
-        // socket.on('mission_command_ack', ...);
-        // socket.on('mission_upload_progress', ...);
-        // socket.on('failsafe_resumed', ...);
-        // socket.on('obstacle_detection_changed', ...);
-        // socket.on('led_controller_changed', ...);
-        // socket.on('emergency_stop_ack', ...);
-        // socket.on('manual_control_error', ...);
-
-        // 4WD_SERVER — estop_result (replaces emergency_stop_ack)
-        socket.on(SOCKET_EVENTS.ESTOP_RESULT, (data: any) => {
-          console.log("[ESTOP_RESULT] PX4 e-stop result:", data);
-          missionEventCallbackRef.current.forEach((cb) =>
-            cb({
-              type: "emergency_stop",
-              message: data?.message || "E-stop executed",
-              timestamp: Date.now(),
-              data: data,
-            } as any)
-          );
-        });
-
         // 4WD_SERVER — joystick errors (replaces manual_control_error)
         socket.on(
           SOCKET_EVENTS.JOYSTICK_ERROR,
@@ -2347,10 +2286,6 @@ if (envelope.within_test_tolerance !== undefined) {
             );
           }
         );
-
-        socket.on(SOCKET_EVENTS.ROVER_DISCONNECTED, () => {
-          console.warn("[ROVER_DISCONNECTED] FCU link lost");
-        });
 
         socket.connect();
 

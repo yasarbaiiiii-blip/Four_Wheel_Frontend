@@ -1,5 +1,5 @@
 /**
- * missionLifecycleService — Start / Stop / Abort / Pause / Resume / Restart / Status.
+ * missionLifecycleService — Start / Stop / Pause / Resume / Restart / Status.
  *
  * All calls go through apiClient with automatic token injection.
  * State machine: idle → arming → switching_offboard → running → stopped/completed
@@ -15,18 +15,13 @@ import type {
   MissionRestartRequest,
   MissionRestartResponse,
   MissionStatusResponse,
-  PointContinueResponse,
-  PointSkipRequest,
-  PointSkipResponse,
   PointPauseResponse,
   PointResumeResponse,
   PointMissionStatusResponse,
   PointEventHistoryResponse,
 } from '../types/px4/mission';
 import {
-  normalizePointContinueResponse,
   normalizePointMissionStatus,
-  normalizePointSkipResponse,
 } from './px4PointApiNormalize';
 
 // ── Mission lifecycle ─────────────────────────────────────────────────────────
@@ -45,14 +40,6 @@ export async function startMission(request: MissionStartRequest = {}): Promise<M
  */
 export async function stopMission(): Promise<MissionStopResponse> {
   return apiPost<MissionStopResponse>(PX4_MISSION.STOP);
-}
-
-/**
- * Hard abort — forces MANUAL mode + disarm.
- * Use when soft stop is not responding (e.g. FCU unresponsive).
- */
-export async function abortMission(): Promise<{ success: boolean; message?: string }> {
-  return apiPost(PX4_MISSION.ABORT);
 }
 
 /**
@@ -103,26 +90,6 @@ export async function getMissionStatus(): Promise<MissionStatusResponse> {
 // ── Point mission ─────────────────────────────────────────────────────────────
 
 /**
- * Continue to the next point (DGPS Mark / point mode only).
- * Call after receiving `point_waiting_for_continue` event.
- */
-export async function continuePoint(): Promise<PointContinueResponse> {
-  const raw = await apiPost<Record<string, unknown>>(PX4_MISSION.POINT_CONTINUE);
-  return normalizePointContinueResponse(raw);
-}
-
-/**
- * Skip the specified point.
- * @param request Must include `point_index` from server state (not local index).
- */
-export async function skipPoint(
-  request: PointSkipRequest,
-): Promise<PointSkipResponse> {
-  const raw = await apiPost<Record<string, unknown>>(PX4_MISSION.POINT_SKIP, request);
-  return normalizePointSkipResponse(raw);
-}
-
-/**
  * Get detailed point mission status (index, generation, waiting state).
  */
 export async function getPointStatus(): Promise<PointMissionStatusResponse> {
@@ -141,24 +108,14 @@ export async function getPointEvents(
   return apiGet<PointEventHistoryResponse>(`${PX4_MISSION.POINT_EVENTS}${query}`);
 }
 
-// ── Obstacle ──────────────────────────────────────────────────────────────────
-
-export async function setObstacle(clear: boolean): Promise<{ success: boolean }> {
-  return apiPost(PX4_MISSION.OBSTACLE, { clear });
-}
-
 export default {
   startMission,
   stopMission,
-  abortMission,
   pauseMission,
   resumeMission,
   restartMission,
   clearMission,
   getMissionStatus,
-  continuePoint,
-  skipPoint,
   getPointStatus,
   getPointEvents,
-  setObstacle,
 };

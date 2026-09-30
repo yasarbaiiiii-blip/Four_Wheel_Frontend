@@ -1024,56 +1024,6 @@ export default function PathPlanScreen({
     loadPersistedState();
   }, []);
 
-  // Listen for GPS Failsafe servo_suppressed events
-  useEffect(() => {
-    if (!isVisible || !socket) return;
-
-    const handleServoSuppressed = (event: any) => {
-      console.log(
-        "[PathPlanScreen] 🚫 Servo suppressed event received:",
-        JSON.stringify(event, null, 2),
-      );
-      console.log("[PathPlanScreen] 📋 Event details:", {
-        mode: gpsFailsafeMode,
-        wp_dist_cm: event.wp_dist_cm,
-        xtrack_cm: event.xtrack_cm,
-        threshold_cm: 6.0,
-        mission_paused: event.mission_paused,
-        waypoint_id: event.waypoint_id,
-        timestamp: event.timestamp,
-      });
-
-      setFailsafeEvent({
-        wpDistCm: event.wp_dist_cm ?? 0,
-        thresholdCm: 6.0, // New threshold: 6.0 cm
-      });
-
-      console.log("[PathPlanScreen] GPS Failsafe mode:", gpsFailsafeMode);
-      if (gpsFailsafeMode === "strict") {
-        console.log("[PathPlanScreen] ⚠️ STRICT MODE: Showing failsafe popup");
-        console.log("[PathPlanScreen] ⚠️ Mission should be PAUSED by backend");
-        setShowStrictPopup(true);
-      } else if (gpsFailsafeMode === "relax") {
-        console.log(
-          "[PathPlanScreen] ℹ️ RELAX MODE: Showing failsafe notification",
-        );
-        console.log(
-          "[PathPlanScreen] ℹ️ Mission continues with spray suppressed",
-        );
-        setShowRelaxNotification(true);
-      }
-    };
-
-    socket.on("servo_suppressed", handleServoSuppressed);
-    console.log("[PathPlanScreen] 👂 Listening for servo_suppressed events");
-    return () => {
-      socket.off("servo_suppressed", handleServoSuppressed);
-      console.log(
-        "[PathPlanScreen] 🔇 Stopped listening for servo_suppressed events",
-      );
-    };
-  }, [isVisible, socket, gpsFailsafeMode]);
-
   // Consolidated auto-save using refs to prevent multiple useEffect triggers
   // This prevents infinite loops from cascading state updates
   // NOTE: selectedWaypoint is intentionally excluded from this callback's deps.
