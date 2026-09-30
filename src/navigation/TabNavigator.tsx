@@ -13,6 +13,7 @@ import { ErrorBoundary } from "../components/shared/ErrorBoundary";
 import { colors } from "../theme/colors";
 import PersistentStorage from "../services/PersistentStorage";
 import { RtkRuntimeNotice } from "../components/rtk/RtkRuntimeNotice";
+import { BatteryCriticalNotice } from "../components/battery/BatteryCriticalNotice";
 
 const MemoDashboardScreen = React.memo(DashboardScreen);
 const MemoPathPlanScreen = React.memo(PathPlanScreen);
@@ -100,6 +101,7 @@ function TabNavigatorInner() {
         />
 
         <RtkRuntimeNotice />
+        <BatteryCriticalNotice />
 
         <View style={styles.body}>
           {sharedMapActive && (

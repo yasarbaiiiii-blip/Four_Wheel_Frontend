@@ -14,6 +14,8 @@ export interface ToastProps {
   /** Called after a left or right swipe, or by the optional close button. */
   onDismiss: () => void;
   showCloseButton?: boolean;
+  /** Set false for a warning that must remain until its close button is pressed. */
+  swipeToDismiss?: boolean;
 }
 
 export const Toast: React.FC<ToastProps> = ({
@@ -25,6 +27,7 @@ export const Toast: React.FC<ToastProps> = ({
   style,
   onDismiss,
   showCloseButton = false,
+  swipeToDismiss = true,
 }) => {
   const translateX = useRef(new Animated.Value(0)).current;
 
@@ -40,7 +43,9 @@ export const Toast: React.FC<ToastProps> = ({
       // tappable; the responder is claimed only after a horizontal drag starts.
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) =>
-        Math.abs(gestureState.dx) > 8 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+        swipeToDismiss &&
+        Math.abs(gestureState.dx) > 8 &&
+        Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
       onPanResponderMove: (_, gestureState) => {
         translateX.setValue(gestureState.dx);
       },
@@ -68,7 +73,7 @@ export const Toast: React.FC<ToastProps> = ({
         }).start();
       },
     }),
-    [onDismiss, translateX],
+    [onDismiss, swipeToDismiss, translateX],
   );
 
   if (!visible) return null;

@@ -1,13 +1,14 @@
 /**
  * Shared battery display thresholds for the entire GCS.
  *
- * 30..100%  -> GREEN
- * >10..<30% -> YELLOW
- * 0..10%    -> RED
- * invalid   -> UNKNOWN
+ * Display and color use the same whole percentage:
+ *   30..100% -> GREEN
+ *   11..29%  -> YELLOW
+ *   10%      -> RED
+ *   invalid  -> UNKNOWN
  *
- * PX4/backend remains the battery-percentage authority. This file controls
- * presentation only; it does not estimate state-of-charge from voltage.
+ * The rover backend is the battery-percentage authority. It derives a smooth
+ * whole-number percentage from measured pack voltage.
  */
 export type BatteryDisplayBand = 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN';
 
@@ -18,17 +19,24 @@ export interface BatteryDisplayPalette {
   unknown: string;
 }
 
+export function getWholeBatteryPercentage(
+  percentage: number | null | undefined,
+): number | null {
+  if (typeof percentage !== 'number' || !Number.isFinite(percentage)) {
+    return null;
+  }
+
+  return Math.round(Math.max(0, Math.min(100, percentage)));
+}
+
 export function getBatteryDisplayBand(
   percentage: number | null | undefined,
 ): BatteryDisplayBand {
-  if (typeof percentage !== 'number' || !Number.isFinite(percentage)) {
-    return 'UNKNOWN';
-  }
+  const wholePercentage = getWholeBatteryPercentage(percentage);
 
-  const bounded = Math.max(0, Math.min(100, percentage));
-
-  if (bounded <= 10) return 'RED';
-  if (bounded < 30) return 'YELLOW';
+  if (wholePercentage === null) return 'UNKNOWN';
+  if (wholePercentage <= 10) return 'RED';
+  if (wholePercentage <= 29) return 'YELLOW';
   return 'GREEN';
 }
 
