@@ -360,3 +360,62 @@ describe("px4 telemetry adapter — obstacle section", () => {
     expect(toRoverTelemetry({} as never).obstacle).toBeNull();
   });
 });
+
+describe("battery critical lockout fields", () => {
+  const payload = {
+    connected: true,
+    battery_v: 23.7,
+    battery_pct: 10,
+    battery_mission_lockout: true,
+    battery_critical_stop_in_progress: false,
+    battery_critical_stop_error: "stop_mission timed out",
+  };
+
+  test("toRoverTelemetry carries the backend lockout and stop status", () => {
+    const telemetry = toRoverTelemetry(payload);
+    expect(telemetry.battery).toMatchObject({
+      mission_lockout: true,
+      critical_stop_in_progress: false,
+      critical_stop_error: "stop_mission timed out",
+    });
+  });
+
+  test("toTelemetryEnvelopeFromRoverData carries the same fields", () => {
+    const envelope = toTelemetryEnvelopeFromRoverData(payload);
+    expect(envelope.battery).toMatchObject({
+      mission_lockout: true,
+      critical_stop_in_progress: false,
+      critical_stop_error: "stop_mission timed out",
+    });
+  });
+
+  test("a reported null error clears, an absent one stays unreported", () => {
+    const cleared = toTelemetryEnvelopeFromRoverData({
+      ...payload,
+      battery_critical_stop_error: null,
+    });
+    expect(cleared.battery?.critical_stop_error).toBeNull();
+
+    const absent = toRoverTelemetry({ connected: true, battery_pct: 50 });
+    expect(absent.battery.mission_lockout).toBeUndefined();
+    expect(absent.battery.critical_stop_error).toBeUndefined();
+  });
+
+  test("reads the nested battery section when flat fields are missing", () => {
+    const telemetry = toRoverTelemetry({
+      connected: true,
+      battery: {
+        voltage_v: 23.7,
+        remaining_percent: 10,
+        mission_lockout: true,
+        critical_stop_in_progress: true,
+        critical_stop_error: null,
+      },
+    });
+    expect(telemetry.battery).toMatchObject({
+      mission_lockout: true,
+      critical_stop_in_progress: true,
+      critical_stop_error: null,
+    });
+  });
+});

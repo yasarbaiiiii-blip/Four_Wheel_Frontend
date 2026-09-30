@@ -48,6 +48,11 @@ export interface Px4BatteryTelemetry {
   voltage_v?: number | null;
   current_a?: number | null;
   remaining_percent?: number | null;
+  status?: string | null;
+  mission_lockout?: boolean;
+  mission_lockout_reason?: string | null;
+  critical_stop_in_progress?: boolean;
+  critical_stop_error?: string | null;
 }
 
 export interface Px4MissionTelemetry {
@@ -180,6 +185,9 @@ export interface Px4TelemetryData {
   // Battery compatibility fields
   battery_v?: number | null;
   battery_pct?: number | null;
+  battery_mission_lockout?: boolean;
+  battery_critical_stop_in_progress?: boolean;
+  battery_critical_stop_error?: string | null;
 
   // GPS compatibility fields
   gps_fix?: number | null;

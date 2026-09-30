@@ -75,6 +75,24 @@ const safeBool = (value: unknown, fallback = false): boolean => {
   return fallback;
 };
 
+/**
+ * Battery-critical STOP error from the rover. `undefined` means the backend
+ * did not report the field; `null` means it reported "no error", which must
+ * clear a previously shown error.
+ */
+const batteryCriticalStopError = (
+  flat: Record<string, any>,
+  battery: Record<string, any> | undefined,
+): string | null | undefined => {
+  const value =
+    flat.battery_critical_stop_error !== undefined
+      ? flat.battery_critical_stop_error
+      : battery?.critical_stop_error;
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  return String(value);
+};
+
 function mapGpsFix(fix: unknown): number {
   return Math.max(0, Math.min(6, safeNum(fix, 0)));
 }
@@ -333,6 +351,14 @@ export function toTelemetryEnvelopeFromRoverData(
     voltage: optNum(flat.battery_v ?? battery.voltage_v),
     current: optNum(battery.current_a),
     percentage: optNum(flat.battery_pct ?? battery.remaining_percent),
+    mission_lockout: optBool(
+      flat.battery_mission_lockout ?? battery.mission_lockout,
+    ),
+    critical_stop_in_progress: optBool(
+      flat.battery_critical_stop_in_progress ??
+        battery.critical_stop_in_progress,
+    ),
+    critical_stop_error: batteryCriticalStopError(flat, battery),
   });
 
   const fixType = optNum(flat.gps_fix ?? gps.fix_type);
@@ -423,6 +449,24 @@ export function toRoverTelemetry(
       flat.battery_pct ?? batterySection?.remaining_percent,
     ),
   };
+  const missionLockout =
+    flat.battery_mission_lockout ?? batterySection?.mission_lockout;
+  if (missionLockout !== undefined && missionLockout !== null) {
+    battery.mission_lockout = safeBool(missionLockout);
+  }
+  const stopInProgress =
+    flat.battery_critical_stop_in_progress ??
+    batterySection?.critical_stop_in_progress;
+  if (stopInProgress !== undefined && stopInProgress !== null) {
+    battery.critical_stop_in_progress = safeBool(stopInProgress);
+  }
+  const stopError = batteryCriticalStopError(
+    flat as Record<string, any>,
+    batterySection as Record<string, any> | undefined,
+  );
+  if (stopError !== undefined) {
+    battery.critical_stop_error = stopError;
+  }
 
   const fixType = mapGpsFix(flat.gps_fix ?? gps?.fix_type);
 
