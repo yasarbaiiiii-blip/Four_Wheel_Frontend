@@ -72,12 +72,43 @@ export function isRobotStatusDebugEnabled(): boolean {
   return typeof __DEV__ !== 'undefined' && __DEV__;
 }
 
-/** Always-on connection diagnostics (Metro terminal) — not gated on telemetry events. */
-export function telemetryDiagLog(_message: string, _extra?: Record<string, unknown>): void {
-  // const env = process.env.EXPO_PUBLIC_TELEMETRY_DIAG;
-  // if (env?.toLowerCase() === 'false' || env === '0') return;
-  // const suffix = _extra ? ` ${JSON.stringify(_extra)}` : '';
-  // console.log(`[GCS-Telemetry] ${_message}${suffix}`);
+/**
+ * Connection diagnostics for the 3-15 s staleness investigation.
+ * Off unless the build sets EXPO_PUBLIC_TELEMETRY_DIAG=1; read with
+ * `adb logcat | grep GCS-Telemetry`. Wall-clock ms timestamps line up with
+ * the backend journal (DYX_REALTIME_METRICS) and a Jetson-side ping.
+ */
+export function isTelemetryDiagEnabled(): boolean {
+  const env = process.env.EXPO_PUBLIC_TELEMETRY_DIAG;
+  return env?.toLowerCase() === 'true' || env === '1';
+}
+
+export function telemetryDiagLog(message: string, extra?: Record<string, unknown>): void {
+  if (!isTelemetryDiagEnabled()) return;
+  const suffix = extra ? ` ${JSON.stringify(extra)}` : '';
+  console.log(`[GCS-Telemetry] ${new Date().toISOString()} ${message}${suffix}`);
+}
+
+const JS_LAG_PROBE_MS = 250;
+const JS_LAG_REPORT_MS = 500;
+let jsLagProbeStarted = false;
+
+/**
+ * Log when the JS thread runs a 250 ms timer late by >= 500 ms. A blocked JS
+ * thread delays socket handling even when packets arrive on time.
+ */
+export function startJsLagProbe(): void {
+  if (jsLagProbeStarted || !isTelemetryDiagEnabled()) return;
+  jsLagProbeStarted = true;
+  let expected = Date.now() + JS_LAG_PROBE_MS;
+  setInterval(() => {
+    const now = Date.now();
+    const lag = now - expected;
+    expected = now + JS_LAG_PROBE_MS;
+    if (lag >= JS_LAG_REPORT_MS) {
+      telemetryDiagLog('JS thread lag', { lagMs: lag });
+    }
+  }, JS_LAG_PROBE_MS);
 }
 
 export function getRobotStatusDebug(): RobotStatusDebugSnapshot {

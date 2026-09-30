@@ -1876,6 +1876,11 @@ if (envelope.within_test_tolerance !== undefined) {
 
             transport: socket.io.engine?.transport?.name ?? "unknown",
           });
+          socket.io.engine?.once("upgrade", (transport: { name?: string }) => {
+            telemetryDiagLog("Socket transport upgraded", {
+              transport: transport?.name ?? "unknown",
+            });
+          });
 
           clearReconnectTimer();
 
@@ -2165,7 +2170,15 @@ if (envelope.within_test_tolerance !== undefined) {
               setHasLiveTelemetry(true);
             }
 
-            lastSocketPacketTsRef.current = Date.now();
+            const packetAt = Date.now();
+            const previousPacketAt = lastSocketPacketTsRef.current;
+            if (previousPacketAt != null && packetAt - previousPacketAt >= 1_500) {
+              telemetryDiagLog("Telemetry packet gap", {
+                gapMs: packetAt - previousPacketAt,
+                transport: socket.io.engine?.transport?.name ?? "unknown",
+              });
+            }
+            lastSocketPacketTsRef.current = packetAt;
             markSocketTelemetryPacket(lastSocketPacketTsRef.current);
             applyEnvelopeRef.current(envelope);
 
@@ -2350,6 +2363,10 @@ if (envelope.within_test_tolerance !== undefined) {
           connectedAt != null &&
           now - connectedAt > 8_000);
       if (stale) {
+        telemetryDiagLog("Watchdog reconnect: socket silent", {
+          sinceLastPacketMs: lastPacket != null ? now - lastPacket : null,
+          sinceConnectMs: connectedAt != null ? now - connectedAt : null,
+        });
         reconnect();
       }
     }, 4_000);

@@ -60,6 +60,11 @@ import LoginScreen from "./src/screens/LoginScreen";
 
 import { AUTH_ENABLED } from "./src/config/featureFlags";
 
+import { startJsLagProbe } from "./src/utils/robotStatusDebug";
+
+// Diagnostic builds only (EXPO_PUBLIC_TELEMETRY_DIAG=1); a no-op otherwise.
+startJsLagProbe();
+
 GlobalCrashHandler.initialize();
 
 type SessionValidationState = "checking" | "valid" | "invalid";
