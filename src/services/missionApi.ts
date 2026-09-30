@@ -140,26 +140,43 @@ export interface MissionRuntimeState {
   terminal_cleanup_error?: string | null;
 
   pause_reason?: string | null;
-resume_available?: boolean;
+  resume_available?: boolean;
 
-gps_fix_type?: number;
+  /**
+   * Backend-owned power-cycle recovery state.
+   * The frontend must only project these fields; it never decides recovery.
+   */
+  recovery_required?: boolean;
+  recovery_available?: boolean;
+  recovery_state?: string | null;
+  recovery_reason?: string | null;
+  recovery_previous_state?: string | null;
+  recovery_current_point_id?: string | null;
+  recovery_current_point_number?: number | null;
+  recovery_saved_at?: string | null;
+  recovery_error?: string | null;
 
-rtk_state?: string | null;
-rtk_fixed?: boolean;
-rtk_healthy?: boolean;
-rtk_motion_ok?: boolean;
-rtk_reason?: string | null;
-rtk_correction_age_sec?: number | null;
+  gps_fix_type?: number;
 
-backend_heartbeat_healthy?: boolean;
+  rtk_state?: string | null;
+  rtk_fixed?: boolean;
+  rtk_healthy?: boolean;
+  rtk_motion_ok?: boolean;
+  rtk_reason?: string | null;
+  rtk_correction_age_sec?: number | null;
 
-mission_enable?: boolean;
-emergency_stop?: boolean;
+  backend_heartbeat_healthy?: boolean;
 
-arrival_settle_elapsed_sec?: number;
-arrival_settle_required_sec?: number;
+  mission_enable?: boolean;
+  emergency_stop?: boolean;
+  px4_connected?: boolean;
+  px4_armed?: boolean;
+
+  arrival_settle_elapsed_sec?: number;
+  arrival_settle_required_sec?: number;
 
   mission_id?: string;
+  mission_run_id?: string | null;
   filename?: string;
 
   coordinate_mode?: string;

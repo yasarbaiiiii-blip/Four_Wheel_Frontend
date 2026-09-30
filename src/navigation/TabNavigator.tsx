@@ -14,6 +14,7 @@ import { colors } from "../theme/colors";
 import PersistentStorage from "../services/PersistentStorage";
 import { RtkRuntimeNotice } from "../components/rtk/RtkRuntimeNotice";
 import { BatteryCriticalNotice } from "../components/battery/BatteryCriticalNotice";
+import { MissionRecoveryNotice } from "../components/recovery/MissionRecoveryNotice";
 
 const MemoDashboardScreen = React.memo(DashboardScreen);
 const MemoPathPlanScreen = React.memo(PathPlanScreen);
@@ -102,6 +103,9 @@ function TabNavigatorInner() {
 
         <RtkRuntimeNotice />
         <BatteryCriticalNotice />
+        <MissionRecoveryNotice
+          onUploadNewMission={() => handleTabChange("Marking Plan")}
+        />
 
         <View style={styles.body}>
           {sharedMapActive && (

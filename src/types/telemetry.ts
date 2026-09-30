@@ -27,9 +27,14 @@ export interface TelemetryBattery {
   percentage: number;
   /** Rover backend lockout flag; START/RESUME/NEXT/SKIP are refused while true. */
   mission_lockout?: boolean;
-  /** Rover is running its automatic battery-critical mission STOP. */
+  /**
+   * Legacy backend field name. True while the backend is dispatching the
+   * automatic battery-critical mission PAUSE.
+   */
   critical_stop_in_progress?: boolean;
-  /** Error text when the automatic battery-critical STOP failed, else null. */
+  /**
+   * Legacy backend field name. Error text when automatic battery PAUSE fails.
+   */
   critical_stop_error?: string | null;
 }
 

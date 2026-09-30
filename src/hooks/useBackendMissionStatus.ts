@@ -34,23 +34,37 @@ export interface BackendPointEvent {
 
 export interface BackendMissionStatus {
   missionId: string | null;
+  missionRunId: string | null;
   filename: string | null;
   checksumSha256: string | null;
 
   coordinateMode: string | null;
 
-pauseReason: string | null;
-resumeAvailable: boolean;
+  pauseReason: string | null;
+  resumeAvailable: boolean;
 
-rtkState: string | null;
-rtkFixed: boolean;
-rtkHealthy: boolean;
-rtkMotionOk: boolean;
-rtkReason: string | null;
-rtkCorrectionAgeSec: number | null;
+  recoveryRequired: boolean;
+  recoveryAvailable: boolean;
+  recoveryState: string;
+  recoveryReason: string | null;
+  recoveryPreviousState: string | null;
+  recoveryCurrentPointId: string | null;
+  recoveryCurrentPointNumber: number | null;
+  recoverySavedAt: string | null;
+  recoveryError: string | null;
 
-arrivalSettleElapsedSec: number;
-arrivalSettleRequiredSec: number;
+  px4Connected: boolean;
+  px4Armed: boolean;
+
+  rtkState: string | null;
+  rtkFixed: boolean;
+  rtkHealthy: boolean;
+  rtkMotionOk: boolean;
+  rtkReason: string | null;
+  rtkCorrectionAgeSec: number | null;
+
+  arrivalSettleElapsedSec: number;
+  arrivalSettleRequiredSec: number;
 
   extensionMode:
     | MissionExtensionMode
@@ -115,24 +129,38 @@ export interface UseBackendMissionStatusResult {
 
 const EMPTY_MISSION: BackendMissionStatus = {
   missionId: null,
+  missionRunId: null,
   filename: null,
   checksumSha256: null,
 
   coordinateMode: null,
   extensionMode: null,
 
-pauseReason: null,
-resumeAvailable: false,
+  pauseReason: null,
+  resumeAvailable: false,
 
-rtkState: null,
-rtkFixed: false,
-rtkHealthy: false,
-rtkMotionOk: false,
-rtkReason: null,
-rtkCorrectionAgeSec: null,
+  recoveryRequired: false,
+  recoveryAvailable: false,
+  recoveryState: "NONE",
+  recoveryReason: null,
+  recoveryPreviousState: null,
+  recoveryCurrentPointId: null,
+  recoveryCurrentPointNumber: null,
+  recoverySavedAt: null,
+  recoveryError: null,
 
-arrivalSettleElapsedSec: 0,
-arrivalSettleRequiredSec: 0.30,
+  px4Connected: false,
+  px4Armed: false,
+
+  rtkState: null,
+  rtkFixed: false,
+  rtkHealthy: false,
+  rtkMotionOk: false,
+  rtkReason: null,
+  rtkCorrectionAgeSec: null,
+
+  arrivalSettleElapsedSec: 0,
+  arrivalSettleRequiredSec: 0.30,
 
   dummyPointDistanceM: null,
   rowTransitionThresholdM: null,
@@ -445,6 +473,13 @@ function mergeMissionPayload(
           )
         : previous.missionId,
 
+    missionRunId:
+      source.mission_run_id !== undefined
+        ? toStringOrNull(
+            source.mission_run_id,
+          )
+        : previous.missionRunId,
+
     filename:
       source.filename !== undefined
         ? toStringOrNull(
@@ -631,44 +666,102 @@ function mergeMissionPayload(
         : previous.pausedAt,
 
     pauseReason:
-  source.pause_reason !== undefined
-    ? toStringOrNull(source.pause_reason)
-    : previous.pauseReason,
+      source.pause_reason !== undefined
+        ? toStringOrNull(source.pause_reason)
+        : previous.pauseReason,
 
-resumeAvailable:
-  source.resume_available !== undefined
-    ? toBoolean(source.resume_available)
-    : previous.resumeAvailable,
+    resumeAvailable:
+      source.resume_available !== undefined
+        ? toBoolean(source.resume_available)
+        : previous.resumeAvailable,
 
-rtkState:
-  source.rtk_state !== undefined
-    ? toStringOrNull(source.rtk_state)
-    : previous.rtkState,
+    recoveryRequired:
+      source.recovery_required !== undefined
+        ? toBoolean(source.recovery_required)
+        : previous.recoveryRequired,
 
-rtkFixed:
-  source.rtk_fixed !== undefined
-    ? toBoolean(source.rtk_fixed)
-    : previous.rtkFixed,
+    recoveryAvailable:
+      source.recovery_available !== undefined
+        ? toBoolean(source.recovery_available)
+        : previous.recoveryAvailable,
 
-rtkHealthy:
-  source.rtk_healthy !== undefined
-    ? toBoolean(source.rtk_healthy)
-    : previous.rtkHealthy,
+    recoveryState:
+      source.recovery_state !== undefined
+        ? (
+            toStringOrNull(source.recovery_state) ??
+            "NONE"
+          ).toUpperCase()
+        : previous.recoveryState,
 
-rtkMotionOk:
-  source.rtk_motion_ok !== undefined
-    ? toBoolean(source.rtk_motion_ok)
-    : previous.rtkMotionOk,
+    recoveryReason:
+      source.recovery_reason !== undefined
+        ? toStringOrNull(source.recovery_reason)
+        : previous.recoveryReason,
 
-rtkReason:
-  source.rtk_reason !== undefined
-    ? toStringOrNull(source.rtk_reason)
-    : previous.rtkReason,
+    recoveryPreviousState:
+      source.recovery_previous_state !== undefined
+        ? toStringOrNull(source.recovery_previous_state)
+        : previous.recoveryPreviousState,
 
-rtkCorrectionAgeSec:
-  source.rtk_correction_age_sec !== undefined
-    ? toFiniteNumberOrNull(source.rtk_correction_age_sec)
-    : previous.rtkCorrectionAgeSec,
+    recoveryCurrentPointId:
+      source.recovery_current_point_id !== undefined
+        ? toStringOrNull(source.recovery_current_point_id)
+        : previous.recoveryCurrentPointId,
+
+    recoveryCurrentPointNumber:
+      source.recovery_current_point_number !== undefined
+        ? toNullableIndex(source.recovery_current_point_number)
+        : previous.recoveryCurrentPointNumber,
+
+    recoverySavedAt:
+      source.recovery_saved_at !== undefined
+        ? toStringOrNull(source.recovery_saved_at)
+        : previous.recoverySavedAt,
+
+    recoveryError:
+      source.recovery_error !== undefined
+        ? toStringOrNull(source.recovery_error)
+        : previous.recoveryError,
+
+    px4Connected:
+      source.px4_connected !== undefined
+        ? toBoolean(source.px4_connected)
+        : previous.px4Connected,
+
+    px4Armed:
+      source.px4_armed !== undefined
+        ? toBoolean(source.px4_armed)
+        : previous.px4Armed,
+
+    rtkState:
+      source.rtk_state !== undefined
+        ? toStringOrNull(source.rtk_state)
+        : previous.rtkState,
+
+    rtkFixed:
+      source.rtk_fixed !== undefined
+        ? toBoolean(source.rtk_fixed)
+        : previous.rtkFixed,
+
+    rtkHealthy:
+      source.rtk_healthy !== undefined
+        ? toBoolean(source.rtk_healthy)
+        : previous.rtkHealthy,
+
+    rtkMotionOk:
+      source.rtk_motion_ok !== undefined
+        ? toBoolean(source.rtk_motion_ok)
+        : previous.rtkMotionOk,
+
+    rtkReason:
+      source.rtk_reason !== undefined
+        ? toStringOrNull(source.rtk_reason)
+        : previous.rtkReason,
+
+    rtkCorrectionAgeSec:
+      source.rtk_correction_age_sec !== undefined
+        ? toFiniteNumberOrNull(source.rtk_correction_age_sec)
+        : previous.rtkCorrectionAgeSec,
 
     arrivalSettleElapsedSec:
       source.arrival_settle_elapsed_sec !== undefined ||

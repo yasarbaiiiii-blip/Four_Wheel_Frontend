@@ -14,8 +14,8 @@ const FALLBACK_CRITICAL_BATTERY_PERCENT = 10;
  *
  * Driven by the rover's `battery_mission_lockout` flag so the app always
  * agrees with the backend that refuses START / RESUME / NEXT / SKIP. Also
- * reports the rover's automatic mission STOP, and re-opens if that STOP
- * fails so the operator knows to stop the mission by hand.
+ * reports the rover's automatic mission PAUSE, and re-opens if that PAUSE
+ * fails so the operator knows the mission did not enter the safe paused state.
  *
  * The warning has no timer and cannot be swiped away. Once shown, it remains
  * visible until the operator explicitly presses the close button.
@@ -23,7 +23,7 @@ const FALLBACK_CRITICAL_BATTERY_PERCENT = 10;
 export const BatteryCriticalNotice: React.FC = () => {
   const { telemetry, connectionState } = useRover();
   const previousCriticalRef = useRef(false);
-  const previousStopErrorRef = useRef<string | null>(null);
+  const previousPauseErrorRef = useRef<string | null>(null);
   const [visible, setVisible] = useState(false);
   const [triggerPercent, setTriggerPercent] = useState<number | null>(null);
   const [triggerVoltage, setTriggerVoltage] = useState<number | null>(null);
@@ -40,9 +40,9 @@ export const BatteryCriticalNotice: React.FC = () => {
       ? rawVoltage
       : null;
   const backendLockout = telemetry.battery?.mission_lockout;
-  const stopInProgress =
+  const pauseInProgress =
     connected && telemetry.battery?.critical_stop_in_progress === true;
-  const stopError = connected
+  const pauseError = connected
     ? telemetry.battery?.critical_stop_error ?? null
     : null;
 
@@ -66,16 +66,16 @@ export const BatteryCriticalNotice: React.FC = () => {
     previousCriticalRef.current = criticalNow;
   }, [criticalNow, percentage, voltage]);
 
-  // A failed automatic STOP must reach the operator even if the warning was
+  // A failed automatic PAUSE must reach the operator even if the warning was
   // already closed: re-open on every new error.
   useEffect(() => {
-    if (stopError && stopError !== previousStopErrorRef.current) {
+    if (pauseError && pauseError !== previousPauseErrorRef.current) {
       setTriggerPercent((current) => current ?? percentage);
       setTriggerVoltage((current) => current ?? voltage);
       setVisible(true);
     }
-    previousStopErrorRef.current = stopError;
-  }, [stopError, percentage, voltage]);
+    previousPauseErrorRef.current = pauseError;
+  }, [pauseError, percentage, voltage]);
 
   const shownPercent = triggerPercent ?? percentage;
   const shownVoltage = triggerVoltage ?? voltage;
@@ -86,13 +86,13 @@ export const BatteryCriticalNotice: React.FC = () => {
       ? `${shownVoltage.toFixed(2)} V`
       : "voltage unavailable";
 
-  let stopText = "";
-  if (stopError) {
-    stopText =
-      ` Automatic mission STOP FAILED: ${stopError}. ` +
-      "Press STOP now.";
-  } else if (stopInProgress) {
-    stopText = " Stopping the mission automatically…";
+  let pauseText = "";
+  if (pauseError) {
+    pauseText =
+      ` Automatic mission PAUSE FAILED: ${pauseError}. ` +
+      "Keep the rover stopped and resolve the backend error before continuing.";
+  } else if (pauseInProgress) {
+    pauseText = " Pausing the running mission automatically…";
   }
 
   return (
@@ -100,14 +100,14 @@ export const BatteryCriticalNotice: React.FC = () => {
       visible={visible}
       type="error"
       title={
-        stopError
-          ? "BATTERY LOW — AUTO STOP FAILED"
-          : "BATTERY LOW — OPERATION DISABLED"
+        pauseError
+          ? "BATTERY CRITICAL — AUTO PAUSE FAILED"
+          : "BATTERY CRITICAL — OPERATION DISABLED"
       }
       message={
         `Battery: ${percentageText} • ${voltageText}. ` +
         "Mission operation is disabled. Change the battery before continuing operation." +
-        stopText
+        pauseText
       }
       position="top"
       style={styles.criticalWarning}
