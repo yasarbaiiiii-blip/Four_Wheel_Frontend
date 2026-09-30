@@ -15,6 +15,14 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRover } from '../context/RoverContext';
+import { getBatteryDisplayColor } from '../utils/batteryDisplay';
+
+const BATTERY_COLORS = {
+  green: '#00FF00',
+  yellow: '#FFAA00',
+  red: '#FF0000',
+  unknown: '#666666',
+} as const;
 
 const TelemetryDisplay: React.FC = () => {
   const { telemetry, connectionState, roverPosition } = useRover();
@@ -127,7 +135,10 @@ const TelemetryDisplay: React.FC = () => {
               style={[
                 styles.value,
                 {
-                  color: telemetry.battery?.percentage > 30 ? '#00FF00' : '#FF0000',
+                  color: getBatteryDisplayColor(
+                    telemetry.battery?.percentage,
+                    BATTERY_COLORS,
+                  ),
                   flex: 0,
                 },
               ]}

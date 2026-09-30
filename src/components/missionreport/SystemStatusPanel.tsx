@@ -11,6 +11,7 @@ import {
 } from '../../context/liveTelemetryStore';
 import type { RoverStatusIndicators } from '../../hooks/useRoverStatusIndicators';
 import type { RtkUiState } from '../../adapters/px4RtkUiStateAdapter';
+import { getBatteryDisplayBand } from '../../utils/batteryDisplay';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 interface Props {
@@ -78,11 +79,13 @@ function deriveVisuals(ind: RoverStatusIndicators): IconVisual[] {
 
   // 5) Battery — null-safe (missing telemetry shows neutral, never a false 0%).
   let battery: IconVisual;
-  if (ind.batteryPct === null) {
+  const batteryBand = getBatteryDisplayBand(ind.batteryPct);
+
+  if (batteryBand === 'UNKNOWN') {
     battery = { icon: 'battery-dead', color: GREY, opacity: 0.7, label: 'BAT' };
-  } else if (ind.batteryPct > 50) {
+  } else if (batteryBand === 'GREEN') {
     battery = { icon: 'battery-charging', color: GREEN, opacity: 1, label: 'BAT' };
-  } else if (ind.batteryPct > 20) {
+  } else if (batteryBand === 'YELLOW') {
     battery = { icon: 'battery-half', color: AMBER, opacity: 1, label: 'BAT' };
   } else {
     battery = { icon: 'battery-dead', color: RED, opacity: 1, label: 'BAT' };

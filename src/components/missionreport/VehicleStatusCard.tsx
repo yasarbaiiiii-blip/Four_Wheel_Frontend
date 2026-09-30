@@ -6,6 +6,7 @@ import { colors } from '../../theme/colors';
 import { PATH_PLAN_GLASS, PATH_PLAN_HEADER } from '../../constants/pathPlanGlass';
 import { VehicleStatus } from './types';
 import { RoverTelemetry } from '../../types/telemetry';
+import { getBatteryDisplayColor } from '../../utils/batteryDisplay';
 
 interface Props {
   status: VehicleStatus;
@@ -59,12 +60,18 @@ const getRtkCardTone = (fixType: number): RtkCardTone => {
   };
 };
 
+const BATTERY_COLORS = {
+  green: colors.success,
+  yellow: colors.warning,
+  red: colors.danger,
+  unknown: '#666666',
+} as const;
+
 const getBatteryColor = (telemetry: any): string => {
-  if (!telemetry) return colors.danger;
-  const pct = telemetry.battery?.percentage ?? 0;
-  if (pct > 50) return colors.success;
-  if (pct > 20) return colors.warning;
-  return colors.danger;
+  return getBatteryDisplayColor(
+    telemetry?.battery?.percentage,
+    BATTERY_COLORS,
+  );
 };
 
 const getAccuracyColor = (value: number): string => {
