@@ -511,6 +511,10 @@ export default function MissionReportScreen({
   const holdingForNewReportRunRef = useRef(false);
   const [isPreparingMission, setIsPreparingMission] = useState(false);
   const startTimingAttemptRef = useRef<string | null>(null);
+  // The confirmation dialog can be tapped again before React has rendered the
+  // button's loading state. Keep a synchronous guard so duplicate START calls
+  // never queue behind the first rover-side startup sequence.
+  const startInFlightRef = useRef(false);
   const startOriginRef = useRef<{ lat: number; lon: number } | null>(null);
   const firstMotionLoggedRef = useRef(false);
   const lastLoggedStartPhaseRef = useRef<string | null>(null);
@@ -2919,15 +2923,18 @@ export default function MissionReportScreen({
     let restoredMission = restoredResponse.mission;
     setBackendMission(restoredMission);
 
-    // Restore starts trajectory preparation asynchronously. Prefer the live
-    // Socket.IO status already kept in backendMissionRef; REST is only a
-    // recovery path. This avoids a dense status-poll loop competing with the
-    // rover while it is regenerating its trajectory for a second run.
+    // Restore already waits for preparation on current rover backends. Prefer
+    // the live Socket.IO status if a slower rover still needs a little longer;
+    // REST is a sparse fallback only. The previous 400 ms polling delay made
+    // a repeat Start feel slow even when the restored path was already ready.
     const deadline = Date.now() + 30_000;
+    const REST_FALLBACK_DELAY_MS = 250;
+    const REST_FALLBACK_INTERVAL_MS = 500;
     const isReadyForLoad = (mission: MissionRuntimeState | null | undefined) =>
       mission?.loaded === true && mission.trajectory_ready === true;
     const isSameMission = (mission: MissionRuntimeState | null | undefined) =>
       String(mission?.mission_id ?? "").trim() === missionId;
+    let nextRestFallbackAt = Date.now() + REST_FALLBACK_DELAY_MS;
     while (
       Date.now() < deadline &&
       mountedRef.current &&
@@ -2939,19 +2946,22 @@ export default function MissionReportScreen({
         break;
       }
 
-      const status = await getMissionStatus();
-      if (status?.success && status.mission) {
-        restoredMission = status.mission;
-        setBackendMission(restoredMission);
-        const state = String(restoredMission.state ?? "")
-          .trim()
-          .toUpperCase();
-        if (state === "ERROR") {
-          throw new Error(
-            restoredMission.error ||
-              restoredMission.message ||
-              "The rover failed to prepare the completed mission.",
-          );
+      if (Date.now() >= nextRestFallbackAt) {
+        const status = await getMissionStatus();
+        nextRestFallbackAt = Date.now() + REST_FALLBACK_INTERVAL_MS;
+        if (status?.success && status.mission) {
+          restoredMission = status.mission;
+          setBackendMission(restoredMission);
+          const state = String(restoredMission.state ?? "")
+            .trim()
+            .toUpperCase();
+          if (state === "ERROR") {
+            throw new Error(
+              restoredMission.error ||
+                restoredMission.message ||
+                "The rover failed to prepare the completed mission.",
+            );
+          }
         }
       }
 
@@ -2959,9 +2969,7 @@ export default function MissionReportScreen({
         break;
       }
 
-      // Socket.IO will normally make the next iteration finish immediately;
-      // this is only a bounded REST fallback and must not flood the backend.
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
     if (!isReadyForLoad(restoredMission)) {
@@ -3044,6 +3052,14 @@ export default function MissionReportScreen({
         message: "Wait for the automatic path update to finish before starting this mission.",
       };
     }
+
+    if (startInFlightRef.current) {
+      return {
+        success: false,
+        message: "Mission start is already in progress.",
+      };
+    }
+    startInFlightRef.current = true;
 
     const attemptId = createMissionStartAttemptId();
     startTimingAttemptRef.current = attemptId;
@@ -3356,6 +3372,7 @@ export default function MissionReportScreen({
         message,
       };
     } finally {
+      startInFlightRef.current = false;
       setIsPreparingMission(false);
     }
   };
