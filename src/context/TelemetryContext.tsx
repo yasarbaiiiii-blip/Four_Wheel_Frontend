@@ -36,6 +36,7 @@ import {
   isSameMissionLifecycleSlice,
   type MissionLifecycleSlice,
 } from "../utils/missionLifecycleState";
+import { socketTelemetryPacketAgeMs } from "../utils/socketPacketClock";
 
 /**
  * Safe empty snapshot exposed whenever the tablet is not currently connected
@@ -208,8 +209,9 @@ export function TelemetryProvider({
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   /**
-   * Even if an older REST request finishes after disconnection, consumers do
-   * not receive it until Socket.IO confirms that the rover is connected again.
+   * Freshness is based on the tablet's actual Socket.IO telemetry receive time,
+   * not backend generated_at and not whether rover values changed. A paused or
+   * stationary rover therefore stays LIVE while telemetry packets keep arriving.
    */
   const STALE_AFTER_MS = 2500;
 
@@ -217,8 +219,7 @@ export function TelemetryProvider({
     if (!isRoverConnected) {
       return DISCONNECTED_TELEMETRY;
     }
-    const last = rover.telemetry.lastMessageTs;
-    const ageMs = last == null ? null : Math.max(0, nowMs - last);
+    const ageMs = socketTelemetryPacketAgeMs(nowMs);
     return {
       ...rover.telemetry,
       ageMs,

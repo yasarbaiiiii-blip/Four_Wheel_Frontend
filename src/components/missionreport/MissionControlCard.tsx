@@ -121,6 +121,7 @@ function selectMissionControlLive(s: LiveTelemetrySnapshot) {
     currentWp: s.telemetry.mission?.current_wp,
     totalWp: s.telemetry.mission?.total_wp,
     rtkFixType: s.telemetry.rtk?.fix_type,
+    batteryMissionLockout: s.telemetry.battery?.mission_lockout === true,
     // Primitives only, so shallowEqual skips unchanged obstacle packets.
     obstacleEnabled: s.telemetry.obstacle?.enabled ?? false,
     obstacleHealthy: s.telemetry.obstacle?.healthy ?? false,
@@ -213,6 +214,7 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
     isWaitingForNext;
 
   const isPaused = isMissionPaused;
+  const batteryMissionLocked = telemetryLive.batteryMissionLockout;
 
   const startStage = String(
     missionLifecycle.start_stage ??
@@ -338,6 +340,15 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
 
   // Mission control handlers with action guard protection
   const handleStart = preventAction(async () => {
+    if (batteryMissionLocked) {
+      showLocalToast(
+        "error",
+        "Low battery critical condition. Change the battery before starting the mission.",
+        4500,
+      );
+      return;
+    }
+
     if (!isReady) {
       showLocalToast("error", "System is initializing. Please wait...");
       return;
@@ -425,6 +436,13 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   };
 
   const handleResume = async () => {
+    if (batteryMissionLocked) {
+      const reason =
+        "Low battery critical condition. Change the battery before resuming the mission.";
+      showLocalToast("error", reason, 4500);
+      return { success: false, message: reason };
+    }
+
     if (!resumeAvailable) {
       const reason = pauseReasonText(pauseReason, rtkReason).blockedMessage;
 
@@ -475,6 +493,13 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   };
 
   const handleNext = async () => {
+    if (batteryMissionLocked) {
+      const reason =
+        "Low battery critical condition. NEXT POINT is disabled until the battery is changed.";
+      showLocalToast("error", reason, 4500);
+      return { success: false, message: reason };
+    }
+
     try {
       setIsNexting(true);
       const response = onNext ? await onNext() : await services.nextMission();
@@ -497,6 +522,13 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   };
 
   const handleSkip = async () => {
+    if (batteryMissionLocked) {
+      const reason =
+        "Low battery critical condition. SKIP POINT is disabled until the battery is changed.";
+      showLocalToast("error", reason, 4500);
+      return { success: false, message: reason };
+    }
+
     setIsSkipping(true);
     try {
       const response = onSkip ? await onSkip() : await services.skipMission();
@@ -667,7 +699,9 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
             style={[
               styles.controlButton,
               isRunning ? styles.stopButton : styles.startButton,
-              !isRunning && (!isMissionReady || isPlanUpdateRequired) && styles.buttonDisabled,
+              !isRunning &&
+                (batteryMissionLocked || !isMissionReady || isPlanUpdateRequired) &&
+                styles.buttonDisabled,
             ]}
             onPress={() => {
               if (isRunning) {
@@ -683,7 +717,8 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
               isStarting ||
               isStopping ||
               isPreparing ||
-              (!isRunning && (!isMissionReady || isPlanUpdateRequired))
+              (!isRunning &&
+                (batteryMissionLocked || !isMissionReady || isPlanUpdateRequired))
             }
           >
             <Text style={styles.buttonText}>
@@ -711,7 +746,7 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
                 isWaitingForNext ||
                 isPausing ||
                 isResuming ||
-                (isPaused && !resumeAvailable)) &&
+                (isPaused && (batteryMissionLocked || !resumeAvailable))) &&
                 styles.buttonDisabled,
             ]}
             onPress={isPaused ? handleResume : handlePause}
@@ -720,7 +755,7 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
               isWaitingForNext ||
               isPausing ||
               isResuming ||
-              (isPaused && !resumeAvailable)
+              (isPaused && (batteryMissionLocked || !resumeAvailable))
             }
           >
             <Text style={styles.buttonText}>
@@ -741,10 +776,11 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
                 styles.controlButton,
                 styles.nextButton,
                 waitingForManual && styles.nextButtonWaiting,
-                (!isWaitingForNext || isNexting) && styles.buttonDisabled,
+                (batteryMissionLocked || !isWaitingForNext || isNexting) &&
+                  styles.buttonDisabled,
               ]}
               onPress={handleNext}
-              disabled={!isWaitingForNext || isNexting}
+              disabled={batteryMissionLocked || !isWaitingForNext || isNexting}
             >
               <Text style={styles.buttonText}>
                 {isNexting
@@ -763,7 +799,8 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
                 style={[
                   styles.controlButton,
                   styles.skipButton,
-                  (!isRunning || isSkipping) && styles.buttonDisabled,
+                  (batteryMissionLocked || !isRunning || isSkipping) &&
+                    styles.buttonDisabled,
                   {
                     flex: 1,
                     position: "relative",
@@ -772,7 +809,7 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
                 onPress={() =>
                   showConfirmDialog("Skip Current Point", handleSkip)
                 }
-                disabled={!isRunning || isSkipping}
+                disabled={batteryMissionLocked || !isRunning || isSkipping}
               >
                 <Text style={styles.buttonText}>
                   {isSkipping ? "⏳ Skipping..." : "SKIP POINT"}

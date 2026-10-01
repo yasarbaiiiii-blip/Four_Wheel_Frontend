@@ -101,12 +101,13 @@ export const BatteryCriticalNotice: React.FC = () => {
       type="error"
       title={
         pauseError
-          ? "BATTERY CRITICAL — AUTO PAUSE FAILED"
-          : "BATTERY CRITICAL — OPERATION DISABLED"
+          ? "LOW BATTERY — AUTO PAUSE FAILED"
+          : "LOW BATTERY — CRITICAL CONDITION"
       }
       message={
         `Battery: ${percentageText} • ${voltageText}. ` +
-        "Mission operation is disabled. Change the battery before continuing operation." +
+        "Low battery critical condition. Change the battery before continuing the mission. " +
+        "START, RESUME, NEXT POINT and SKIP POINT are disabled." +
         pauseText
       }
       position="bottom"
