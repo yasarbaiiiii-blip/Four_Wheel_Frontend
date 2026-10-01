@@ -12,6 +12,7 @@ import {
   RTK_HEADLINE_LABEL,
   type RtkHeadlineState,
 } from "../../adapters/rtkControlAdapter";
+import { EstopControls } from "../shared/EstopControls";
 
 interface Props {
   onPress: () => void;
@@ -45,9 +46,9 @@ export const QuickNtripStartCard: React.FC<Props> = ({
   const healthy = HEALTHY_STATES.has(rtkState);
   const transitional = TRANSITIONAL_STATES.has(rtkState);
 
-  // Mission Progress is quick-start only.
+  // Mission Progress is quick-start only for RTK.
   // Once RTK has entered any lifecycle state other than OFF, this button
-  // becomes status-only. Full control/Stop remains in RTK Settings.
+  // becomes status-only. Full RTK control/Stop remains in RTK Settings.
   const rtkActionDisabled = loading || rtkState !== "off";
 
   return (
@@ -103,6 +104,10 @@ export const QuickNtripStartCard: React.FC<Props> = ({
         )}
         <Text style={styles.buttonText}>MANUAL</Text>
       </TouchableOpacity>
+
+      {/* Emergency STOP becomes RELEASE only after the rover confirms its
+          emergency latch. The command semantics remain in EstopControls. */}
+      <EstopControls variant="vertical" />
     </View>
   );
 };

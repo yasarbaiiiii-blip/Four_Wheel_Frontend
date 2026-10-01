@@ -49,11 +49,6 @@ export type MissionControlCardProps = {
   mode: "AUTO" | "MANUAL" | "CONTINUOUS" | "DASH";
   onSetMode: (mode: "AUTO" | "MANUAL") => Promise<any> | void;
   markingTool?: "LASER" | "SPRAY";
-  onSetMarkingTool?: (tool: "LASER" | "SPRAY") => Promise<any> | void;
-  onSaveMissionDefaults?: () => Promise<any> | void;
-  defaultExecutionMode?: "AUTO" | "MANUAL";
-  defaultMarkingTool?: "LASER" | "SPRAY";
-  defaultsSource?: "launch" | "saved";
   laserHoldMode?: "STEADY" | "BLINK" | null;
   laserHoldPointId?: string | null;
   remainingPointCount?: number | null;
@@ -131,6 +126,8 @@ function selectMissionControlLive(s: LiveTelemetrySnapshot) {
     obstacleHealthy: s.telemetry.obstacle?.healthy ?? false,
     obstacleZone: s.telemetry.obstacle?.zone ?? "unknown",
     obstacleDistanceMm: s.telemetry.obstacle?.distance_mm ?? null,
+    stale: s.telemetry.stale === true,
+    ageMs: s.telemetry.ageMs ?? null,
   };
 }
 
@@ -154,14 +151,9 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   rtkReason = null,
   stopStage = null,
   waitingForManual = false,
-   markingTool = "SPRAY",
-   onSetMarkingTool,
-   onSaveMissionDefaults,
-   defaultExecutionMode,
-   defaultMarkingTool,
-   defaultsSource,
-   laserHoldMode = null,
-   laserHoldPointId = null,
+  markingTool = "SPRAY",
+  laserHoldMode = null,
+  laserHoldPointId = null,
   isMissionLoaded = false,
   isMissionReady = false,
   isPreparing = false,
@@ -194,8 +186,6 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   const [isBulkSubmitting, setIsBulkSubmitting] = React.useState(false);
   const [isPausing, setIsPausing] = React.useState(false);
   const [isResuming, setIsResuming] = React.useState(false);
-  const [isChangingMarkingTool, setIsChangingMarkingTool] = React.useState(false);
-  const [isSavingMissionDefaults, setIsSavingMissionDefaults] = React.useState(false);
 
   const [lockedState, setLockedState] = React.useState<{ isRunning?: boolean; isPaused?: boolean; expiresAt: number } | null>(null);
 
@@ -571,40 +561,6 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
     setConfirmAction({ action, onConfirm });
   };
 
-  const handleMarkingTool = async (tool: "LASER" | "SPRAY") => {
-    if (!onSetMarkingTool || isRunning || tool === markingTool) return;
-    setIsChangingMarkingTool(true);
-    try {
-      const response = await onSetMarkingTool(tool);
-      if (response?.success === false) {
-        showLocalToast("error", response.message || "Backend rejected the marking tool change.");
-        return;
-      }
-      showLocalToast("success", `${tool} selected. Waiting for rover confirmation.`);
-    } catch (error) {
-      showLocalToast("error", error instanceof Error ? error.message : "Failed to change marking tool.");
-    } finally {
-      setIsChangingMarkingTool(false);
-    }
-  };
-
-  const handleSaveDefaults = async () => {
-    if (!onSaveMissionDefaults || isRunning) return;
-    setIsSavingMissionDefaults(true);
-    try {
-      const response = await onSaveMissionDefaults();
-      if (response?.success === false) {
-        showLocalToast("error", response.message || "Backend rejected mission defaults.");
-        return;
-      }
-      showLocalToast("success", "Mission defaults saved on the rover.");
-    } catch (error) {
-      showLocalToast("error", error instanceof Error ? error.message : "Failed to save mission defaults.");
-    } finally {
-      setIsSavingMissionDefaults(false);
-    }
-  };
-
   const isLaserMission = markingTool === "LASER";
   const obstacleChipText = !telemetryLive.obstacleHealthy
     ? "Obstacle sensor: no reading (not protected)"
@@ -643,6 +599,20 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
             <Text style={styles.panelHeaderTitle}>MISSION CONTROLS</Text>
           </View>
           <View style={styles.panelHeaderRight}>
+            <View
+              style={[
+                styles.liveBadge,
+                telemetryLive.stale ? styles.staleBadge : styles.liveBadgeHealthy,
+              ]}
+              accessibilityLabel={telemetryLive.stale ? "Rover data is stale" : "Rover data is live"}
+            >
+              <View style={[styles.liveDot, telemetryLive.stale && styles.staleDot]} />
+              <Text style={[styles.liveText, telemetryLive.stale && styles.staleText]}>
+                {telemetryLive.stale
+                  ? `STALE${telemetryLive.ageMs != null ? ` ${Math.ceil(telemetryLive.ageMs / 1000)}s` : ""}`
+                  : "LIVE"}
+              </Text>
+            </View>
             <View
               style={[
                 styles.missionStateBadge,
@@ -868,28 +838,6 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
             </TouchableOpacity>
           </View>
         </View>
-          <View style={styles.modeToggle}>
-            {(["LASER", "SPRAY"] as const).map((tool) => (
-              <TouchableOpacity key={tool}
-                style={[styles.modeButton, markingTool === tool && styles.modeButtonActive, (isRunning || isChangingMarkingTool) && styles.buttonDisabled]}
-                onPress={() => void handleMarkingTool(tool)} disabled={isRunning || isChangingMarkingTool}>
-                <Text style={[styles.modeText, markingTool === tool && styles.modeTextActive]}>{tool}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {isLaserMission && <Text style={styles.laserHint}>Laser needs MANUAL execution.</Text>}
-          {defaultExecutionMode && defaultMarkingTool && (
-            <Text style={styles.defaultsCaption}>Default: {defaultExecutionMode} · {defaultMarkingTool} ({defaultsSource === "saved" ? "saved" : "launch"})</Text>
-          )}
-          {onSaveMissionDefaults && (
-            <TouchableOpacity
-              style={[styles.defaultsButton, (isRunning || isSavingMissionDefaults) && styles.buttonDisabled]}
-              disabled={isRunning || isSavingMissionDefaults}
-              onPress={() => showConfirmDialog("Save mission defaults", () => void handleSaveDefaults())}
-            >
-              <Text style={styles.defaultsButtonText}>{isSavingMissionDefaults ? "SAVING..." : "SAVE AS DEFAULT"}</Text>
-            </TouchableOpacity>
-          )}
 
         {/* Loading Mission Modal */}
         <Modal transparent visible={isLoadingMission} animationType="fade">
@@ -1534,6 +1482,27 @@ const styles = StyleSheet.create({
   missionEmptyStateText: {
     color: "#94A3B8",
   },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 7,
+    borderWidth: 1,
+  },
+  liveBadgeHealthy: {
+    backgroundColor: "rgba(52, 211, 153, 0.10)",
+    borderColor: "rgba(52, 211, 153, 0.30)",
+  },
+  staleBadge: {
+    backgroundColor: "rgba(251, 191, 36, 0.12)",
+    borderColor: "rgba(251, 191, 36, 0.35)",
+  },
+  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#34D399" },
+  staleDot: { backgroundColor: "#FBBF24" },
+  liveText: { color: "#A7F3D0", fontSize: 8, fontWeight: "800", letterSpacing: 0.7 },
+  staleText: { color: "#FDE68A" },
   panelHeaderCloseBtn: PATH_PLAN_HEADER.closeBtn,
   panelHeaderIconWrap: PATH_PLAN_HEADER.iconWrap,
   panelHeaderTitle: PATH_PLAN_HEADER.title,

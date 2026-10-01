@@ -25,7 +25,14 @@ function errorText(error: unknown, fallback: string): string {
 
 const HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 };
 
-export const EstopControls: React.FC = () => {
+type EstopControlsProps = {
+  /** Header keeps redundant STOP access; the Manual bar swaps STOP for RELEASE. */
+  variant?: "header" | "vertical";
+};
+
+export const EstopControls: React.FC<EstopControlsProps> = ({
+  variant = "header",
+}) => {
   const { missionLifecycle } = useTelemetryControl();
   const view = estopControlsView(missionLifecycle.emergency_stop);
   const [isStopping, setIsStopping] = useState(false);
@@ -77,15 +84,18 @@ export const EstopControls: React.FC = () => {
     );
   };
 
+  const isVertical = variant === "vertical";
+  const actionIsRelease = isVertical && view.showRelease;
+
   return (
-    <View style={styles.row}>
-      {view.showLatchedBadge && (
+    <View style={[styles.row, isVertical && styles.vertical]}>
+      {view.showLatchedBadge && !isVertical && (
         <View style={styles.latchedBadge} accessibilityLabel="Emergency stop is on">
           <Text style={styles.latchedText}>E-STOP ON</Text>
         </View>
       )}
 
-      {view.showRelease && (
+      {view.showRelease && !isVertical && (
         <TouchableOpacity
           onPress={handleRelease}
           disabled={isReleasing}
@@ -99,23 +109,38 @@ export const EstopControls: React.FC = () => {
         </TouchableOpacity>
       )}
 
-      <TouchableOpacity
-        onPress={() => void handleStop()}
-        style={styles.stopBtn}
-        hitSlop={HIT_SLOP}
-        activeOpacity={0.6}
-        accessibilityRole="button"
-        accessibilityLabel="Emergency stop"
-      >
-        <MaterialCommunityIcons name="octagon" size={16} color="#FFFFFF" />
-        <Text style={styles.stopText}>{isStopping ? "STOPPING" : "STOP"}</Text>
-      </TouchableOpacity>
+      {actionIsRelease ? (
+        <TouchableOpacity
+          onPress={handleRelease}
+          disabled={isReleasing}
+          style={[styles.releaseBtn, isVertical && styles.verticalButton, isReleasing && styles.busy]}
+          hitSlop={HIT_SLOP}
+          accessibilityRole="button"
+          accessibilityLabel="Release emergency stop"
+        >
+          <MaterialCommunityIcons name="lock-open-variant-outline" size={18} color="#1F1300" />
+          <Text style={styles.releaseText}>{isReleasing ? "RELEASING" : "RELEASE"}</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          onPress={() => void handleStop()}
+          style={[styles.stopBtn, isVertical && styles.verticalButton]}
+          hitSlop={HIT_SLOP}
+          activeOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel="Emergency stop"
+        >
+          <MaterialCommunityIcons name="octagon" size={isVertical ? 18 : 16} color="#FFFFFF" />
+          <Text style={styles.stopText}>{isStopping ? "STOPPING" : "STOP"}</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 6 },
+  vertical: { width: "100%" },
   latchedBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -148,6 +173,12 @@ const styles = StyleSheet.create({
   },
   stopText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", letterSpacing: 0.5 },
   busy: { opacity: 0.6 },
+  verticalButton: {
+    width: "100%",
+    minHeight: 72,
+    justifyContent: "center",
+    borderRadius: 12,
+  },
 });
 
 export default EstopControls;

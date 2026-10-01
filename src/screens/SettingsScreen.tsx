@@ -24,6 +24,11 @@ import { getSprayConfig, enableSpray, disableSpray, testSpray, setSprayDuration 
 import { Toast } from "../components/shared/Toast";
 import { getObstacleStatus, setObstacleConfig } from "../services/obstacleService";
 import {
+  getMissionStatus,
+  saveMissionDefaults,
+  setMissionMarkingTool,
+} from "../services/missionApi";
+import {
   ObstacleView,
   formatMetres,
   obstacleReadingText,
@@ -123,6 +128,13 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
   const [isRTKSubmitting, setIsRTKSubmitting] = useState(false);
   const [canStopRtk, setCanStopRtk] = useState(false);
 
+  // Mission mode defaults are rover-owned. Settings is the single place to
+  // choose the marking actuator and persist it for the next mission.
+  const [missionMarkingTool, setMissionMarkingTool] =
+    useState<"LASER" | "SPRAY">("SPRAY");
+  const [missionDefaultSummary, setMissionDefaultSummary] = useState("");
+  const [isSavingMissionMode, setIsSavingMissionMode] = useState(false);
+
   // MAVLink Param Browser State
   const [showParamBrowser, setShowParamBrowser] = useState(false);
 
@@ -207,6 +219,27 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     }
   }, [visible]);
 
+  const loadMissionMode = async () => {
+    try {
+      const response = await getMissionStatus();
+      if (!response.success) return;
+      const mission = response.mission;
+      const tool = mission.marking_tool;
+      if (tool === "LASER" || tool === "SPRAY") {
+        setMissionMarkingTool(tool);
+      }
+      const savedMode = mission.default_execution_mode;
+      const savedTool = mission.default_marking_tool;
+      setMissionDefaultSummary(
+        savedMode && savedTool
+          ? `Saved default: ${savedMode} · ${savedTool}`
+          : "Choose a tool, then save it as the rover default.",
+      );
+    } catch {
+      setMissionDefaultSummary("Connect to the rover to load mission mode defaults.");
+    }
+  };
+
   const loadAllSettings = async () => {
     console.log("═══════════════════════════════════════");
     console.log("⚙️ LOADING SETTINGS FROM BACKEND/STORAGE");
@@ -221,6 +254,8 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     // Load LED controller status from backend and AsyncStorage
     await loadLedStatus();
 
+    await loadMissionMode();
+
     // GPS Failsafe mode is loaded from backend via RoverContext
     console.log(
       "✅ GPS Failsafe Mode (from backend via context):",
@@ -230,6 +265,33 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     console.log("═══════════════════════════════════════");
     console.log("✅ ALL SETTINGS LOADED");
     console.log("═══════════════════════════════════════");
+  };
+
+  const handleSaveMissionMode = async () => {
+    if (isMissionActive || isSavingMissionMode) return;
+    setIsSavingMissionMode(true);
+    try {
+      const toolResponse = await setMissionMarkingTool(missionMarkingTool);
+      if (!toolResponse.success) {
+        throw new Error(toolResponse.message || "The rover rejected the mission tool.");
+      }
+      const defaultsResponse = await saveMissionDefaults();
+      if (!defaultsResponse.success) {
+        throw new Error(defaultsResponse.message || "The rover rejected the mission default.");
+      }
+      const mission = defaultsResponse.mission;
+      setMissionDefaultSummary(
+        `Saved default: ${mission.default_execution_mode ?? "—"} · ${mission.default_marking_tool ?? missionMarkingTool}`,
+      );
+      setSuccessMessage("Mission mode default saved on the rover");
+    } catch (error) {
+      Alert.alert(
+        "Mission Mode Not Saved",
+        error instanceof Error ? error.message : "Could not save mission mode defaults.",
+      );
+    } finally {
+      setIsSavingMissionMode(false);
+    }
   };
 
   const loadServoConfig = async () => {
@@ -925,7 +987,65 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
               )}
             </View>
 
-            {/* 3. Servo Configuration Section */}
+            {/* 3. Mission Mode Section */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionIcon}>🎯</Text>
+                <Text style={styles.sectionTitle}>Mission Mode</Text>
+              </View>
+
+              <Text style={styles.settingDescription}>
+                Select the marking tool for the next mission and save it as the rover default. AUTO / MANUAL remains a mission-control choice.
+              </Text>
+
+              <View style={styles.languageButtons}>
+                {(["LASER", "SPRAY"] as const).map((tool) => (
+                  <TouchableOpacity
+                    key={tool}
+                    style={[
+                      styles.languageButton,
+                      missionMarkingTool === tool && styles.languageButtonActive,
+                      (isMissionActive || isSavingMissionMode) && styles.disabledControl,
+                    ]}
+                    onPress={() => setMissionMarkingTool(tool)}
+                    disabled={isMissionActive || isSavingMissionMode}
+                  >
+                    <Text style={[
+                      styles.languageButtonText,
+                      missionMarkingTool === tool && styles.languageButtonTextActive,
+                    ]}>
+                      {tool}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.settingDescription}>{missionDefaultSummary}</Text>
+
+              <TouchableOpacity
+                style={[styles.configureButton, (isMissionActive || isSavingMissionMode) && styles.disabledControl]}
+                onPress={() => void handleSaveMissionMode()}
+                disabled={isMissionActive || isSavingMissionMode}
+              >
+                <Text style={styles.configureButtonIcon}>{isSavingMissionMode ? "⏳" : "💾"}</Text>
+                <View style={styles.configureButtonContent}>
+                  <Text style={styles.configureButtonTitle}>
+                    {isSavingMissionMode ? "Saving Mission Mode..." : "Save as Default"}
+                  </Text>
+                  <Text style={styles.configureButtonDescription}>
+                    Applies to future missions; an active mission is never changed.
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {isMissionActive && (
+                <View style={styles.warningBox}>
+                  <Text style={styles.warningText}>⚠️ Stop the mission before changing its default mode</Text>
+                </View>
+              )}
+            </View>
+
+            {/* 4. Servo Configuration Section */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionIcon}>⚡</Text>
@@ -1444,6 +1564,9 @@ const styles = StyleSheet.create({
   },
   languageButtonTextActive: {
     color: colors.text,
+  },
+  disabledControl: {
+    opacity: 0.5,
   },
   testButton: {
     backgroundColor: "#7c3aed",

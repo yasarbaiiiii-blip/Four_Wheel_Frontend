@@ -594,7 +594,6 @@ class PersistentStorageService {
       isMissionProgressVisible?: boolean;
       isDistanceToTargetVisible?: boolean;
       isAccuracyMonitorVisible?: boolean;
-      isSystemStatusVisible?: boolean;
       isMissionControlsVisible?: boolean;
       isBottomTableVisible?: boolean;
       isBottomTableExpanded?: boolean;
@@ -636,7 +635,6 @@ class PersistentStorageService {
           isMissionProgressVisible?: boolean;
           isDistanceToTargetVisible?: boolean;
           isAccuracyMonitorVisible?: boolean;
-          isSystemStatusVisible?: boolean;
           isMissionControlsVisible?: boolean;
           isBottomTableVisible?: boolean;
           isBottomTableExpanded?: boolean;
@@ -961,7 +959,6 @@ class PersistentStorageService {
     isMissionProgressVisible?: boolean;
     isDistanceToTargetVisible?: boolean;
     isAccuracyMonitorVisible?: boolean;
-    isSystemStatusVisible?: boolean;
     isMissionControlsVisible?: boolean;
     isBottomTableVisible?: boolean;
     isBottomTableExpanded?: boolean;
@@ -991,7 +988,6 @@ class PersistentStorageService {
     isMissionProgressVisible?: boolean;
     isDistanceToTargetVisible?: boolean;
     isAccuracyMonitorVisible?: boolean;
-    isSystemStatusVisible?: boolean;
     isMissionControlsVisible?: boolean;
     isBottomTableVisible?: boolean;
     isBottomTableExpanded?: boolean;

@@ -42,7 +42,6 @@ import {
   classifyMissionEventForReport,
   isTerminalPointEventPayload,
 } from "../utils/reportRefreshScheduler";
-import { SystemStatusPanel } from "../components/missionreport/SystemStatusPanel";
 import { QuickNtripStartCard } from "../components/missionreport/QuickNtripStartCard";
 import { ManualDrivePanel } from "../components/manual/ManualDrivePanel";
 import MissionControlCard from "../components/missionreport/MissionControlCard";
@@ -160,8 +159,6 @@ import {
   loadMission,
   restoreMission,
   setMissionExecutionMode,
-  setMissionMarkingTool,
-  saveMissionDefaults,
   prepareMission,
   startMission,
   pauseMission,
@@ -649,7 +646,6 @@ export default function MissionReportScreen({
   const [missionProgressPanelHeight, setMissionProgressPanelHeight] =
     useState(0);
 
-  const [systemPanelHeight, setSystemPanelHeight] = useState(0);
   const { panelVisibility, setPanelVisibility, setPanelVisible } =
     useMissionProgressOverlay();
   const {
@@ -657,7 +653,6 @@ export default function MissionReportScreen({
     missionProgress: isMissionProgressVisible,
     distanceToTarget: isDistanceToTargetVisible,
     accuracyMonitor: isAccuracyMonitorVisible,
-    systemStatus: isSystemStatusVisible,
     missionControls: isMissionControlsVisible,
     bottom: isBottomTableVisible,
   } = panelVisibility;
@@ -3034,34 +3029,6 @@ export default function MissionReportScreen({
       };
     }
   };
-  const handleSetMarkingTool = async (tool: "LASER" | "SPRAY") => {
-    try {
-      const response = await setMissionMarkingTool(tool);
-      if (!response.success) {
-        return { success: false, message: response.message || response.mission?.message || "Backend rejected marking tool." };
-      }
-      setBackendMission(response.mission);
-      return response;
-    } catch (error) {
-      void refreshBackendMission();
-      return { success: false, message: error instanceof Error ? error.message : "Failed to change marking tool." };
-    }
-  };
-
-  const handleSaveMissionDefaults = async () => {
-    try {
-      const response = await saveMissionDefaults();
-      if (!response.success) {
-        return { success: false, message: response.message || response.mission?.message || "Backend rejected mission defaults." };
-      }
-      setBackendMission(response.mission);
-      return response;
-    } catch (error) {
-      void refreshBackendMission();
-      return { success: false, message: error instanceof Error ? error.message : "Failed to save mission defaults." };
-    }
-  };
-
 
   const handleStart = async () => {
     if (!mountedRef.current) {
@@ -3995,7 +3962,6 @@ export default function MissionReportScreen({
       isMissionProgressVisible,
       isDistanceToTargetVisible,
       isAccuracyMonitorVisible,
-      isSystemStatusVisible,
       isMissionControlsVisible,
       isBottomTableVisible,
       isBottomTableExpanded,
@@ -4007,7 +3973,6 @@ export default function MissionReportScreen({
     isMissionProgressVisible,
     isAccuracyMonitorVisible,
     isDistanceToTargetVisible,
-    isSystemStatusVisible,
     isMissionControlsVisible,
     isBottomTableVisible,
     isBottomTableExpanded,
@@ -5184,19 +5149,7 @@ export default function MissionReportScreen({
 
       {isMissionProgressVisible && (
         <View
-          style={[
-            styles.floatingQuickNtripPanel,
-            {
-              top:
-                (robotPanelHeight > 0
-                  ? MISSION_PROGRESS_LAYOUT.HEADER_CLEARANCE +
-                    robotPanelHeight +
-                    MISSION_PROGRESS_LAYOUT.PANEL_GAP
-                  : MISSION_PROGRESS_LAYOUT.MISSION_PROGRESS_STACK_FALLBACK) +
-                (missionProgressPanelHeight || 142) +
-                MISSION_PROGRESS_LAYOUT.PANEL_GAP,
-            },
-          ]}
+          style={styles.floatingQuickNtripPanel}
         >
           <QuickNtripStartCard
             onPress={handleQuickStartNtrip}
@@ -5229,31 +5182,9 @@ export default function MissionReportScreen({
         </DraggableCard>
       )}
 
-      {isVisible && isSystemStatusVisible && (
-        <DraggableCard
-          style={styles.floatingSystemStatusPanel}
-          handleType="custom"
-          onLayout={(e) => setSystemPanelHeight(e.nativeEvent.layout.height)}
-        >
-          <SystemStatusPanel
-            onClose={() => setPanelVisible("systemStatus", false)}
-          />
-        </DraggableCard>
-      )}
-
       {isMissionControlsVisible && !isManualDriveVisible && (
         <DraggableCard
-          style={[
-            styles.floatingMissionControlsPanel,
-            {
-              top:
-                systemPanelHeight > 0
-                  ? MISSION_PROGRESS_LAYOUT.HEADER_CLEARANCE +
-                    systemPanelHeight +
-                    MISSION_PROGRESS_LAYOUT.PANEL_GAP
-                  : MISSION_PROGRESS_LAYOUT.MISSION_CONTROLS_STACK_FALLBACK,
-            },
-          ]}
+          style={styles.floatingMissionControlsPanel}
           handleType="custom"
         >
           <MissionControlCard
@@ -5261,11 +5192,6 @@ export default function MissionReportScreen({
             mode={mode}
             onSetMode={handleSetExecutionMode}
             markingTool={backendMission?.marking_tool}
-            onSetMarkingTool={handleSetMarkingTool}
-            onSaveMissionDefaults={handleSaveMissionDefaults}
-            defaultExecutionMode={backendMission?.default_execution_mode}
-            defaultMarkingTool={backendMission?.default_marking_tool}
-            defaultsSource={backendMission?.defaults_source}
             laserHoldMode={backendMission?.laser_hold_mode}
             laserHoldPointId={backendMission?.laser_hold_point_id}
             remainingPointCount={backendMission?.remaining_points}
@@ -5479,7 +5405,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: MISSION_PROGRESS_LAYOUT.EDGE,
     width: MISSION_PROGRESS_LAYOUT.LEFT_PANEL_WIDTH,
-    zIndex: 999,
+    bottom: MISSION_PROGRESS_LAYOUT.BOTTOM_INSET,
+    zIndex: 1001,
   },
 
   floatingAccuracyMonitorPanel: {
@@ -5492,7 +5419,7 @@ const styles = StyleSheet.create({
      * The operator can long-press and drag
      * it anywhere after rendering.
      */
-    bottom: MISSION_PROGRESS_LAYOUT.BOTTOM_INSET + 126,
+    bottom: MISSION_PROGRESS_LAYOUT.BOTTOM_INSET + 390,
 
     zIndex: 1000,
   },
@@ -5501,18 +5428,12 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: MISSION_PROGRESS_LAYOUT.EDGE,
     width: MISSION_PROGRESS_LAYOUT.LEFT_PANEL_WIDTH,
-    bottom: MISSION_PROGRESS_LAYOUT.BOTTOM_INSET,
-    zIndex: 1000,
-  },
-  floatingSystemStatusPanel: {
-    position: "absolute",
-    top: MISSION_PROGRESS_LAYOUT.HEADER_CLEARANCE,
-    right: MISSION_PROGRESS_LAYOUT.EDGE,
-    width: MISSION_PROGRESS_LAYOUT.RIGHT_PANEL_WIDTH,
+    bottom: MISSION_PROGRESS_LAYOUT.BOTTOM_INSET + 260,
     zIndex: 1000,
   },
   floatingMissionControlsPanel: {
     position: "absolute",
+    top: MISSION_PROGRESS_LAYOUT.HEADER_CLEARANCE,
     right: MISSION_PROGRESS_LAYOUT.EDGE,
     width: MISSION_PROGRESS_LAYOUT.RIGHT_PANEL_WIDTH,
     zIndex: 1000,

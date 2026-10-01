@@ -61,11 +61,6 @@ const WIDGET_MENU_ITEMS: WidgetMenuItem[] = [
     icon: "crosshairs-gps",
   },
   {
-    key: "systemStatus",
-    label: "System Status",
-    icon: "pulse",
-  },
-  {
     key: "missionControls",
     label: "Mission Controls",
     icon: "rocket-launch",
@@ -384,10 +379,14 @@ const AppHeaderInner: React.FC<Props> = ({ activeTab, onTabChange, isLightMode, 
 
         <View style={[styles.rightDivider, { backgroundColor: rtkTone.divider }]} />
 
-        {/* Emergency stop: on every tab, never hidden behind a menu. */}
-        <EstopControls />
-
-        <View style={[styles.rightDivider, { backgroundColor: rtkTone.divider }]} />
+        {/* Mission Progress has the full vertical STOP → RELEASE control in
+            its Manual & Safety bar. Keep header access on every other tab. */}
+        {activeTab !== "Mission Progress" && (
+          <>
+            <EstopControls />
+            <View style={[styles.rightDivider, { backgroundColor: rtkTone.divider }]} />
+          </>
+        )}
 
         {/* Theme Toggle Button */}
         <TouchableOpacity

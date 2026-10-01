@@ -11,7 +11,6 @@ export type MissionProgressPanelKey =
   | "missionProgress"
   | "distanceToTarget"
   | "accuracyMonitor"
-  | "systemStatus"
   | "missionControls"
   | "bottom";
 
@@ -20,7 +19,6 @@ export interface MissionProgressPanelVisibility {
   missionProgress: boolean;
   distanceToTarget: boolean;
   accuracyMonitor: boolean;
-  systemStatus: boolean;
   missionControls: boolean;
   bottom: boolean;
 }
@@ -30,7 +28,6 @@ const DEFAULT_PANEL_VISIBILITY: MissionProgressPanelVisibility = {
   missionProgress: true,
   distanceToTarget: true,
   accuracyMonitor: true,
-  systemStatus: true,
   missionControls: true,
   bottom: true,
 };
@@ -122,7 +119,6 @@ export function migrateLegacyPanelVisibility(uiState: {
   isMissionProgressVisible?: boolean;
   isDistanceToTargetVisible?: boolean;
   isAccuracyMonitorVisible?: boolean;
-  isSystemStatusVisible?: boolean;
   isMissionControlsVisible?: boolean;
   isBottomTableVisible?: boolean;
 }): Partial<MissionProgressPanelVisibility> {
@@ -140,9 +136,6 @@ export function migrateLegacyPanelVisibility(uiState: {
   if (uiState.isAccuracyMonitorVisible !== undefined) {
     next.accuracyMonitor = uiState.isAccuracyMonitorVisible;
   }
-  if (uiState.isSystemStatusVisible !== undefined) {
-    next.systemStatus = uiState.isSystemStatusVisible;
-  }
   if (uiState.isMissionControlsVisible !== undefined) {
     next.missionControls = uiState.isMissionControlsVisible;
   }
@@ -157,7 +150,6 @@ export function migrateLegacyPanelVisibility(uiState: {
     next.accuracyMonitor = uiState.isLeftPanelVisible;
   }
   if (uiState.isRightPanelVisible !== undefined) {
-    next.systemStatus = uiState.isRightPanelVisible;
     next.missionControls = uiState.isRightPanelVisible;
   }
 
