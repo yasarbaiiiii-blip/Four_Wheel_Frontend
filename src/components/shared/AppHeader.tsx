@@ -379,9 +379,10 @@ const AppHeaderInner: React.FC<Props> = ({ activeTab, onTabChange, isLightMode, 
 
         <View style={[styles.rightDivider, { backgroundColor: rtkTone.divider }]} />
 
-        {/* Mission Progress has the full vertical STOP → RELEASE control in
-            its Manual & Safety bar. Keep header access on every other tab. */}
-        {activeTab !== "Mission Progress" && (
+        {/* Emergency control belongs in the Mission Progress Manual & Safety
+            bar. Dashboard retains a compact global fallback; Marking Plan is
+            planning-only and intentionally has no STOP / RELEASE control. */}
+        {activeTab === "Dashboard" && (
           <>
             <EstopControls />
             <View style={[styles.rightDivider, { backgroundColor: rtkTone.divider }]} />
