@@ -29,9 +29,7 @@ export const BatteryCriticalNotice: React.FC = () => {
   const [triggerVoltage, setTriggerVoltage] = useState<number | null>(null);
 
   const connected = connectionState === "connected";
-  const percentage = getWholeBatteryPercentage(
-    telemetry.battery?.percentage,
-  );
+  const percentage = getWholeBatteryPercentage(telemetry.battery?.percentage);
   const rawVoltage = telemetry.battery?.voltage;
   const voltage =
     typeof rawVoltage === "number" &&
@@ -43,7 +41,7 @@ export const BatteryCriticalNotice: React.FC = () => {
   const pauseInProgress =
     connected && telemetry.battery?.critical_stop_in_progress === true;
   const pauseError = connected
-    ? telemetry.battery?.critical_stop_error ?? null
+    ? (telemetry.battery?.critical_stop_error ?? null)
     : null;
 
   const criticalNow =
@@ -105,10 +103,9 @@ export const BatteryCriticalNotice: React.FC = () => {
           : "LOW BATTERY — CRITICAL CONDITION"
       }
       message={
-        `Battery: ${percentageText} • ${voltageText}. ` +
-        "Low battery critical condition. Change the battery before continuing the mission. " +
-        "START, RESUME, NEXT POINT and SKIP POINT are disabled." +
-        pauseText
+        `Battery: ${percentageText} • ${voltageText}.\n` +
+        "Change the battery before continuing the mission.\n\n" +
+        "Paused the running mission."
       }
       position="bottom"
       style={styles.criticalWarning}
