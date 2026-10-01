@@ -209,49 +209,76 @@ function fixTypeLabel(fixType: number): string {
   return labels[fixType] || "Unknown";
 }
 
-const selectTelemetry = (s: LiveTelemetrySnapshot) => s.telemetry;
+/*
+ * Position, heading, RPP debug and joystick fields can change at 20–50 Hz.
+ * This card renders none of those values, so subscribe only to its displayed
+ * primitives and keep it asleep for unrelated telemetry packets.
+ */
+function selectVehicleTelemetry(s: LiveTelemetrySnapshot) {
+  const telemetry = s.telemetry;
+  return {
+    batteryPct: telemetry.battery.percentage,
+    batteryVoltage: telemetry.battery.voltage,
+    fixType: telemetry.rtk.fix_type,
+    satellites: telemetry.global.satellites_visible,
+    hrms: telemetry.hrms,
+    vrms: telemetry.vrms,
+    gpsFixName: telemetry.gps_fix_name ?? null,
+    rppStateName: telemetry.rpp_state_name ?? null,
+    imuStatus: telemetry.imu_status,
+    mode: telemetry.state?.mode ?? "UNKNOWN",
+    fcuConnected: telemetry.fcu_connected ?? null,
+    lastMessageTs: telemetry.lastMessageTs,
+  };
+}
 
 export const LiveVehicleStatusCard: React.FC<
   DragProps & { onClose?: () => void }
 > = ({ onClose, ...drag }) => {
-  const telemetry = useLiveTelemetrySelector(selectTelemetry);
+  const live = useLiveTelemetrySelector(selectVehicleTelemetry, shallowEqual);
+
+  // VehicleStatusCard needs only this small presentation projection, not the
+  // complete rover payload. Its identity changes only with a visible field.
+  const telemetry = useMemo(() => ({
+    battery: { percentage: live.batteryPct, voltage: live.batteryVoltage },
+    rtk: { fix_type: live.fixType },
+    global: { satellites_visible: live.satellites },
+    hrms: live.hrms,
+    vrms: live.vrms,
+  }), [
+    live.batteryPct,
+    live.batteryVoltage,
+    live.fixType,
+    live.satellites,
+    live.hrms,
+    live.vrms,
+  ]);
 
   const status = useMemo((): VehicleStatus => {
     const hrmsValue =
-      typeof telemetry.hrms === "string" ? parseFloat(telemetry.hrms) : telemetry.hrms;
+      typeof live.hrms === "string" ? parseFloat(live.hrms) : live.hrms;
     const vrmsValue =
-      typeof telemetry.vrms === "string" ? parseFloat(telemetry.vrms) : telemetry.vrms;
-    const rppLabel = telemetry.rpp_state_name?.trim();
+      typeof live.vrms === "string" ? parseFloat(live.vrms) : live.vrms;
+    const rppLabel = live.rppStateName?.trim();
     return {
-      battery: `${telemetry.battery.percentage.toFixed(1)}% (${telemetry.battery.voltage.toFixed(2)}V)`,
-      gps: telemetry.gps_fix_name?.trim() || fixTypeLabel(telemetry.rtk.fix_type),
-      satellites: telemetry.global.satellites_visible,
+      battery: `${live.batteryPct.toFixed(1)}% (${live.batteryVoltage.toFixed(2)}V)`,
+      gps: live.gpsFixName?.trim() || fixTypeLabel(live.fixType),
+      satellites: live.satellites,
       hrms: `${(hrmsValue || 0).toFixed(3)} m`,
       vrms: `${(vrmsValue || 0).toFixed(3)} m`,
-      imu: rppLabel ? `RPP ${rppLabel}` : telemetry.imu_status,
-      mode: telemetry.state?.mode || "UNKNOWN",
+      imu: rppLabel ? `RPP ${rppLabel}` : live.imuStatus,
+      mode: live.mode,
     };
-  }, [
-    telemetry.battery.percentage,
-    telemetry.battery.voltage,
-    telemetry.rtk.fix_type,
-    telemetry.global.satellites_visible,
-    telemetry.hrms,
-    telemetry.vrms,
-    telemetry.imu_status,
-    telemetry.gps_fix_name,
-    telemetry.rpp_state_name,
-    telemetry.state?.mode,
-  ]);
+  }, [live]);
 
   useEffect(() => {
     if (!isRobotStatusDebugEnabled()) return;
     patchRobotStatusDebug({
       uiStatus: status,
-      uiConnected: telemetry.fcu_connected !== false,
-      lastMessageTs: telemetry.lastMessageTs,
+      uiConnected: live.fcuConnected !== false,
+      lastMessageTs: live.lastMessageTs,
     });
-  }, [status, telemetry.fcu_connected, telemetry.lastMessageTs]);
+  }, [status, live.fcuConnected, live.lastMessageTs]);
 
   return (
     <VehicleStatusCard

@@ -113,6 +113,13 @@ describe("applyPointResult", () => {
     );
   });
 
+  test("keeps the same map for a replayed identical socket event", () => {
+    const entry = parsePointResultEvent(socketEvent(3), 1000)!;
+    const map = applyPointResult(EMPTY_POINT_RESULTS, entry, RUN);
+    const replay = parsePointResultEvent(socketEvent(3), 2000)!;
+    expect(applyPointResult(map, replay, RUN)).toBe(map);
+  });
+
   test("a later accuracy-less FAILED keeps the exact terminal snapshot", () => {
     let map = applyPointResult(
       EMPTY_POINT_RESULTS,

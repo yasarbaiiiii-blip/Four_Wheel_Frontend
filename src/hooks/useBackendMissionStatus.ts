@@ -18,6 +18,44 @@ import {
   PX4_SOCKET_EVENTS,
 } from "../config/px4Endpoints";
 
+/*
+ * Several global notices consume this hook at once. They all need the same
+ * recovery fallback, but they must not turn one missed socket event into
+ * three overlapping /mission/status requests. A tiny successful-response
+ * window also coalesces timers that were mounted a few milliseconds apart;
+ * Socket.IO remains the immediate live source.
+ */
+type MissionStatusResponse = Awaited<ReturnType<typeof getMissionStatus>>;
+const MISSION_STATUS_REQUEST_DEDUPE_MS = 1_000;
+let missionStatusRequest: Promise<MissionStatusResponse> | null = null;
+let cachedMissionStatusResponse: MissionStatusResponse | null = null;
+let cachedMissionStatusAtMs = 0;
+
+function getSharedMissionStatus(): Promise<MissionStatusResponse> {
+  if (missionStatusRequest) return missionStatusRequest;
+
+  if (
+    cachedMissionStatusResponse &&
+    Date.now() - cachedMissionStatusAtMs < MISSION_STATUS_REQUEST_DEDUPE_MS
+  ) {
+    return Promise.resolve(cachedMissionStatusResponse);
+  }
+
+  const request = getMissionStatus();
+  missionStatusRequest = request;
+  void request.then((response) => {
+    if (response.success) {
+      cachedMissionStatusResponse = response;
+      cachedMissionStatusAtMs = Date.now();
+    }
+  }).finally(() => {
+    if (missionStatusRequest === request) {
+      missionStatusRequest = null;
+    }
+  });
+  return request;
+}
+
 type UnknownRecord =
   Record<string, unknown>;
 
@@ -932,7 +970,7 @@ export function useBackendMissionStatus(
 
         try {
           const response =
-            await getMissionStatus();
+            await getSharedMissionStatus();
 
           if (
             !response.success

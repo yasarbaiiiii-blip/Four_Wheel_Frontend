@@ -5,6 +5,7 @@ import { useFieldMap } from "./FieldMapContext";
 import {
   deriveOfflineMapRegion,
   ensureOfflineMapRegion,
+  type OfflineMapPoint,
   type OfflineMapProgress,
 } from "../services/offlineMapService";
 
@@ -35,10 +36,43 @@ export function OfflineMapProvider({ children }: { children: ReactNode }): React
   const [attempt, setAttempt] = useState(0);
   const requestedKeyRef = useRef<string | null>(null);
 
+  /*
+   * A rover-only region is a first-run fallback, not a track recorder.
+   * Following every live position created new Mapbox pack work every few
+   * metres during a long mission without waypoints. Pin the first valid rover
+   * location until a mission footprint is present or the operator retries.
+   */
+  const [pinnedRoverRegionCenter, setPinnedRoverRegionCenter] =
+    useState<OfflineMapPoint | null>(null);
+  const missionPoints =
+    mission.waypoints.length > 0 ? mission.waypoints : marking.waypoints;
+  const missionRegion = useMemo(
+    () => deriveOfflineMapRegion(missionPoints, null),
+    [missionPoints],
+  );
+
+  useEffect(() => {
+    if (missionRegion) {
+      setPinnedRoverRegionCenter(null);
+      return;
+    }
+    if (
+      pinnedRoverRegionCenter === null &&
+      roverPosition &&
+      Number.isFinite(roverPosition.lat) &&
+      Number.isFinite(roverPosition.lng) &&
+      !(roverPosition.lat === 0 && roverPosition.lng === 0)
+    ) {
+      setPinnedRoverRegionCenter({
+        lat: roverPosition.lat,
+        lon: roverPosition.lng,
+      });
+    }
+  }, [missionRegion, pinnedRoverRegionCenter, roverPosition]);
+
   const region = useMemo(() => {
-    const points = mission.waypoints.length > 0 ? mission.waypoints : marking.waypoints;
-    return deriveOfflineMapRegion(points, roverPosition ? { lat: roverPosition.lat, lon: roverPosition.lng } : null);
-  }, [marking.waypoints, mission.waypoints, roverPosition?.lat, roverPosition?.lng]);
+    return missionRegion ?? deriveOfflineMapRegion([], pinnedRoverRegionCenter);
+  }, [missionRegion, pinnedRoverRegionCenter]);
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -77,8 +111,16 @@ export function OfflineMapProvider({ children }: { children: ReactNode }): React
 
   const retry = useCallback(() => {
     requestedKeyRef.current = null;
+    // Retry is the operator's explicit request to use the current rover
+    // location for the rover-only fallback pack.
+    if (!missionRegion && roverPosition) {
+      setPinnedRoverRegionCenter({
+        lat: roverPosition.lat,
+        lon: roverPosition.lng,
+      });
+    }
     setAttempt((value) => value + 1);
-  }, []);
+  }, [missionRegion, roverPosition]);
 
   const value = useMemo(() => ({ status, retry }), [status, retry]);
   return <OfflineMapContext.Provider value={value}>{children}</OfflineMapContext.Provider>;

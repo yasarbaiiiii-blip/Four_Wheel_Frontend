@@ -102,6 +102,15 @@ const nrpRosLegacyDisabled = (label: string): Promise<ServiceResponse> =>
 const MAX_BACKOFF_MS = 8000;
 const INITIAL_BACKOFF_MS = 1000;
 
+/*
+ * Socket.IO normally preserves packet order, but telemetry can be produced by
+ * several backend tasks before it reaches that one connection.  Never let an
+ * older producer snapshot move the UI (or the map marker) backwards.  This is
+ * deliberately tracked per socket connection: a reconnect is a fresh stream
+ * and must be allowed to seed the UI again.
+ */
+const OUT_OF_ORDER_TELEMETRY_REASON = "out-of-order telemetry timestamp";
+
 // Helper to get current backend URL (dynamic)
 const getHttpBase = () => getBackendURL().replace(/\/$/, "");
 
@@ -890,6 +899,7 @@ export function useRoverTelemetry(): UseRoverTelemetryResult {
    */
   const socketConnectedAtRef = useRef<number | null>(null);
   const lastSocketPacketTsRef = useRef<number | null>(null);
+  const lastSocketGeneratedAtRef = useRef<number | null>(null);
 
   /**
    * Prevent any packet belonging to an older socket connection from updating UI.
@@ -957,6 +967,8 @@ export function useRoverTelemetry(): UseRoverTelemetryResult {
     mutableRef.current.lastEnvelopeTs = null;
 
     socketConnectedAtRef.current = null;
+
+    lastSocketGeneratedAtRef.current = null;
 
     hasLiveTelemetryRef.current = false;
 
@@ -2160,10 +2172,37 @@ if (envelope.within_test_tolerance !== undefined) {
               return;
             }
 
+            // Reject before adapting/merging so a late full snapshot cannot
+            // rewrite nested fields or trigger unnecessary map/UI work.
+            // Packets without a backend timestamp cannot be ordered safely.
+            if (
+              backendGeneratedAt !== null &&
+              lastSocketGeneratedAtRef.current !== null &&
+              backendGeneratedAt < lastSocketGeneratedAtRef.current
+            ) {
+              if (isRobotStatusDebugEnabled()) {
+                patchRobotStatusDebug({
+                  lastSource: "rejected",
+                  rejectReason: OUT_OF_ORDER_TELEMETRY_REASON,
+                  px4Detected: true,
+                  rawPayload: raw,
+                  telemetryEventCount: dbg.telemetryEventCount + 1,
+                  rejectedEventCount: dbg.rejectedEventCount + 1,
+                  socketConnected: true,
+                  connectionState: "connected",
+                });
+              }
+              return;
+            }
+
             const adapted = toRoverTelemetry(
               livePayload as Parameters<typeof toRoverTelemetry>[0],
             );
             const envelope = toLiveTelemetryEnvelope(adapted, generatedAt);
+
+            if (backendGeneratedAt !== null) {
+              lastSocketGeneratedAtRef.current = backendGeneratedAt;
+            }
 
             if (!hasLiveTelemetryRef.current) {
               hasLiveTelemetryRef.current = true;

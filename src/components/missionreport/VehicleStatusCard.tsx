@@ -5,12 +5,21 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { PATH_PLAN_GLASS, PATH_PLAN_HEADER } from '../../constants/pathPlanGlass';
 import { VehicleStatus } from './types';
-import { RoverTelemetry } from '../../types/telemetry';
 import { getBatteryDisplayColor } from '../../utils/batteryDisplay';
+
+/** Only the values rendered by this card. Accepting this projection keeps the
+ * live wrapper from passing an entire high-frequency telemetry snapshot. */
+type VehicleTelemetry = {
+  battery?: { percentage?: number };
+  rtk?: { fix_type?: number };
+  global?: { satellites_visible?: number };
+  hrms?: number;
+  vrms?: number;
+};
 
 interface Props {
   status: VehicleStatus;
-  telemetry?: RoverTelemetry;
+  telemetry?: VehicleTelemetry;
   /** Injected by DraggableCard (handleType="custom") */
   dragGesture?: any;
   isDraggingActive?: boolean;

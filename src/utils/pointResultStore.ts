@@ -128,6 +128,18 @@ export function applyPointResult(
         result: { ...entry.result, accuracy: previousExact },
       };
     }
+
+    // Socket.IO can replay the final point event after reconnecting. Keep the
+    // same map object for an exact duplicate so Mission Report does not render
+    // again when no row actually changed.
+    if (
+      existing.missionId === incoming.missionId &&
+      existing.pointIndex === incoming.pointIndex &&
+      existing.event === incoming.event &&
+      JSON.stringify(existing.result) === JSON.stringify(incoming.result)
+    ) {
+      return map;
+    }
   }
 
   return { ...map, [entry.pointId]: incoming };
