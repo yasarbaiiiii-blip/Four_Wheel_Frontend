@@ -4897,7 +4897,7 @@ export default function PathPlanScreen({
         type={pathPlanToast.type}
         title={pathPlanToast.title}
         message={pathPlanToast.message}
-        position="bottom-right"
+        position="bottom"
         style={styles.pathPlanToast}
         onDismiss={dismissPathPlanToast}
         showCloseButton

@@ -18,7 +18,6 @@ import { MissionRecoveryNotice } from "../components/recovery/MissionRecoveryNot
 import { SystemEventNotice } from "../components/notifications/SystemEventNotice";
 import { Px4LinkNotice } from "../components/px4/Px4LinkNotice";
 import { RoverDataStaleNotice } from "../components/notifications/RoverDataStaleNotice";
-import { EmergencyStopNotice } from "../components/notifications/EmergencyStopNotice";
 
 const MemoDashboardScreen = React.memo(DashboardScreen);
 const MemoPathPlanScreen = React.memo(PathPlanScreen);
@@ -110,7 +109,6 @@ function TabNavigatorInner() {
         <SystemEventNotice />
         <Px4LinkNotice />
         <RoverDataStaleNotice />
-        <EmergencyStopNotice />
         <MissionRecoveryNotice
           onUploadNewMission={() => handleTabChange("Marking Plan")}
         />

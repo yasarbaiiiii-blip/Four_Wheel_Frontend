@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
 import { MarkerView, MapView, Camera } from '@rnmapbox/maps';
 import { RoverVehicleIcon } from '../shared/RoverVehicleIcon';
@@ -16,6 +16,25 @@ import {
   canDrawBackendLine,
   limitMapPoints,
 } from '../../utils/backendTrajectoryPreview';
+
+// Render direct backend positions at the same 20 Hz cadence. This is not an
+// animation: it limits the native marker to the newest packet when updates
+// arrive in a burst.
+const ROVER_MARKER_INTERVAL_MS = 50;
+
+function isValidLngLat(lon: unknown, lat: unknown): lon is number {
+  return (
+    typeof lon === 'number' &&
+    typeof lat === 'number' &&
+    Number.isFinite(lon) &&
+    Number.isFinite(lat) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lon >= -180 &&
+    lon <= 180 &&
+    !(lat === 0 && lon === 0)
+  );
+}
 
 export const PathPlanMapNative: React.FC<any> = ({
   waypoints = [],
@@ -35,31 +54,59 @@ export const PathPlanMapNative: React.FC<any> = ({
     onMapError,
   } = useMapboxSurface();
   const { preview } = useBackendTrajectory();
+  const [mapRover, setMapRover] = useState<{
+    lat: number;
+    lon: number;
+    heading: number | null;
+  } | null>(null);
+  const pendingRoverUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRoverUpdateRef = useRef(0);
+
+  useEffect(() => {
+    if (!isValidLngLat(roverPosition?.lon, roverPosition?.lat)) {
+      if (pendingRoverUpdateRef.current) clearTimeout(pendingRoverUpdateRef.current);
+      pendingRoverUpdateRef.current = null;
+      setMapRover(null);
+      return undefined;
+    }
+
+    const next = {
+      lat: roverPosition.lat,
+      lon: roverPosition.lon,
+      heading: typeof heading === 'number' && Number.isFinite(heading) ? heading : null,
+    };
+    const apply = () => {
+      lastRoverUpdateRef.current = Date.now();
+      pendingRoverUpdateRef.current = null;
+      setMapRover(next);
+    };
+    const wait = Math.max(
+      0,
+      ROVER_MARKER_INTERVAL_MS - (Date.now() - lastRoverUpdateRef.current),
+    );
+    if (wait === 0) apply();
+    else pendingRoverUpdateRef.current = setTimeout(apply, wait);
+
+    return () => {
+      if (pendingRoverUpdateRef.current) clearTimeout(pendingRoverUpdateRef.current);
+      pendingRoverUpdateRef.current = null;
+    };
+  }, [roverPosition?.lat, roverPosition?.lon, heading]);
+
   const center = useMemo(() => {
-    if (roverPosition && roverPosition.lon && roverPosition.lat) {
-      return [roverPosition.lon, roverPosition.lat];
+    if (mapRover) {
+      return [mapRover.lon, mapRover.lat];
     }
     if (waypoints.length > 0) {
       return [waypoints[0].lon, waypoints[0].lat];
     }
     return [80.2707, 13.0827];
-  }, [roverPosition, waypoints]);
+  }, [mapRover, waypoints]);
 
   const cameraRef = useRef<React.ElementRef<typeof Camera>>(null);
 
   // Do not auto-follow the rover. Tab switches and live GPS would otherwise
   // yank the camera. Operators re-center with map controls when they want it.
-
-  const isValidLngLat = (lon: unknown, lat: unknown): lon is number =>
-    typeof lon === 'number' &&
-    typeof lat === 'number' &&
-    Number.isFinite(lon) &&
-    Number.isFinite(lat) &&
-    lat >= -90 &&
-    lat <= 90 &&
-    lon >= -180 &&
-    lon <= 180 &&
-    !(lat === 0 && lon === 0);
 
   const showTrajectory = canDrawBackendLine(preview);
   const trajectoryGeoJSON = useMemo(() => {
@@ -162,16 +209,16 @@ export const PathPlanMapNative: React.FC<any> = ({
           />
         )}
 
-        {roverPosition &&
+        {mapRover &&
           visualization?.roverIcon !== false &&
-          isValidLngLat(roverPosition.lon, roverPosition.lat) && (
+          isValidLngLat(mapRover.lon, mapRover.lat) && (
           <MarkerView
-            coordinate={[roverPosition.lon, roverPosition.lat]}
+            coordinate={[mapRover.lon, mapRover.lat]}
             anchor={{ x: 0.5, y: 0.5 }}
             allowOverlap
             style={{ backgroundColor: "transparent" }}
           >
-            <RoverVehicleIcon heading={heading} status="rtk" />
+            <RoverVehicleIcon heading={mapRover.heading} status="rtk" />
           </MarkerView>
         )}
       </MapView>

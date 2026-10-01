@@ -48,7 +48,7 @@ export const RoverDataStaleNotice: React.FC = () => {
           ? "No fresh rover telemetry is arriving. Check rover Wi-Fi and backend connection."
           : `No fresh rover telemetry for ${seconds}s. Check rover Wi-Fi and backend connection.`
       }
-      position="top"
+      position="bottom"
       style={styles.toast}
       onDismiss={() => setDismissed(true)}
       showCloseButton

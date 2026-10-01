@@ -84,7 +84,7 @@ export const RtkRuntimeNotice: React.FC = () => {
         type="info"
         title="RTK FLOAT"
         message="Position accuracy degraded. Mission continuing."
-        position="top"
+        position="bottom"
         style={styles.floatWarning}
         onDismiss={() => setFloatWarningDismissed(true)}
       />
@@ -94,7 +94,7 @@ export const RtkRuntimeNotice: React.FC = () => {
         type="success"
         title="RTK FIXED"
         message="RTK FIXED recovered. Mission continuing normally."
-        position="top"
+        position="bottom"
         style={styles.recovered}
         onDismiss={() => {
           if (recoveryTimerRef.current) {

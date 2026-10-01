@@ -19,7 +19,6 @@ import { ModeSelectionDialog } from "../pathplan/ModeSelectionDialog";
 import { DashConfigDialog } from "../pathplan/DashConfigDialog";
 import { setMissionMode as setBackendMissionMode } from "../../services/missionModeService";
 import { LayerControlsPanel } from "../pathplan/LayerControlsPanel";
-import { EstopControls } from "./EstopControls";
 import {
   MissionProgressPanelKey,
   useMissionProgressOverlayOptional,
@@ -379,15 +378,9 @@ const AppHeaderInner: React.FC<Props> = ({ activeTab, onTabChange, isLightMode, 
 
         <View style={[styles.rightDivider, { backgroundColor: rtkTone.divider }]} />
 
-        {/* Emergency control belongs in the Mission Progress Manual & Safety
-            bar. Dashboard retains a compact global fallback; Marking Plan is
-            planning-only and intentionally has no STOP / RELEASE control. */}
-        {activeTab === "Dashboard" && (
-          <>
-            <EstopControls />
-            <View style={[styles.rightDivider, { backgroundColor: rtkTone.divider }]} />
-          </>
-        )}
+        {/* STOP / RELEASE lives in the Mission Progress Manual & Safety bar.
+            Dashboard and Marking Plan intentionally keep this header focused
+            on connection, settings, and theme controls. */}
 
         {/* Theme Toggle Button */}
         <TouchableOpacity

@@ -36,7 +36,10 @@ import {
 } from "../../utils/backendTrajectoryPreview";
 
 const DEFAULT_ZOOM = 16;
-const ROVER_THROTTLE_MS = 200;
+// Match the backend's 20 Hz telemetry cadence. The trailing timer below keeps
+// only the latest coordinate, so a busy native map never has to replay a
+// backlog of old rover positions.
+const ROVER_THROTTLE_MS = 50;
 const CHENNAI: [number, number] = [80.2707, 13.0827];
 
 /**

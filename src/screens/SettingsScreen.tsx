@@ -849,7 +849,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           visible={Boolean(successMessage)}
           type="success"
           message={successMessage ? `✅ ${successMessage}` : undefined}
-          position="top"
+          position="bottom"
           style={styles.successToast}
           onDismiss={() => setSuccessMessage("")}
         />

@@ -44,7 +44,7 @@ export const Px4LinkNotice: React.FC = () => {
         mission.px4LinkReason ??
         "The rover has no live connection to the flight controller."
       }
-      position="top"
+      position="bottom"
       style={styles.toast}
       onDismiss={() => setDismissed(true)}
     />

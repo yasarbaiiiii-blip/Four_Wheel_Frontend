@@ -14,7 +14,7 @@ export interface ToastProps {
   /** Called after a left or right swipe, or by the optional close button. */
   onDismiss: () => void;
   showCloseButton?: boolean;
-  /** Set false for a warning that must remain until its close button is pressed. */
+  /** @deprecated All app toasts are swipe-to-dismiss. */
   swipeToDismiss?: boolean;
 }
 
@@ -23,11 +23,9 @@ export const Toast: React.FC<ToastProps> = ({
   type,
   title,
   message,
-  position = 'bottom',
   style,
   onDismiss,
   showCloseButton = false,
-  swipeToDismiss = true,
 }) => {
   const translateX = useRef(new Animated.Value(0)).current;
 
@@ -43,7 +41,6 @@ export const Toast: React.FC<ToastProps> = ({
       // tappable; the responder is claimed only after a horizontal drag starts.
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) =>
-        swipeToDismiss &&
         Math.abs(gestureState.dx) > 8 &&
         Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
       onPanResponderMove: (_, gestureState) => {
@@ -73,26 +70,24 @@ export const Toast: React.FC<ToastProps> = ({
         }).start();
       },
     }),
-    [onDismiss, swipeToDismiss, translateX],
+    [onDismiss, translateX],
   );
 
   if (!visible) return null;
 
-  const positionStyle =
-    position === 'top'
-      ? { top: 24, left: 16, right: 16 }
-      : position === 'bottom-right'
-        ? { bottom: 24, right: 16, width: 320 }
-        : { bottom: 24, left: 16, right: 16 };
+  // One predictable operator-facing location: every alert is bottom aligned.
+  // It intentionally comes after caller styles so legacy `top` styles cannot
+  // create overlapping banners across separate warning components.
+  const positionStyle = { bottom: 24, left: 16, right: 16, top: undefined };
 
   return (
     <Animated.View
       {...panResponder.panHandlers}
       style={[
         styles.container,
-        positionStyle,
         styles[type],
         style,
+        positionStyle,
         { transform: [{ translateX }] },
       ]}
     >

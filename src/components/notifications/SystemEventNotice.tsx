@@ -64,10 +64,9 @@ export const SystemEventNotice: React.FC = () => {
       type={toast?.type ?? "info"}
       title={toast?.title}
       message={toast?.message}
-      position="top"
+      position="bottom"
       style={styles.systemEvent}
       showCloseButton
-      swipeToDismiss={!toast?.sticky}
       onDismiss={() => setToast(null)}
     />
   );

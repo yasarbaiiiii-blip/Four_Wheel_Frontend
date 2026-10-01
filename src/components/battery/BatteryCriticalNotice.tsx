@@ -17,8 +17,8 @@ const FALLBACK_CRITICAL_BATTERY_PERCENT = 10;
  * reports the rover's automatic mission PAUSE, and re-opens if that PAUSE
  * fails so the operator knows the mission did not enter the safe paused state.
  *
- * The warning has no timer and cannot be swiped away. Once shown, it remains
- * visible until the operator explicitly presses the close button.
+ * The warning has no timer. The operator may dismiss it by swiping, and it
+ * reappears whenever the backend reports a new critical-battery condition.
  */
 export const BatteryCriticalNotice: React.FC = () => {
   const { telemetry, connectionState } = useRover();
@@ -109,10 +109,9 @@ export const BatteryCriticalNotice: React.FC = () => {
         "Mission operation is disabled. Change the battery before continuing operation." +
         pauseText
       }
-      position="top"
+      position="bottom"
       style={styles.criticalWarning}
       showCloseButton
-      swipeToDismiss={false}
       onDismiss={() => setVisible(false)}
     />
   );

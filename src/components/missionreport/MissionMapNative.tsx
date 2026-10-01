@@ -42,6 +42,9 @@ interface Props {
 }
 
 const DEFAULT_ZOOM = 15;
+// The backend broadcasts the latest telemetry snapshot at 20 Hz. Keep the
+// native marker at the same direct-update cadence without interpolating it.
+const ROVER_MARKER_INTERVAL_MS = 50;
 
 function isValidLngLat(lon: unknown, lat: unknown): lon is number {
   return (
@@ -96,9 +99,9 @@ const MissionMapNativeBase: React.FC<Props> = ({
   const roverUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRoverUpdateRef = useRef(0);
 
-  // Mapbox MarkerView is a native view. Updating it for every websocket packet
-  // can overwhelm Android's renderer, so draw the latest rover position at a
-  // stable 10 FPS. The raw telemetry is still used everywhere else.
+  // Mapbox MarkerView is a native view. Apply at most one latest position per
+  // backend telemetry interval. Cleanup cancels a pending update when newer
+  // data arrives, which drops delayed positions instead of replaying history.
   useEffect(() => {
     if (!isVisible || !rawHasRoverPosition) {
       if (roverUpdateRef.current) clearTimeout(roverUpdateRef.current);
@@ -112,7 +115,10 @@ const MissionMapNativeBase: React.FC<Props> = ({
       roverUpdateRef.current = null;
       setMapRover(next);
     };
-    const wait = Math.max(0, 100 - (Date.now() - lastRoverUpdateRef.current));
+    const wait = Math.max(
+      0,
+      ROVER_MARKER_INTERVAL_MS - (Date.now() - lastRoverUpdateRef.current),
+    );
     if (wait === 0) apply();
     else roverUpdateRef.current = setTimeout(apply, wait);
     return () => {

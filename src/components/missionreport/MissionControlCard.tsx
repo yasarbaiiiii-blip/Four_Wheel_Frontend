@@ -613,36 +613,20 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
                   : "LIVE"}
               </Text>
             </View>
-            <View
-              style={[
-                styles.missionStateBadge,
-                isMissionLoaded
-                  ? styles.missionLoadedBadge
-                  : styles.missionEmptyBadge,
-              ]}
-              accessibilityLabel={
-                isMissionLoaded ? "Mission loaded" : "No mission loaded"
-              }
-            >
+            {isMissionLoaded && (
               <View
-                style={[
-                  styles.missionStateDot,
-                  {
-                    backgroundColor: isMissionLoaded
-                      ? "#34D399"
-                      : "rgba(255,255,255,0.35)",
-                  },
-                ]}
-              />
-              <Text
-                style={[
-                  styles.missionStateText,
-                  !isMissionLoaded && styles.missionEmptyStateText,
-                ]}
+                style={[styles.missionStateBadge, styles.missionLoadedBadge]}
+                accessibilityLabel="Mission loaded"
               >
-                {isMissionLoaded ? "MISSION LOADED" : "NO MISSION"}
-              </Text>
-            </View>
+                <View
+                  style={[
+                    styles.missionStateDot,
+                    { backgroundColor: "#34D399" },
+                  ]}
+                />
+                <Text style={styles.missionStateText}>MISSION LOADED</Text>
+              </View>
+            )}
             {onClose && (
               <TouchableOpacity
                 style={styles.panelHeaderCloseBtn}
@@ -1464,10 +1448,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(52, 211, 153, 0.10)",
     borderColor: "rgba(52, 211, 153, 0.28)",
   },
-  missionEmptyBadge: {
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
-    borderColor: "rgba(255, 255, 255, 0.10)",
-  },
   missionStateDot: {
     width: 5,
     height: 5,
@@ -1478,9 +1458,6 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: "700",
     letterSpacing: 0.8,
-  },
-  missionEmptyStateText: {
-    color: "#94A3B8",
   },
   liveBadge: {
     flexDirection: "row",
