@@ -44,9 +44,8 @@ export interface MissionUploadOptions {
 
   /**
    * Used only when extensionMode is ENABLE.
-   *
-   * When omitted, the backend uses its configured production default,
-   * currently 3.5 metres.
+   * Required for ENABLE so the exact operator-selected row-extension
+   * distance is sent to the rover.
    */
   dummyPointDistanceM?: number;
 }
@@ -593,9 +592,14 @@ export async function uploadMissionCsv(
   }
 
   if (
-    extensionMode === "ENABLE" &&
-    dummyPointDistanceM !== undefined
+    extensionMode === "ENABLE"
   ) {
+    if (dummyPointDistanceM === undefined) {
+      throw new Error(
+        "Enter an extension distance before enabling row extension.",
+      );
+    }
+
     validateDummyDistance(
       dummyPointDistanceM,
     );

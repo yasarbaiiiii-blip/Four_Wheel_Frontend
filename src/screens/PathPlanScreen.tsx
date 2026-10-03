@@ -46,6 +46,7 @@ import type { CADEntity } from "../core/cad";
 import { entitiesToDXF } from "../core/cad";
 import { ManualPathConnectionCanvas } from "../components/pathplan/ManualPathConnectionCanvas";
 import { CornerExtensionDialog } from "../components/pathplan/CornerExtensionDialog";
+import { MissionExtensionDistanceDialog } from "../components/pathplan/MissionExtensionDistanceDialog";
 import { SolarTableDialog } from "../components/pathplan/SolarTableDialog";
 import { TemplateManagerDialog } from "../components/pathplan/TemplateManagerDialog";
 import {
@@ -891,6 +892,13 @@ export default function PathPlanScreen({
   });
   const [showCornerExtensionDialog, setShowCornerExtensionDialog] =
     useState(false);
+  const [
+    showMissionExtensionDistanceDialog,
+    setShowMissionExtensionDistanceDialog,
+  ] = useState(false);
+  const [missionExtensionDistanceM, setMissionExtensionDistanceM] =
+    useState(4.0);
+  const pendingMissionExtensionUploadRef = useRef<PathPlanWaypoint[] | null>(null);
   const [showSolarTableDialog, setShowSolarTableDialog] = useState(false);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [isDrawingMode, setIsDrawingMode] = useState(false);
@@ -2386,6 +2394,7 @@ export default function PathPlanScreen({
   async function uploadWaypointsToBackend(
     waypointsToUpload: PathPlanWaypoint[],
     extensionMode: MissionExtensionMode,
+    extensionDistanceM?: number,
   ): Promise<void> {
     if (isUploadingRef.current) {
       showPathPlanToast(
@@ -2458,7 +2467,10 @@ export default function PathPlanScreen({
 
         extensionMode,
 
-        dummyPointDistanceM: extensionMode === "ENABLE" ? 3.5 : undefined,
+        dummyPointDistanceM:
+          extensionMode === "ENABLE"
+            ? extensionDistanceM
+            : undefined,
       });
 
       setUploadProgress(90);
@@ -2531,13 +2543,19 @@ export default function PathPlanScreen({
         {
           text: "DISABLE",
           onPress: () => {
+            pendingMissionExtensionUploadRef.current = null;
             void uploadWaypointsToBackend(waypointSnapshot, "DISABLE");
           },
         },
         {
           text: "ENABLE",
           onPress: () => {
-            void uploadWaypointsToBackend(waypointSnapshot, "ENABLE");
+            /*
+             * Do not upload yet. The operator first enters the exact row
+             * extension distance and confirms it with OK.
+             */
+            pendingMissionExtensionUploadRef.current = waypointSnapshot;
+            setShowMissionExtensionDistanceDialog(true);
           },
         },
       ],
@@ -4755,6 +4773,40 @@ export default function PathPlanScreen({
         waypointCount={waypoints.length}
         cornersDetected={cornerDetectionResult.count}
         shortSegmentWarnings={cornerDetectionResult.shortWarnings}
+      />
+
+      {/* Backend-generated row extension distance */}
+      <MissionExtensionDistanceDialog
+        visible={showMissionExtensionDistanceDialog}
+        initialDistanceM={missionExtensionDistanceM}
+        onCancel={() => {
+          pendingMissionExtensionUploadRef.current = null;
+          setShowMissionExtensionDistanceDialog(false);
+        }}
+        onConfirm={(distanceM) => {
+          const waypointSnapshot =
+            pendingMissionExtensionUploadRef.current;
+
+          pendingMissionExtensionUploadRef.current = null;
+          setMissionExtensionDistanceM(distanceM);
+          setShowMissionExtensionDistanceDialog(false);
+
+          if (!waypointSnapshot) {
+            showPathPlanToast(
+              "error",
+              "Mission Upload",
+              "The pending mission upload is no longer available.",
+              4000,
+            );
+            return;
+          }
+
+          void uploadWaypointsToBackend(
+            waypointSnapshot,
+            "ENABLE",
+            distanceM,
+          );
+        }}
       />
 
       {/* Manual Connect — Canvas Mode */}
