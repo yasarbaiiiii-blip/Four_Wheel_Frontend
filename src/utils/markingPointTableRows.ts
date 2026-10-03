@@ -7,8 +7,16 @@
  * must be folded into the row model and a content revision.
  */
 
+/**
+ * Raw GNSS survey-truth snapshot (backend `accuracy["survey"]`, produced by
+ * mission_manager `survey_truth.py`). Sign conventions are the backend's:
+ * along_track_error_mm positive = stopped SHORT of the target,
+ * cross_track_error_mm positive = RIGHT of the approach bearing.
+ */
 export type MarkingPointSurvey = {
   available?: boolean;
+  along_track_error_mm?: number | null;
+  cross_track_error_mm?: number | null;
   radial_error_mm?: number | null;
   reason?: string | null;
 } | null;
@@ -16,6 +24,8 @@ export type MarkingPointSurvey = {
 export type MarkingPointStatus = {
   status?: string;
   timestamp?: string;
+  // RPP "Along | Cross | Overall" text. No longer displayed or exported;
+  // kept on the type only because upstream builders still populate it.
   remark?: string;
   survey?: MarkingPointSurvey;
 };
@@ -42,18 +52,66 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/** Shown when a raw GNSS value is unavailable. Never falls back to RPP. */
+export const RAW_GNSS_UNAVAILABLE = "—";
+
+export type RawGnssAccuracyCells = {
+  along: string;
+  cross: string;
+  overall: string;
+};
+
+function formatSignedMm(value: number | null): string {
+  if (value === null) return RAW_GNSS_UNAVAILABLE;
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${value.toFixed(1)} mm`;
+}
+
+function formatUnsignedMm(value: number | null): string {
+  return value === null || value < 0
+    ? RAW_GNSS_UNAVAILABLE
+    : `${value.toFixed(1)} mm`;
+}
+
+/**
+ * Raw GNSS Along / Cross / Overall cells for the Mission Report table and
+ * exports. DISPLAY ONLY: copies the backend survey-truth values; nothing is
+ * computed here, and RPP values are never substituted when raw GNSS is
+ * unavailable for a point.
+ */
+export function formatRawGnssAccuracyCells(
+  survey: MarkingPointSurvey | undefined,
+): RawGnssAccuracyCells {
+  if (!survey || survey.available !== true) {
+    return {
+      along: RAW_GNSS_UNAVAILABLE,
+      cross: RAW_GNSS_UNAVAILABLE,
+      overall: RAW_GNSS_UNAVAILABLE,
+    };
+  }
+  return {
+    along: formatSignedMm(finiteNumber(survey.along_track_error_mm)),
+    cross: formatSignedMm(finiteNumber(survey.cross_track_error_mm)),
+    overall: formatUnsignedMm(finiteNumber(survey.radial_error_mm)),
+  };
+}
+
 export function markingPointStatusRevision(
   wpStatus: MarkingPointStatus | null | undefined,
 ): string {
   const survey = wpStatus?.survey;
   const radial = finiteNumber(survey?.radial_error_mm);
+  const along = finiteNumber(survey?.along_track_error_mm);
+  const cross = finiteNumber(survey?.cross_track_error_mm);
 
+  // Only displayed fields belong here (remark is no longer shown).
   return [
     String(wpStatus?.status ?? ""),
     String(wpStatus?.timestamp ?? ""),
-    String(wpStatus?.remark ?? ""),
     survey?.available === true ? "1" : "0",
     radial === null ? "" : String(radial),
+    along === null ? "" : String(along),
+    cross === null ? "" : String(cross),
     String(survey?.reason ?? ""),
   ].join("|");
 }

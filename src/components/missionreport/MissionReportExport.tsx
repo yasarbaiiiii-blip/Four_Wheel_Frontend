@@ -28,6 +28,8 @@ import { downloadFileToDevice, getMimeType } from '../../utils/downloadHelper';
 import type { WaypointUiStatus } from '../../types/missionWaypointStatus';
 import { isErrorWaypointStatus } from '../../types/missionWaypointStatus';
 import { getStatusPresentation } from '../../utils/missionStatusPresentation';
+import { formatRawGnssAccuracyCells } from '../../utils/markingPointTableRows';
+import type { RawGnssSurveySnapshot } from '../../services/missionApi';
 
 export type MissionReportExportProps = {
   waypoints: Waypoint[];
@@ -41,6 +43,8 @@ export type MissionReportExportProps = {
       pile?: string | number;
       rowNo?: string | number;
       remark?: string;
+      // Frozen RAW GNSS survey-truth snapshot (exported Along/Cross/Overall).
+      survey?: RawGnssSurveySnapshot | null;
       // Accuracy fields
       hrms?: number;
       vrms?: number;
@@ -200,6 +204,9 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
           ? `${wpStatus.accuracy_level ? wpStatus.accuracy_level.charAt(0).toUpperCase() + wpStatus.accuracy_level.slice(1) : 'Unknown'} - ${wpStatus.position_error_cm.toFixed(1)}cm`
           : '-';
 
+        // RAW GNSS survey truth only; '—' when unavailable (never RPP).
+        const rawGnss = formatRawGnssAccuracyCells(wpStatus?.survey);
+
         return {
           'S/N': idx + 1,
           ROW: String(row),
@@ -211,7 +218,9 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
           Status: statusDisplay,
           Timestamp: wpStatus?.timestamp ?? '-',
           Accuracy: accuracyDisplay,
-          Remark: wpStatus?.remark ?? '-',
+          'Along (Raw GNSS)': rawGnss.along,
+          'Cross (Raw GNSS)': rawGnss.cross,
+          'Overall (Raw GNSS)': rawGnss.overall,
         };
       });
 

@@ -191,3 +191,56 @@ describe(
     );
   },
 );
+describe("projectCanonicalReportForExport RAW GNSS survey", () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { projectCanonicalReportForExport } = require("../backendMissionReportAdapter");
+
+  const rppAccuracy = {
+    measurement_source: "RPP_TERMINAL_RESULT",
+    available: true,
+    along_track_error_mm: 4.0,
+    cross_track_error_mm: -1.0,
+    overall_accuracy_mm: 4.1,
+    tolerance_mm: 20,
+    captured_at: "2026-10-03T10:00:00Z",
+  };
+
+  test("carries accuracy.survey (raw GNSS) through to the export row", () => {
+    const map = projectCanonicalReportForExport({
+      points: [
+        {
+          sequence: 1,
+          status: "COMPLETED",
+          updated_at: "2026-10-03T10:00:01Z",
+          accuracy: {
+            ...rppAccuracy,
+            survey: {
+              measurement_source: "RAW_GNSS_SURVEY",
+              available: true,
+              along_track_error_mm: 12.5,
+              cross_track_error_mm: -7.25,
+              radial_error_mm: 14.4,
+            },
+          },
+        },
+      ],
+    });
+
+    expect(map[1].survey).toMatchObject({
+      available: true,
+      along_track_error_mm: 12.5,
+      cross_track_error_mm: -7.25,
+      radial_error_mm: 14.4,
+    });
+  });
+
+  test("no survey -> null, RPP numbers are not copied into survey", () => {
+    const map = projectCanonicalReportForExport({
+      points: [
+        { sequence: 1, status: "COMPLETED", updated_at: null, accuracy: rppAccuracy },
+      ],
+    });
+
+    expect(map[1].survey).toBeNull();
+  });
+});

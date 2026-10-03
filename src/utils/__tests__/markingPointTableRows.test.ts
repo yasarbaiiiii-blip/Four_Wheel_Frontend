@@ -1,8 +1,10 @@
 import {
   buildMarkingPointListRevision,
   buildMarkingPointRows,
+  formatRawGnssAccuracyCells,
   markingPointRowRevision,
   markingPointStatusRevision,
+  RAW_GNSS_UNAVAILABLE,
 } from "../markingPointTableRows";
 
 const wp = (sn: number, lat = 1 + sn, lon = 2 + sn) => ({
@@ -155,5 +157,82 @@ describe("shareUnchangedRows (P0025 completes in a 1000-point mission)", () => {
     const after = shareUnchangedRows(before, next);
     expect(after[5]).toBe(next[5]);
     expect(after[6]).toBe(before[6]);
+  });
+});
+
+describe("formatRawGnssAccuracyCells (Along / Cross / Overall = RAW GNSS)", () => {
+  test("formats backend survey-truth along/cross (signed) and radial (overall)", () => {
+    expect(
+      formatRawGnssAccuracyCells({
+        available: true,
+        along_track_error_mm: 12.34,
+        cross_track_error_mm: -7.25,
+        radial_error_mm: 14.31,
+      }),
+    ).toEqual({ along: "+12.3 mm", cross: "-7.3 mm", overall: "14.3 mm" });
+  });
+
+  test("zero is unsigned", () => {
+    expect(
+      formatRawGnssAccuracyCells({
+        available: true,
+        along_track_error_mm: 0,
+        cross_track_error_mm: 0,
+        radial_error_mm: 0,
+      }),
+    ).toEqual({ along: "0.0 mm", cross: "0.0 mm", overall: "0.0 mm" });
+  });
+
+  test.each([
+    ["missing survey", undefined],
+    ["null survey", null],
+    ["unavailable survey", { available: false, reason: "not stationary", radial_error_mm: 9 }],
+  ])("%s shows the unavailable marker for every column", (_label, survey) => {
+    expect(formatRawGnssAccuracyCells(survey as never)).toEqual({
+      along: RAW_GNSS_UNAVAILABLE,
+      cross: RAW_GNSS_UNAVAILABLE,
+      overall: RAW_GNSS_UNAVAILABLE,
+    });
+  });
+
+  test("radial-only survey shows overall but leaves along/cross unavailable", () => {
+    expect(
+      formatRawGnssAccuracyCells({ available: true, radial_error_mm: 21 }),
+    ).toEqual({
+      along: RAW_GNSS_UNAVAILABLE,
+      cross: RAW_GNSS_UNAVAILABLE,
+      overall: "21.0 mm",
+    });
+  });
+
+  test("RPP remark never leaks into the raw GNSS cells", () => {
+    const status = {
+      status: "completed",
+      remark: "Along +4.0 mm | Cross -1.0 mm | Overall 4.1 mm",
+      survey: null,
+    };
+    const rows = buildMarkingPointRows([wp(1)], { 1: status }, null);
+    expect(formatRawGnssAccuracyCells(rows[0].wpStatus?.survey)).toEqual({
+      along: RAW_GNSS_UNAVAILABLE,
+      cross: RAW_GNSS_UNAVAILABLE,
+      overall: RAW_GNSS_UNAVAILABLE,
+    });
+  });
+
+  test("revision changes when only raw GNSS along/cross change", () => {
+    const a = {
+      status: "completed",
+      survey: { available: true, along_track_error_mm: 1, cross_track_error_mm: 2, radial_error_mm: 3 },
+    };
+    const b = { ...a, survey: { ...a.survey, cross_track_error_mm: -2 } };
+    const c = { ...a, survey: { ...a.survey, along_track_error_mm: 5 } };
+    expect(markingPointStatusRevision(a)).not.toBe(markingPointStatusRevision(b));
+    expect(markingPointStatusRevision(a)).not.toBe(markingPointStatusRevision(c));
+  });
+
+  test("revision ignores the (no longer displayed) remark", () => {
+    const a = { status: "completed", remark: "Along 1" };
+    const b = { status: "completed", remark: "Along 2" };
+    expect(markingPointStatusRevision(a)).toBe(markingPointStatusRevision(b));
   });
 });

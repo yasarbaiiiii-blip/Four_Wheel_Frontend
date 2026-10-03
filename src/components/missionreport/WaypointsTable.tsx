@@ -13,13 +13,15 @@ import { formatCoord } from "../../utils/formatCoord";
 import {
   buildMarkingPointListRevision,
   buildMarkingPointRows,
+  formatRawGnssAccuracyCells,
   markingPointStatusRevision,
   type MarkingPointRow,
   type MarkingPointStatus,
 } from "../../utils/markingPointTableRows";
 
 // DYX RAW GNSS WAYPOINT DISPLAY
-// DYX KEEP RPP ADD RAW LIVE
+// Along / Cross / Overall columns show the backend RAW GNSS survey-truth
+// values only. RPP accuracy (formerly the REMARK column) is not displayed.
 
 // ── Pure helper functions (extracted for reuse in memoized rows) ──────────────
 
@@ -48,39 +50,6 @@ function getWaypointStatusDisplay(wpStatus: any): {
     statusDisplay: p.label,
     statusColor: p.color ?? "#94A3B8",
   };
-}
-
-function getRemarkText(wpStatus: any): string {
-  const remark =
-    typeof wpStatus?.remark === "string" ? wpStatus.remark.trim() : "";
-
-  return remark || "—";
-}
-
-function finiteSurveyNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : null;
-}
-
-function formatRawGnssOverall(
-  survey: RawGnssSurveySnapshot | null | undefined,
-): string {
-  if (!survey) {
-    return "—";
-  }
-
-  if (survey.available !== true) {
-    return "—";
-  }
-
-  const radialMm = finiteSurveyNumber(
-    survey.radial_error_mm,
-  );
-
-  return radialMm === null
-    ? "—"
-    : `${radialMm.toFixed(1)} mm`;
 }
 
 // ── Memoized row component (recycled by LegendList) ───────────────────────────
@@ -113,6 +82,15 @@ const WaypointRow = React.memo(
   ({ wp, index, wpStatus, isCurrentWaypoint, embedded = false }: RowProps) => {
     const { statusDisplay, statusColor } = getWaypointStatusDisplay(wpStatus);
     const isSkipped = wpStatus?.status === "skipped";
+    const rawGnss = formatRawGnssAccuracyCells(wpStatus?.survey);
+    const rawGnssAvailable = wpStatus?.survey?.available === true;
+    const rawGnssCellStyle = [
+      styles.cell,
+      styles.colRawGnss,
+      rawGnssAvailable && styles.rawGnssValue,
+      isCurrentWaypoint && styles.currentWaypointText,
+      isSkipped && styles.skippedText,
+    ];
 
     return (
       <View
@@ -187,22 +165,6 @@ const WaypointRow = React.memo(
           {formatCoord(wp.lon ?? (wp as { lng?: unknown }).lng, 7)}
         </Text>
 
-        {/* DISPLAY ONLY: CSV target vs frozen RAW GNSS stop overall error. */}
-        <Text
-          style={[
-            styles.cell,
-            styles.colRawGnss,
-            wpStatus?.survey?.available === true &&
-              styles.rawGnssValue,
-            isCurrentWaypoint && styles.currentWaypointText,
-            isSkipped && styles.skippedText,
-          ]}
-        >
-          {formatRawGnssOverall(
-            wpStatus?.survey,
-          )}
-        </Text>
-
         <View style={[styles.colStatus, isSkipped && styles.skippedStatusCell]}>
           <Text
             style={[
@@ -230,22 +192,10 @@ const WaypointRow = React.memo(
         >
           {formatTimestamp(wpStatus?.timestamp)}
         </Text>
-        <View style={[styles.colRemark, styles.remarkCell]}>
-          <Text
-            numberOfLines={2}
-            ellipsizeMode="tail"
-            style={[
-              styles.cell,
-              styles.remarkText,
-
-              isCurrentWaypoint && styles.currentWaypointText,
-
-              isSkipped && styles.skippedText,
-            ]}
-          >
-            {getRemarkText(wpStatus)}
-          </Text>
-        </View>
+        {/* DISPLAY ONLY: CSV target vs frozen RAW GNSS stop (survey truth). */}
+        <Text style={rawGnssCellStyle}>{rawGnss.along}</Text>
+        <Text style={rawGnssCellStyle}>{rawGnss.cross}</Text>
+        <Text style={rawGnssCellStyle}>{rawGnss.overall}</Text>
       </View>
     );
   },
@@ -268,7 +218,6 @@ interface Props {
       timestamp?: string;
       pile?: string | number;
       rowNo?: string | number;
-      remark?: string;
       hrms?: number;
       vrms?: number;
       lat_achieved?: number;
@@ -463,15 +412,6 @@ export const WaypointsTable = React.memo<Props>(
               <Text
                 style={[
                   styles.headerCell,
-                  styles.colRawGnss,
-                  embedded && styles.headerCellEmbedded,
-                ]}
-              >
-                RAW GNSS
-              </Text>
-              <Text
-                style={[
-                  styles.headerCell,
                   styles.colStatus,
                   embedded && styles.headerCellEmbedded,
                 ]}
@@ -490,11 +430,29 @@ export const WaypointsTable = React.memo<Props>(
               <Text
                 style={[
                   styles.headerCell,
-                  styles.colRemark,
+                  styles.colRawGnss,
                   embedded && styles.headerCellEmbedded,
                 ]}
               >
-                REMARK
+                ALONG (RAW GNSS)
+              </Text>
+              <Text
+                style={[
+                  styles.headerCell,
+                  styles.colRawGnss,
+                  embedded && styles.headerCellEmbedded,
+                ]}
+              >
+                CROSS (RAW GNSS)
+              </Text>
+              <Text
+                style={[
+                  styles.headerCell,
+                  styles.colRawGnss,
+                  embedded && styles.headerCellEmbedded,
+                ]}
+              >
+                OVERALL (RAW GNSS)
               </Text>
             </View>
 
@@ -661,9 +619,9 @@ const styles = StyleSheet.create({
   colLat: { flex: 1.35 },
   colLon: { flex: 1.35 },
 
-  // One compact independent measurement column only.
+  // RAW GNSS Along / Cross / Overall (replaces RAW GNSS + REMARK).
   colRawGnss: {
-    flex: 0.95,
+    flex: 1.15,
     textAlign: "center",
   },
   rawGnssValue: {
@@ -671,16 +629,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  // Restore the previous RPP table proportions.
   colStatus: { flex: 1.15 },
   colTime: { flex: 1.2 },
-  colRemark: { flex: 3.0 },
-  remarkCell: {
-    flexDirection: "column",
-    justifyContent: "center",
-  },
-  remarkText: {
-    fontSize: 10,
-    lineHeight: 16,
-  },
 });

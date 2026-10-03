@@ -16,8 +16,33 @@ export interface ExportData {
   'Altitude': number;
   'Status': string;
   'Timestamp': string;
-  'Remark': string;
+  // RAW GNSS survey-truth errors (display strings, '—' when unavailable).
+  'Along (Raw GNSS)': string;
+  'Cross (Raw GNSS)': string;
+  'Overall (Raw GNSS)': string;
 }
+
+const RAW_GNSS_HEADERS = ['Along (Raw GNSS)', 'Cross (Raw GNSS)', 'Overall (Raw GNSS)'] as const;
+
+const EXPORT_HEADERS = [
+  'S/N', 'ROW', 'BLOCK', 'PILE', 'Latitude', 'Longitude', 'Altitude', 'Status', 'Timestamp',
+  ...RAW_GNSS_HEADERS,
+];
+
+const exportRowValues = (row: ExportData): Array<string | number> => [
+  row['S/N'],
+  row.ROW,
+  row.BLOCK,
+  row.PILE,
+  row.Latitude,
+  row.Longitude,
+  row.Altitude,
+  row.Status,
+  row.Timestamp,
+  row['Along (Raw GNSS)'],
+  row['Cross (Raw GNSS)'],
+  row['Overall (Raw GNSS)'],
+];
 
 export interface MissionStats {
   totalPoints: number;
@@ -46,19 +71,8 @@ export const generateExcel = async (
   const isNative = Platform.OS !== 'web';
 
   if (isNative) {
-    const headers = ['S/N','ROW','BLOCK','PILE','Latitude','Longitude','Altitude','Status','Timestamp','Remark'];
-    const rows = data.map(row => [
-      row['S/N'],
-      row.ROW,
-      row.BLOCK,
-      row.PILE,
-      row.Latitude,
-      row.Longitude,
-      row.Altitude,
-      row.Status,
-      row.Timestamp,
-      row.Remark,
-    ]);
+    const headers = EXPORT_HEADERS;
+    const rows = data.map(exportRowValues);
 
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     // Convert CSV string to ArrayBuffer
@@ -72,19 +86,8 @@ export const generateExcel = async (
     ExcelJS = await loadExcelJS();
   } catch (err) {
     // If exceljs cannot be imported, fall back to CSV
-    const headers = ['S/N','ROW','BLOCK','PILE','Latitude','Longitude','Altitude','Status','Timestamp','Remark'];
-    const rows = data.map(row => [
-      row['S/N'],
-      row.ROW,
-      row.BLOCK,
-      row.PILE,
-      row.Latitude,
-      row.Longitude,
-      row.Altitude,
-      row.Status,
-      row.Timestamp,
-      row.Remark,
-    ]);
+    const headers = EXPORT_HEADERS;
+    const rows = data.map(exportRowValues);
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const utf8 = new TextEncoder ? new TextEncoder().encode(csv) : Uint8Array.from(csv.split('').map(c => c.charCodeAt(0)));
     return utf8.buffer as ArrayBuffer;
@@ -96,7 +99,7 @@ export const generateExcel = async (
   let currentRow = 1;
 
   // Header - Mission Report Title (navy blue background)
-  worksheet.mergeCells(`A${currentRow}:J${currentRow + 1}`);
+  worksheet.mergeCells(`A${currentRow}:L${currentRow + 1}`);
   const titleCell = worksheet.getCell(`A${currentRow}`);
   titleCell.value = 'WAY TO MARK - MISSION REPORT';
   titleCell.font = { size: 30, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -112,7 +115,7 @@ export const generateExcel = async (
 
   // Date and Mode
   currentRow++;
-  worksheet.mergeCells(`A${currentRow}:J${currentRow}`);
+  worksheet.mergeCells(`A${currentRow}:L${currentRow}`);
   const dateCell = worksheet.getCell(`A${currentRow}`);
   const dateStr = new Date().toLocaleString('en-US', {
     year: 'numeric',
@@ -129,7 +132,7 @@ export const generateExcel = async (
   currentRow += 2;
 
   // Mission Summary Header
-  worksheet.mergeCells(`A${currentRow}:J${currentRow}`);
+  worksheet.mergeCells(`A${currentRow}:L${currentRow}`);
   const summaryHeaderCell = worksheet.getCell(`A${currentRow}`);
   summaryHeaderCell.value = 'MISSION SUMMARY';
   summaryHeaderCell.font = { size: 14, bold: true, color: { argb: 'FF1F2937' } };
@@ -188,7 +191,7 @@ export const generateExcel = async (
     }
 
     // Value in columns E-J
-    worksheet.mergeCells(`E${currentRow}:J${currentRow}`);
+    worksheet.mergeCells(`E${currentRow}:L${currentRow}`);
     const valueCell = worksheet.getCell(`E${currentRow}`);
     valueCell.value = item.value;
     valueCell.font = { size: 10, color: { argb: item.color }, bold: item.color !== 'FF000000' };
@@ -200,11 +203,11 @@ export const generateExcel = async (
     };
 
     // Apply borders to all cells in value merge
-    for (let col = 5; col <= 10; col++) {
+    for (let col = 5; col <= 12; col++) {
       const cell = worksheet.getCell(currentRow, col);
       cell.border = {
         left: col === 5 ? { style: 'thin' } : undefined,
-        right: col === 10 ? { style: 'medium' } : { style: 'thin' },
+        right: col === 12 ? { style: 'medium' } : { style: 'thin' },
         top: { style: 'thin' },
         bottom: idx === summaryData.length - 1 ? { style: 'medium' } : { style: 'thin' }
       };
@@ -222,7 +225,7 @@ export const generateExcel = async (
   // Error Locations
   if (stats.errorLocations.length > 0) {
     currentRow++;
-    worksheet.mergeCells(`A${currentRow}:J${currentRow}`);
+    worksheet.mergeCells(`A${currentRow}:L${currentRow}`);
     const errorHeaderCell = worksheet.getCell(`A${currentRow}`);
     errorHeaderCell.value = 'Error Locations:';
     errorHeaderCell.font = { bold: true, size: 10, color: { argb: 'FFEF4444' } };
@@ -231,7 +234,7 @@ export const generateExcel = async (
     currentRow++;
 
     stats.errorLocations.forEach(loc => {
-      worksheet.mergeCells(`A${currentRow}:J${currentRow}`);
+      worksheet.mergeCells(`A${currentRow}:L${currentRow}`);
       const errorCell = worksheet.getCell(`A${currentRow}`);
       errorCell.value = `  • ${loc}`;
       errorCell.font = { size: 9, color: { argb: 'FF6B7280' } };
@@ -243,7 +246,7 @@ export const generateExcel = async (
 
   // Watermark row
   currentRow += 2;
-  worksheet.mergeCells(`A${currentRow}:J${currentRow}`);
+  worksheet.mergeCells(`A${currentRow}:L${currentRow}`);
   const watermarkCell = worksheet.getCell(`A${currentRow}`);
   watermarkCell.value = 'Way 2 Mark';
   watermarkCell.font = { size: 46, bold: true, color: { argb: '30808080' } };
@@ -252,7 +255,7 @@ export const generateExcel = async (
   currentRow += 2;
 
   // Waypoints Table Header
-  worksheet.mergeCells(`A${currentRow}:J${currentRow}`);
+  worksheet.mergeCells(`A${currentRow}:L${currentRow}`);
   const tableHeaderCell = worksheet.getCell(`A${currentRow}`);
   tableHeaderCell.value = 'MISSION WAYPOINTS LOG';
   tableHeaderCell.font = { size: 12, bold: true, color: { argb: 'FF1F2937' } };
@@ -262,8 +265,8 @@ export const generateExcel = async (
 
   // Table column headers
   const headerRow = worksheet.getRow(currentRow);
-  const headers = ['S/N', 'ROW', 'BLOCK', 'PILE', 'Latitude', 'Longitude', 'Altitude', 'Status', 'Timestamp', 'Remark'];
-  const columnWidths = [8, 10, 10, 10, 12, 12, 10, 12, 15, 20];
+  const headers = EXPORT_HEADERS;
+  const columnWidths = [8, 10, 10, 10, 12, 12, 10, 12, 15, 16, 16, 16];
 
   headers.forEach((header, idx) => {
     const cell = headerRow.getCell(idx + 1);
@@ -289,18 +292,7 @@ export const generateExcel = async (
   // Add data rows
   data.forEach((row, index) => {
     const dataRow = worksheet.getRow(currentRow);
-    const values = [
-      row['S/N'],
-      row.ROW,
-      row.BLOCK,
-      row.PILE,
-      row.Latitude,
-      row.Longitude,
-      row.Altitude,
-      row.Status,
-      row.Timestamp,
-      row.Remark
-    ];
+    const values = exportRowValues(row);
 
     values.forEach((value, colIdx) => {
       const cell = dataRow.getCell(colIdx + 1);
@@ -359,7 +351,7 @@ export const generateExcel = async (
 
   // Footer
   currentRow += 2;
-  worksheet.mergeCells(`A${currentRow}:J${currentRow}`);
+  worksheet.mergeCells(`A${currentRow}:L${currentRow}`);
   const footerCell = worksheet.getCell(`A${currentRow}`);
   footerCell.value = `NFROS - Mission Report | Total: ${stats.totalPoints} | Completed: ${stats.completedPoints} | Success: ${stats.successRate}%`;
   footerCell.font = { size: 9, color: { argb: 'FFFFFFFF' }, bold: true };
@@ -406,7 +398,9 @@ export const generatePDFHTML = (
       <td style="padding: 8px; text-align: center; border: 1px solid #f0f0f0;">${row.Altitude}</td>
       <td style="padding: 8px; text-align: center; font-weight: bold; border: 1px solid #f0f0f0; color: ${getStatusColor(row.Status)};">${row.Status}</td>
       <td style="padding: 8px; text-align: center; border: 1px solid #f0f0f0;">${row.Timestamp === '-' ? '—' : row.Timestamp}</td>
-      <td style="padding: 8px; text-align: center; border: 1px solid #f0f0f0;">${row.Remark === '-' ? '—' : row.Remark}</td>
+      <td style="padding: 8px; text-align: center; border: 1px solid #f0f0f0;">${row['Along (Raw GNSS)']}</td>
+      <td style="padding: 8px; text-align: center; border: 1px solid #f0f0f0;">${row['Cross (Raw GNSS)']}</td>
+      <td style="padding: 8px; text-align: center; border: 1px solid #f0f0f0;">${row['Overall (Raw GNSS)']}</td>
     </tr>
   `
     )
@@ -577,7 +571,9 @@ export const generatePDFHTML = (
           <th>Altitude</th>
           <th>Status</th>
           <th>Timestamp</th>
-          <th>Remark</th>
+          <th>Along (Raw GNSS)</th>
+          <th>Cross (Raw GNSS)</th>
+          <th>Overall (Raw GNSS)</th>
         </tr>
       </thead>
       <tbody>

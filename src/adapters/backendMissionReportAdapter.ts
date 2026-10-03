@@ -2,12 +2,15 @@ import type {
   CanonicalMissionReport,
   MissionReportAccuracy,
   MissionReportPointStatus,
+  RawGnssSurveySnapshot,
 } from "../services/missionApi";
 
 import {
   isTerminalWaypointStatus,
   type WaypointUiStatus,
 } from "../types/missionWaypointStatus";
+
+import { extractRawGnssSurvey } from "../utils/rawGnssSurvey";
 
 export interface MissionReportRowStatus {
   reached: boolean;
@@ -344,6 +347,8 @@ export type MissionReportExportStatusMap = Record<
     timestamp?: string;
     remark?: string;
     position_error_cm?: number;
+    // RAW GNSS survey truth from accuracy.survey (exported Along/Cross/Overall).
+    survey?: RawGnssSurveySnapshot | null;
   }
 >;
 
@@ -380,6 +385,7 @@ export function projectCanonicalReportForExport(
       timestamp: point.updated_at ?? point.accuracy?.captured_at ?? undefined,
       remark: buildRemark(point.accuracy),
       position_error_cm: positionErrorCm,
+      survey: extractRawGnssSurvey(point.accuracy?.survey),
     };
   }
 
