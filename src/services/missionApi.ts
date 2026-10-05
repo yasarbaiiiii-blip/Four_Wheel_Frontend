@@ -641,6 +641,13 @@ export async function uploadMissionCsv(
         dummyPointDistanceM,
       ),
     );
+
+    // The rover honours dummy_point_distance_m only with this marker;
+    // earlier builds sent a fixed 3.5 m that it must keep ignoring.
+    formData.append(
+      "extension_distance_source",
+      "OPERATOR",
+    );
   }
 
   return apiPostMultipart<MissionUploadResponse>(
