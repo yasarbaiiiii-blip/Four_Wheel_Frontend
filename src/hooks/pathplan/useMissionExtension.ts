@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   getMissionExtension,
+  saveExtensionDefaults,
   updateMissionExtension,
 } from "../../services/missionApi";
 import {
@@ -20,6 +21,7 @@ import {
   type ExtensionBounds,
   type ExtensionChoice,
   type ExtensionDecision,
+  type ExtensionDefaults,
   type ExtensionSettings,
   type MissionExtensionResponse,
 } from "../../utils/missionExtension";
@@ -30,6 +32,10 @@ export interface MissionExtensionState {
   bounds: ExtensionBounds;
   decisions: ExtensionDecision[];
   decisionsCurrent: boolean;
+  unusedSkips: string[];
+  /** Saved starting values; null until the rover has answered. */
+  defaults: ExtensionDefaults | null;
+  defaultsSaved: boolean;
 }
 
 const EMPTY_STATE: MissionExtensionState = {
@@ -38,6 +44,9 @@ const EMPTY_STATE: MissionExtensionState = {
   bounds: FALLBACK_EXTENSION_BOUNDS,
   decisions: [],
   decisionsCurrent: false,
+  unusedSkips: [],
+  defaults: null,
+  defaultsSaved: false,
 };
 
 export type ApplyExtensionOutcome =
@@ -63,6 +72,9 @@ function fromResponse(response: MissionExtensionResponse): MissionExtensionState
     bounds: response.bounds ?? FALLBACK_EXTENSION_BOUNDS,
     decisions: Array.isArray(response.decisions) ? response.decisions : [],
     decisionsCurrent: response.decisions_current === true,
+    unusedSkips: Array.isArray(response.unused_skips) ? response.unused_skips : [],
+    defaults: response.defaults ?? null,
+    defaultsSaved: response.defaults_source === "saved",
   };
 }
 
@@ -101,8 +113,9 @@ export function useMissionExtension({
     }
   }, []);
 
+  // Read even without a mission: the saved defaults pre-fill the dialog.
   useEffect(() => {
-    if (!connected || !missionId) {
+    if (!connected) {
       requestRef.current += 1;
       setState(EMPTY_STATE);
       return;
@@ -122,7 +135,12 @@ export function useMissionExtension({
       setApplying(true);
       // The previous decisions belong to the previous revision.
       requestRef.current += 1;
-      setState((previous) => ({ ...previous, decisions: [], decisionsCurrent: false }));
+      setState((previous) => ({
+        ...previous,
+        decisions: [],
+        decisionsCurrent: false,
+        unusedSkips: [],
+      }));
       try {
         const response = await updateMissionExtension(choice, revision);
         if (mountedRef.current) {
@@ -150,5 +168,27 @@ export function useMissionExtension({
     [refresh, state.settings?.revision],
   );
 
-  return { ...state, applying, refresh, apply };
+  const saveDefaults = useCallback(
+    async (choice: ExtensionChoice): Promise<string | null> => {
+      try {
+        const response = await saveExtensionDefaults(
+          choice.distanceM,
+          choice.triggerDistanceM,
+        );
+        if (mountedRef.current) {
+          setState((previous) => ({
+            ...previous,
+            defaults: response.defaults,
+            defaultsSaved: true,
+          }));
+        }
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : "The defaults were not saved.";
+      }
+    },
+    [],
+  );
+
+  return { ...state, applying, refresh, apply, saveDefaults };
 }

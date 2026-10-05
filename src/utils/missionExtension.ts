@@ -15,6 +15,8 @@ export interface ExtensionSettings {
   trigger_distance_m: number | null;
   source: "OPERATOR" | "DEFAULT" | null;
   revision: number;
+  /** Row ends (marking point IDs) where the operator turned it off. */
+  skip_row_ends?: string[];
 }
 
 export interface ExtensionBounds {
@@ -22,7 +24,17 @@ export interface ExtensionBounds {
   trigger_distance_m: { min: number; max: number; default: number };
 }
 
-export type ExtensionDecisionCode = "ADDED" | "SKIPPED_GAP" | "DISABLED";
+export type ExtensionDecisionCode =
+  | "ADDED"
+  | "SKIPPED_OPERATOR"
+  | "SKIPPED_GAP"
+  | "DISABLED";
+
+/** Another marking point within 0.30 m of an extension leg (warn only). */
+export interface ExtensionClearanceWarning {
+  point: string;
+  distance_m: number;
+}
 
 export interface ExtensionDecision {
   from_point: string;
@@ -33,7 +45,13 @@ export interface ExtensionDecision {
   decision: ExtensionDecisionCode;
   /** lat/lon for GPS missions, x/y for local ones; ADDED only. */
   point: { lat: number; lon: number } | { x: number; y: number } | null;
+  warnings?: ExtensionClearanceWarning[];
   revision: number | null;
+}
+
+export interface ExtensionDefaults {
+  distance_m: number;
+  trigger_distance_m: number;
 }
 
 export interface MissionExtensionResponse {
@@ -43,6 +61,16 @@ export interface MissionExtensionResponse {
   bounds: ExtensionBounds;
   decisions_current?: boolean;
   decisions?: ExtensionDecision[];
+  /** Skipped row ends that no longer match an extendable row end. */
+  unused_skips?: string[];
+  defaults?: ExtensionDefaults;
+  defaults_source?: "saved" | "factory";
+}
+
+export interface ExtensionDefaultsResponse {
+  success: boolean;
+  defaults: ExtensionDefaults;
+  defaults_source: "saved" | "factory";
 }
 
 /** What the operator applies from the dialog. */
@@ -50,6 +78,11 @@ export interface ExtensionChoice {
   enabled: boolean;
   distanceM: number;
   triggerDistanceM: number;
+  /**
+   * Row ends to skip. Only sent when changing a loaded mission in place; a
+   * new upload always starts with none.
+   */
+  skipRowEnds?: string[];
 }
 
 /** Used only until the rover has answered (same values the rover enforces). */
@@ -68,13 +101,31 @@ export const DEFAULT_EXTENSION_CHOICE: ExtensionChoice = {
 export function choiceFromSettings(
   settings: ExtensionSettings | null,
   bounds: ExtensionBounds = FALLBACK_EXTENSION_BOUNDS,
+  defaults?: ExtensionDefaults | null,
 ): ExtensionChoice {
   return {
     enabled: settings?.enabled === true,
-    distanceM: settings?.distance_m ?? bounds.distance_m.default,
+    distanceM:
+      settings?.distance_m ?? defaults?.distance_m ?? bounds.distance_m.default,
     triggerDistanceM:
-      settings?.trigger_distance_m ?? bounds.trigger_distance_m.default,
+      settings?.trigger_distance_m ??
+      defaults?.trigger_distance_m ??
+      bounds.trigger_distance_m.default,
+    skipRowEnds: [...(settings?.skip_row_ends ?? [])],
   };
+}
+
+/** Row ends the operator may skip or un-skip: the ones that would extend. */
+export function isSkippable(decision: ExtensionDecision): boolean {
+  return decision.decision === "ADDED" || decision.decision === "SKIPPED_OPERATOR";
+}
+
+/** One line per clearance warning, for the reason list. */
+export function describeWarnings(decision: ExtensionDecision): string[] {
+  return (decision.warnings ?? []).map(
+    (warning) =>
+      `passes ${warning.distance_m.toFixed(2)} m from ${warning.point}`,
+  );
 }
 
 export interface ChoiceValidation {
@@ -140,6 +191,9 @@ export function describeDecision(
       ? `${pair}: extension added, ${distance.toFixed(1)} m past the row end`
       : `${pair}: extension added`;
   }
+  if (decision.decision === "SKIPPED_OPERATOR") {
+    return `${pair}: skipped by operator`;
+  }
   if (decision.decision === "SKIPPED_GAP") {
     const trigger = settings?.trigger_distance_m;
     return trigger != null
@@ -156,7 +210,9 @@ export function extensionSummary(settings: ExtensionSettings | null): string {
   if (!settings.enabled) return "OFF";
   const distance = settings.distance_m?.toFixed(1) ?? "?";
   const trigger = settings.trigger_distance_m?.toFixed(1) ?? "?";
-  return `ON · ${distance} m · trigger ${trigger} m`;
+  const skipped = settings.skip_row_ends?.length ?? 0;
+  const suffix = skipped > 0 ? ` · ${skipped} skipped` : "";
+  return `ON · ${distance} m · trigger ${trigger} m${suffix}`;
 }
 
 export interface ExtensionPointFeatureCollection {

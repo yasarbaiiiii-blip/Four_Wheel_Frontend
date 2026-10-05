@@ -16,6 +16,8 @@ import {
 } from "../../constants/pathPlanGlass";
 import {
   describeDecision,
+  describeWarnings,
+  isSkippable,
   validateChoice,
   type ExtensionBounds,
   type ExtensionChoice,
@@ -33,7 +35,11 @@ interface MissionExtensionDistanceDialogProps {
   settings: ExtensionSettings | null;
   decisions: ExtensionDecision[];
   decisionsCurrent: boolean;
+  /** Skipped row ends that no longer match an extendable row end. */
+  unusedSkips: string[];
   applying: boolean;
+  /** Saves distance and trigger as the starting values; resolves to an error or null. */
+  onSaveDefaults: (choice: ExtensionChoice) => Promise<string | null>;
   onCancel: () => void;
   onApply: (choice: ExtensionChoice) => void;
 }
@@ -47,7 +53,9 @@ export const MissionExtensionDistanceDialog: React.FC<
   settings,
   decisions,
   decisionsCurrent,
+  unusedSkips,
   applying,
+  onSaveDefaults,
   onCancel,
   onApply,
 }) => {
@@ -59,6 +67,10 @@ export const MissionExtensionDistanceDialog: React.FC<
     initialChoice.triggerDistanceM.toString(),
   );
   const [touched, setTouched] = useState(false);
+  const [skipped, setSkipped] = useState<Set<string>>(
+    () => new Set(initialChoice.skipRowEnds ?? []),
+  );
+  const [defaultsMessage, setDefaultsMessage] = useState<string | null>(null);
 
   // Take the starting values only when the dialog opens: the rover's settings
   // can be re-read while it is open, and that must not overwrite typing.
@@ -70,13 +82,27 @@ export const MissionExtensionDistanceDialog: React.FC<
     setEnabled(start.enabled);
     setDistanceText(start.distanceM.toString());
     setTriggerText(start.triggerDistanceM.toString());
+    setSkipped(new Set(start.skipRowEnds ?? []));
+    setDefaultsMessage(null);
     setTouched(false);
   }, [visible]);
 
+  // Skips that no longer match a row end are dropped on Apply, so they
+  // leave no trace in the stored settings.
+  const skippableIds = useMemo(
+    () =>
+      new Set(
+        decisionsCurrent
+          ? decisions.filter(isSkippable).map((decision) => decision.from_point)
+          : [],
+      ),
+    [decisions, decisionsCurrent],
+  );
   const choice: ExtensionChoice = {
     enabled,
     distanceM: Number(distanceText.trim()),
     triggerDistanceM: Number(triggerText.trim()),
+    skipRowEnds: [...skipped].filter((id) => skippableIds.has(id)).sort(),
   };
   const validation = validateChoice(choice, bounds);
   const invalid = Boolean(validation.distanceError || validation.triggerError);
@@ -86,13 +112,33 @@ export const MissionExtensionDistanceDialog: React.FC<
       decisionsCurrent
         ? decisions.map((decision) => ({
             key: `${decision.from_point}-${decision.to_point}`,
+            pointId: decision.from_point,
             added: decision.decision === "ADDED",
+            skippable: isSkippable(decision),
             text: describeDecision(decision, settings),
+            warnings: describeWarnings(decision),
           }))
         : [],
     [decisions, decisionsCurrent, settings],
   );
   const addedCount = reasons.filter((reason) => reason.added).length;
+  const warnedCount = reasons.filter((reason) => reason.warnings.length > 0).length;
+
+  const toggleSkip = (pointId: string, skip: boolean) => {
+    setSkipped((previous) => {
+      const next = new Set(previous);
+      if (skip) next.add(pointId);
+      else next.delete(pointId);
+      return next;
+    });
+  };
+
+  const handleSaveDefaults = async () => {
+    setTouched(true);
+    if (validation.distanceError || validation.triggerError) return;
+    const error = await onSaveDefaults(choice);
+    setDefaultsMessage(error ?? "Saved. New missions start with these values.");
+  };
 
   const handleApply = () => {
     setTouched(true);
@@ -191,6 +237,17 @@ export const MissionExtensionDistanceDialog: React.FC<
               {touched && validation.triggerError && (
                 <Text style={styles.errorText}>{validation.triggerError}</Text>
               )}
+
+              <TouchableOpacity
+                style={styles.defaultsBtn}
+                onPress={handleSaveDefaults}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.defaultsText}>Save as default</Text>
+              </TouchableOpacity>
+              {defaultsMessage && (
+                <Text style={styles.rangeText}>{defaultsMessage}</Text>
+              )}
             </View>
           )}
 
@@ -200,16 +257,45 @@ export const MissionExtensionDistanceDialog: React.FC<
                 Current mission: {addedCount} extension point
                 {addedCount === 1 ? "" : "s"}
               </Text>
+              {warnedCount > 0 && (
+                <Text style={styles.warningText}>
+                  {warnedCount} extension{warnedCount === 1 ? "" : "s"} pass close
+                  to another marking point. Check, or skip that row end.
+                </Text>
+              )}
               <ScrollView style={styles.reasonList} nestedScrollEnabled>
                 {reasons.map((reason) => (
-                  <Text
-                    key={reason.key}
-                    style={[styles.reasonText, reason.added && styles.reasonAdded]}
-                  >
-                    {reason.text}
-                  </Text>
+                  <View key={reason.key} style={styles.reasonRow}>
+                    <View style={styles.reasonBody}>
+                      <Text
+                        style={[styles.reasonText, reason.added && styles.reasonAdded]}
+                      >
+                        {reason.text}
+                      </Text>
+                      {reason.warnings.map((warning) => (
+                        <Text key={warning} style={styles.reasonWarning}>
+                          ⚠ {warning}
+                        </Text>
+                      ))}
+                    </View>
+                    {reason.skippable && enabled && (
+                      <View style={styles.skipControl}>
+                        <Text style={styles.skipLabel}>Skip</Text>
+                        <Switch
+                          value={skipped.has(reason.pointId)}
+                          onValueChange={(value) => toggleSkip(reason.pointId, value)}
+                          accessibilityLabel={`Skip extension at ${reason.pointId}`}
+                        />
+                      </View>
+                    )}
+                  </View>
                 ))}
               </ScrollView>
+              {unusedSkips.length > 0 && (
+                <Text style={styles.rangeText}>
+                  No longer used (removed on Apply): {unusedSkips.join(", ")}
+                </Text>
+              )}
             </View>
           )}
 
@@ -345,7 +431,44 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   reasonList: {
-    maxHeight: 120,
+    maxHeight: 180,
+  },
+  reasonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 2,
+  },
+  reasonBody: {
+    flex: 1,
+  },
+  reasonWarning: {
+    color: "#FBBF24",
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  skipControl: {
+    alignItems: "center",
+  },
+  skipLabel: {
+    color: PATH_PLAN_GLASS.muted,
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  defaultsBtn: {
+    alignSelf: "flex-start",
+    marginTop: 6,
+    paddingHorizontal: 10,
+    height: 32,
+    justifyContent: "center",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: PATH_PLAN_GLASS.border,
+  },
+  defaultsText: {
+    color: PATH_PLAN_GLASS.label,
+    fontSize: 11,
+    fontWeight: "700",
   },
   reasonText: {
     color: PATH_PLAN_GLASS.muted,

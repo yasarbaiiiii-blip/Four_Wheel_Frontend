@@ -8,9 +8,10 @@ jest.mock("../apiClient", () => ({
   apiPut: jest.fn(),
 }));
 
-import { apiGet, apiPostMultipart, apiPut } from "../apiClient";
+import { apiGet, apiPost, apiPostMultipart, apiPut } from "../apiClient";
 import {
   getMissionExtension,
+  saveExtensionDefaults,
   updateMissionExtension,
   uploadMissionCsv,
 } from "../missionApi";
@@ -18,11 +19,13 @@ import {
 const get = apiGet as jest.Mock;
 const put = apiPut as jest.Mock;
 const upload = apiPostMultipart as jest.Mock;
+const post = apiPost as jest.Mock;
 
 beforeEach(() => {
   get.mockReset().mockResolvedValue({ success: true });
   put.mockReset().mockResolvedValue({ success: true });
   upload.mockReset().mockResolvedValue({ success: true });
+  post.mockReset().mockResolvedValue({ success: true });
 });
 
 it("reads the loaded mission's extension", async () => {
@@ -31,10 +34,19 @@ it("reads the loaded mission's extension", async () => {
 });
 
 it("sends the operator's values with the revision it edited", async () => {
-  await updateMissionExtension({ enabled: true, distanceM: 5.5, triggerDistanceM: 2.5 }, 3);
+  await updateMissionExtension(
+    { enabled: true, distanceM: 5.5, triggerDistanceM: 2.5, skipRowEnds: ["P0004"] },
+    3,
+  );
   expect(put).toHaveBeenCalledWith(
     "/api/mission/extension",
-    { enabled: true, distance_m: 5.5, trigger_distance_m: 2.5, expected_revision: 3 },
+    {
+      enabled: true,
+      distance_m: 5.5,
+      trigger_distance_m: 2.5,
+      skip_row_ends: ["P0004"],
+      expected_revision: 3,
+    },
     { timeoutMs: 60_000 },
   );
 });
@@ -45,8 +57,18 @@ it("sends no distance or trigger when turning it off", async () => {
     enabled: false,
     distance_m: null,
     trigger_distance_m: null,
+    skip_row_ends: [],
     expected_revision: 4,
   });
+});
+
+it("saves defaults without touching the mission", async () => {
+  await saveExtensionDefaults(6, 2.5);
+  expect(post).toHaveBeenCalledWith("/api/mission/extension/defaults", {
+    distance_m: 6,
+    trigger_distance_m: 2.5,
+  });
+  expect(put).not.toHaveBeenCalled();
 });
 
 describe("upload", () => {

@@ -6,6 +6,8 @@ import {
   FALLBACK_EXTENSION_BOUNDS,
   choiceFromSettings,
   describeDecision,
+  describeWarnings,
+  isSkippable,
   extensionErrorCode,
   extensionPointFeatures,
   extensionSummary,
@@ -71,13 +73,24 @@ describe("validateChoice", () => {
 
 describe("choiceFromSettings", () => {
   it("takes the rover's values", () => {
-    expect(choiceFromSettings(ON)).toEqual({ enabled: true, distanceM: 4, triggerDistanceM: 3 });
+    expect(choiceFromSettings({ ...ON, skip_row_ends: ["P0004"] })).toEqual({
+      enabled: true,
+      distanceM: 4,
+      triggerDistanceM: 3,
+      skipRowEnds: ["P0004"],
+    });
   });
 
   it("fills defaults when the rover reports the extension off", () => {
     const off = { ...ON, enabled: false, distance_m: null, trigger_distance_m: null };
-    expect(choiceFromSettings(off)).toEqual(DEFAULT_EXTENSION_CHOICE);
-    expect(choiceFromSettings(null)).toEqual(DEFAULT_EXTENSION_CHOICE);
+    expect(choiceFromSettings(off)).toEqual({ ...DEFAULT_EXTENSION_CHOICE, skipRowEnds: [] });
+    expect(choiceFromSettings(null)).toEqual({ ...DEFAULT_EXTENSION_CHOICE, skipRowEnds: [] });
+  });
+
+  it("uses saved defaults where the rover has no value", () => {
+    expect(
+      choiceFromSettings(null, undefined, { distance_m: 6, trigger_distance_m: 2 }),
+    ).toMatchObject({ distanceM: 6, triggerDistanceM: 2 });
   });
 });
 
@@ -123,4 +136,28 @@ describe("extensionErrorCode", () => {
 it("fallback limits match the rover", () => {
   expect(FALLBACK_EXTENSION_BOUNDS.distance_m).toMatchObject({ min: 1, max: 20, warn_above: 8, default: 4 });
   expect(FALLBACK_EXTENSION_BOUNDS.trigger_distance_m).toMatchObject({ min: 1, max: 5, default: 3 });
+});
+
+describe("phase 3: skips and warnings", () => {
+  it("only extendable row ends can be skipped", () => {
+    expect(isSkippable(ADDED)).toBe(true);
+    expect(isSkippable({ ...ADDED, decision: "SKIPPED_OPERATOR", point: null })).toBe(true);
+    expect(isSkippable(SKIPPED)).toBe(false);
+  });
+
+  it("explains an operator skip and counts skips in the summary", () => {
+    expect(describeDecision({ ...ADDED, decision: "SKIPPED_OPERATOR", point: null }, ON)).toBe(
+      "P0004 → P0005: skipped by operator",
+    );
+    expect(extensionSummary({ ...ON, skip_row_ends: ["P0004", "P0008"] })).toBe(
+      "ON · 4.0 m · trigger 3.0 m · 2 skipped",
+    );
+  });
+
+  it("lists clearance warnings", () => {
+    expect(describeWarnings({ ...ADDED, warnings: [{ point: "P0013", distance_m: 0.2 }] })).toEqual([
+      "passes 0.20 m from P0013",
+    ]);
+    expect(describeWarnings(ADDED)).toEqual([]);
+  });
 });

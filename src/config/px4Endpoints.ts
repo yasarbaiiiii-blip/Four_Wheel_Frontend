@@ -65,6 +65,7 @@ export const PX4_MISSION = {
 
   // Row-extension settings of the loaded mission (GET, PUT).
   EXTENSION: "/api/mission/extension",
+  EXTENSION_DEFAULTS: "/api/mission/extension/defaults",
 
   // Mission information.
   STATUS: "/api/mission/status",

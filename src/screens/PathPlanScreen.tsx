@@ -909,6 +909,9 @@ export default function PathPlanScreen({
   // is the plan on screen; otherwise it is the choice held for the next upload.
   const [heldExtensionChoice, setHeldExtensionChoice] =
     useState<ExtensionChoice>(DEFAULT_EXTENSION_CHOICE);
+  // Until the operator applies a choice, the dialog opens with the rover's
+  // saved defaults.
+  const [heldChoiceTouched, setHeldChoiceTouched] = useState(false);
   const missionExtensionRef = useRef<ExtensionChoice>(DEFAULT_EXTENSION_CHOICE);
   const missionExtension = useMissionExtension({
     missionId: preview.missionId,
@@ -923,13 +926,31 @@ export default function PathPlanScreen({
     missionExtensionRef.current = choice;
     setHeldExtensionChoice(choice);
   }, [roverExtensionSettings, planNeedsUpload, missionExtension.bounds]);
-  const extensionDialogChoice = useMemo(
-    () =>
-      roverExtensionSettings && !planNeedsUpload
-        ? choiceFromSettings(roverExtensionSettings, missionExtension.bounds)
-        : heldExtensionChoice,
-    [roverExtensionSettings, planNeedsUpload, missionExtension.bounds, heldExtensionChoice],
-  );
+  const extensionDialogChoice = useMemo((): ExtensionChoice => {
+    if (roverExtensionSettings && !planNeedsUpload) {
+      return choiceFromSettings(
+        roverExtensionSettings,
+        missionExtension.bounds,
+        missionExtension.defaults,
+      );
+    }
+    if (!heldChoiceTouched && missionExtension.defaults) {
+      return {
+        ...heldExtensionChoice,
+        distanceM: missionExtension.defaults.distance_m,
+        triggerDistanceM: missionExtension.defaults.trigger_distance_m,
+      };
+    }
+    // A new upload starts with no skipped row ends.
+    return { ...heldExtensionChoice, skipRowEnds: [] };
+  }, [
+    roverExtensionSettings,
+    planNeedsUpload,
+    missionExtension.bounds,
+    missionExtension.defaults,
+    heldExtensionChoice,
+    heldChoiceTouched,
+  ]);
   const extensionPanelLabel =
     roverExtensionSettings && !planNeedsUpload
       ? extensionSummary(roverExtensionSettings)
@@ -2578,6 +2599,7 @@ export default function PathPlanScreen({
       if (outcome.status === "applied") {
         missionExtensionRef.current = choice;
         setHeldExtensionChoice(choice);
+        setHeldChoiceTouched(true);
         showPathPlanToast(
           "success",
           "Row Extension",
@@ -2596,9 +2618,12 @@ export default function PathPlanScreen({
     }
 
     // Otherwise the choice rides on the upload: the next automatic one if the
-    // plan has unsent edits, or one now if the plan is unchanged.
-    missionExtensionRef.current = choice;
-    setHeldExtensionChoice(choice);
+    // plan has unsent edits, or one now if the plan is unchanged. Skipped row
+    // ends belong to one mission and are never carried into an upload.
+    const uploadChoice = { ...choice, skipRowEnds: [] };
+    missionExtensionRef.current = uploadChoice;
+    setHeldExtensionChoice(uploadChoice);
+    setHeldChoiceTouched(true);
 
     const current = waypointsRef.current;
     if (roverUploadBlockedReason || current.length < 2 || planNeedsUpload) return;
@@ -2610,7 +2635,7 @@ export default function PathPlanScreen({
     setIsAutoTrajectoryUpdating(true);
     void uploadWaypointsToBackend(
       current.map((waypoint) => ({ ...waypoint })),
-      choice,
+      uploadChoice,
     ).finally(() => {
       if (mountedRef.current) setIsAutoTrajectoryUpdating(false);
     });
@@ -4845,7 +4870,9 @@ export default function PathPlanScreen({
         settings={planNeedsUpload ? null : roverExtensionSettings}
         decisions={missionExtension.decisions}
         decisionsCurrent={missionExtension.decisionsCurrent && !planNeedsUpload}
+        unusedSkips={planNeedsUpload ? [] : missionExtension.unusedSkips}
         applying={missionExtension.applying}
+        onSaveDefaults={missionExtension.saveDefaults}
         onCancel={() => setShowMissionExtensionDistanceDialog(false)}
         onApply={(choice) => {
           void applyMissionExtension(choice).finally(() => {

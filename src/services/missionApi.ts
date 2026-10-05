@@ -29,6 +29,7 @@ import {
   FALLBACK_EXTENSION_BOUNDS,
   validateChoice,
   type ExtensionChoice,
+  type ExtensionDefaultsResponse,
   type MissionExtensionResponse,
 } from "../utils/missionExtension";
 
@@ -687,10 +688,22 @@ export async function updateMissionExtension(
       enabled: choice.enabled,
       distance_m: choice.enabled ? choice.distanceM : null,
       trigger_distance_m: choice.enabled ? choice.triggerDistanceM : null,
+      skip_row_ends: choice.enabled ? choice.skipRowEnds ?? [] : [],
       expected_revision: expectedRevision,
     },
     { timeoutMs: 60_000 },
   );
+}
+
+/** Save the dialog's starting values on the rover. Changes no mission. */
+export async function saveExtensionDefaults(
+  distanceM: number,
+  triggerDistanceM: number,
+): Promise<ExtensionDefaultsResponse> {
+  return apiPost<ExtensionDefaultsResponse>(PX4_MISSION.EXTENSION_DEFAULTS, {
+    distance_m: distanceM,
+    trigger_distance_m: triggerDistanceM,
+  });
 }
 
 export async function loadMission(missionId?: string): Promise<MissionControlResponse> {
