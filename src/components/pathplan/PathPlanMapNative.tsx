@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
 import { MarkerView, MapView, Camera } from '@rnmapbox/maps';
 import { RoverVehicleIcon } from '../shared/RoverVehicleIcon';
-import { NativeTrajectoryLayer, NativeWaypointLayer } from '../shared/NativeMapLayers';
+import { NativeExtensionPointLayer, NativeTrajectoryLayer, NativeWaypointLayer } from '../shared/NativeMapLayers';
 import { TrajectoryStatusBanner } from '../shared/TrajectoryStatusBanner';
 import {
   MAPBOX_STYLE_SATELLITE,
@@ -43,6 +43,8 @@ export const PathPlanMapNative: React.FC<any> = ({
   onMapPress,
   visualization,
   isVisible: _isVisible = true,
+  // GeoJSON of the rover's row-extension points (current revision only).
+  extensionPoints = null,
 }) => {
   const {
     usingFallback,
@@ -193,6 +195,16 @@ export const PathPlanMapNative: React.FC<any> = ({
             layerId="path-layer"
             shape={trajectoryGeoJSON as any}
             variant="authoring"
+            tolerance={0.00001}
+            maxZoomLevel={22}
+          />
+        )}
+
+        {extensionPoints && showTrajectory && (
+          <NativeExtensionPointLayer
+            sourceId="extension-point-source"
+            layerId="extension-point-layer"
+            shape={extensionPoints as any}
             tolerance={0.00001}
             maxZoomLevel={22}
           />

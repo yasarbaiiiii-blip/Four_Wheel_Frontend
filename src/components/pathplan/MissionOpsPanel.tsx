@@ -34,6 +34,11 @@ type Props = {
     planNeedsUpload?: boolean;
     /** A settled editor revision is being staged with the rover. */
     trajectoryUpdating?: boolean;
+    /** Row extension as the rover reports it (or the choice held for upload). */
+    extensionOn?: boolean;
+    extensionLabel?: string;
+    /** Opens the row-extension dialog. */
+    onOpenExtension?: () => void;
     /** A file import or mission restore is in progress, so opening a second picker is unsafe. */
     uploadBusy?: boolean;
     /** Operator-facing explanation for a temporarily unavailable upload action. */
@@ -80,6 +85,9 @@ const MissionOpsPanel = React.memo(({
     onRequestUpload,
     planNeedsUpload = false,
     trajectoryUpdating = false,
+    extensionOn = false,
+    extensionLabel = 'OFF',
+    onOpenExtension,
     uploadBusy = false,
     uploadBusyLabel = 'Preparing…',
     onManualControlOpen,
@@ -414,6 +422,28 @@ const MissionOpsPanel = React.memo(({
                 </TouchableOpacity>
             </View>
 
+            {onOpenExtension && (() => {
+                // The rover also refuses changes while a mission is active.
+                const extensionLocked = trajectoryUpdating || uploadBusy || clearInProgress;
+                return (
+                    <TouchableOpacity
+                        style={[styles.extensionRow, extensionOn && styles.extensionRowOn, extensionLocked && styles.disabledBtn]}
+                        onPress={onOpenExtension}
+                        disabled={extensionLocked}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Row extension, ${extensionLabel}`}
+                        accessibilityState={{ disabled: extensionLocked }}
+                    >
+                        <MaterialCommunityIcons name="arrow-expand-horizontal" size={18} color={extensionOn ? '#FBBF24' : '#94A3B8'} />
+                        <Text style={styles.extensionLabel}>Row extension</Text>
+                        <Text style={[styles.extensionValue, extensionOn && styles.extensionValueOn]}>
+                            {extensionLabel}
+                        </Text>
+                    </TouchableOpacity>
+                );
+            })()}
+
             {/* The button exists only after a preview. Its label belongs to that mission ID. */}
             {loadVisible && (
                 <TouchableOpacity
@@ -614,6 +644,38 @@ const styles = StyleSheet.create({
     buttonText: {
         fontWeight: '600',
         fontSize: 13,
+    },
+
+    // ── ROW EXTENSION ──
+    extensionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(148, 163, 184, 0.25)',
+        backgroundColor: '#08101a',
+    },
+    extensionRowOn: {
+        borderColor: 'rgba(251, 191, 36, 0.55)',
+        backgroundColor: 'rgba(251, 191, 36, 0.08)',
+    },
+    extensionLabel: {
+        flex: 1,
+        color: '#E2E8F0',
+        fontWeight: '600',
+        fontSize: 13,
+    },
+    extensionValue: {
+        color: '#94A3B8',
+        fontWeight: '700',
+        fontSize: 13,
+    },
+    extensionValueOn: {
+        color: '#FBBF24',
     },
 
     // ── LOAD MISSION ──

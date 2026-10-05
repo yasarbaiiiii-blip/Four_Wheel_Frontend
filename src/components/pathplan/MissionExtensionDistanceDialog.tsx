@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
+  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -12,55 +14,90 @@ import {
   PATH_PLAN_GLASS,
   PATH_PLAN_HEADER,
 } from "../../constants/pathPlanGlass";
+import {
+  describeDecision,
+  validateChoice,
+  type ExtensionBounds,
+  type ExtensionChoice,
+  type ExtensionDecision,
+  type ExtensionSettings,
+} from "../../utils/missionExtension";
 
 interface MissionExtensionDistanceDialogProps {
   visible: boolean;
-  initialDistanceM: number;
+  /** Values the dialog opens with (the rover's settings, or the held choice). */
+  initialChoice: ExtensionChoice;
+  /** The rover's limits; the fallback copy until the rover has answered. */
+  bounds: ExtensionBounds;
+  /** Rover settings the decisions were computed from (for the reasons text). */
+  settings: ExtensionSettings | null;
+  decisions: ExtensionDecision[];
+  decisionsCurrent: boolean;
+  applying: boolean;
   onCancel: () => void;
-  onConfirm: (distanceM: number) => void;
+  onApply: (choice: ExtensionChoice) => void;
 }
-
-const MIN_EXTENSION_M = 0.1;
-const MAX_EXTENSION_M = 20.0;
 
 export const MissionExtensionDistanceDialog: React.FC<
   MissionExtensionDistanceDialogProps
 > = ({
   visible,
-  initialDistanceM,
+  initialChoice,
+  bounds,
+  settings,
+  decisions,
+  decisionsCurrent,
+  applying,
   onCancel,
-  onConfirm,
+  onApply,
 }) => {
+  const [enabled, setEnabled] = useState(initialChoice.enabled);
   const [distanceText, setDistanceText] = useState(
-    initialDistanceM.toString(),
+    initialChoice.distanceM.toString(),
   );
-  const [errorText, setErrorText] = useState<string | null>(null);
+  const [triggerText, setTriggerText] = useState(
+    initialChoice.triggerDistanceM.toString(),
+  );
+  const [touched, setTouched] = useState(false);
 
+  // Take the starting values only when the dialog opens: the rover's settings
+  // can be re-read while it is open, and that must not overwrite typing.
+  const initialChoiceRef = useRef(initialChoice);
+  initialChoiceRef.current = initialChoice;
   useEffect(() => {
     if (!visible) return;
-    setDistanceText(initialDistanceM.toString());
-    setErrorText(null);
-  }, [visible, initialDistanceM]);
+    const start = initialChoiceRef.current;
+    setEnabled(start.enabled);
+    setDistanceText(start.distanceM.toString());
+    setTriggerText(start.triggerDistanceM.toString());
+    setTouched(false);
+  }, [visible]);
 
-  const handleConfirm = () => {
-    const distanceM = Number(distanceText.trim());
+  const choice: ExtensionChoice = {
+    enabled,
+    distanceM: Number(distanceText.trim()),
+    triggerDistanceM: Number(triggerText.trim()),
+  };
+  const validation = validateChoice(choice, bounds);
+  const invalid = Boolean(validation.distanceError || validation.triggerError);
 
-    if (!Number.isFinite(distanceM)) {
-      setErrorText("Enter a valid extension distance.");
-      return;
-    }
+  const reasons = useMemo(
+    () =>
+      decisionsCurrent
+        ? decisions.map((decision) => ({
+            key: `${decision.from_point}-${decision.to_point}`,
+            added: decision.decision === "ADDED",
+            text: describeDecision(decision, settings),
+          }))
+        : [],
+    [decisions, decisionsCurrent, settings],
+  );
+  const addedCount = reasons.filter((reason) => reason.added).length;
 
-    if (
-      distanceM < MIN_EXTENSION_M ||
-      distanceM > MAX_EXTENSION_M
-    ) {
-      setErrorText(
-        `Extension distance must be between ${MIN_EXTENSION_M.toFixed(1)} and ${MAX_EXTENSION_M.toFixed(1)} m.`,
-      );
-      return;
-    }
-
-    onConfirm(distanceM);
+  const handleApply = () => {
+    setTouched(true);
+    if (invalid || applying) return;
+    onApply(choice);
   };
 
   return (
@@ -96,50 +133,84 @@ export const MissionExtensionDistanceDialog: React.FC<
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.description}>
-            Enter the distance the rover should travel past the row end before
-            turning into the next row.
-          </Text>
-
-          <View style={styles.inputSection}>
-            <Text style={styles.label}>Extension distance</Text>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.input}
-                value={distanceText}
-                onChangeText={(value) => {
-                  setDistanceText(value);
-                  setErrorText(null);
-                }}
-                keyboardType="decimal-pad"
-                autoFocus
-                selectTextOnFocus
-                placeholder="4.0"
-                placeholderTextColor={PATH_PLAN_GLASS.muted}
-                returnKeyType="done"
-                onSubmitEditing={handleConfirm}
-              />
-              <Text style={styles.unit}>m</Text>
+          <View style={styles.switchRow}>
+            <View style={styles.switchText}>
+              <Text style={styles.label}>Extend past row ends</Text>
+              <Text style={styles.rangeText}>
+                The rover drives past a row end, stops, then turns into the
+                next row. Nothing is marked there.
+              </Text>
             </View>
-            <Text style={styles.rangeText}>
-              Allowed range: 0.1 m to 20.0 m
-            </Text>
+            <Switch value={enabled} onValueChange={setEnabled} />
           </View>
 
-          <View style={styles.infoBox}>
-            <MaterialCommunityIcons
-              name="information-outline"
-              size={15}
-              color={PATH_PLAN_GLASS.cyan}
-            />
-            <Text style={styles.infoText}>
-              The short-row detection threshold remains 3.0 m. This value only
-              changes how far the extension point is placed.
-            </Text>
-          </View>
+          {enabled && (
+            <View style={styles.inputSection}>
+              <Text style={styles.label}>Extension distance</Text>
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={styles.input}
+                  value={distanceText}
+                  onChangeText={setDistanceText}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                  placeholder={bounds.distance_m.default.toFixed(1)}
+                  placeholderTextColor={PATH_PLAN_GLASS.muted}
+                />
+                <Text style={styles.unit}>m</Text>
+              </View>
+              <Text style={styles.rangeText}>
+                How far past the row end. {bounds.distance_m.min.toFixed(1)} to{" "}
+                {bounds.distance_m.max.toFixed(1)} m.
+              </Text>
+              {touched && validation.distanceError && (
+                <Text style={styles.errorText}>{validation.distanceError}</Text>
+              )}
+              {validation.distanceWarning && (
+                <Text style={styles.warningText}>{validation.distanceWarning}</Text>
+              )}
 
-          {errorText && (
-            <Text style={styles.errorText}>{errorText}</Text>
+              <Text style={[styles.label, styles.secondLabel]}>Trigger distance</Text>
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={styles.input}
+                  value={triggerText}
+                  onChangeText={setTriggerText}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                  placeholder={bounds.trigger_distance_m.default.toFixed(1)}
+                  placeholderTextColor={PATH_PLAN_GLASS.muted}
+                />
+                <Text style={styles.unit}>m</Text>
+              </View>
+              <Text style={styles.rangeText}>
+                Only row ends whose next row starts closer than this get an
+                extension. {bounds.trigger_distance_m.min.toFixed(1)} to{" "}
+                {bounds.trigger_distance_m.max.toFixed(1)} m.
+              </Text>
+              {touched && validation.triggerError && (
+                <Text style={styles.errorText}>{validation.triggerError}</Text>
+              )}
+            </View>
+          )}
+
+          {reasons.length > 0 && (
+            <View style={styles.reasonBox}>
+              <Text style={styles.label}>
+                Current mission: {addedCount} extension point
+                {addedCount === 1 ? "" : "s"}
+              </Text>
+              <ScrollView style={styles.reasonList} nestedScrollEnabled>
+                {reasons.map((reason) => (
+                  <Text
+                    key={reason.key}
+                    style={[styles.reasonText, reason.added && styles.reasonAdded]}
+                  >
+                    {reason.text}
+                  </Text>
+                ))}
+              </ScrollView>
+            </View>
           )}
 
           <View style={styles.actions}>
@@ -152,11 +223,12 @@ export const MissionExtensionDistanceDialog: React.FC<
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.okBtn}
-              onPress={handleConfirm}
+              style={[styles.okBtn, (applying || (touched && invalid)) && styles.okBtnDisabled]}
+              onPress={handleApply}
+              disabled={applying}
               activeOpacity={0.7}
             >
-              <Text style={styles.okText}>OK</Text>
+              <Text style={styles.okText}>{applying ? "Applying…" : "Apply"}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -173,14 +245,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.48)",
   },
   dialog: {
-    width: 360,
-    maxWidth: "88%",
+    width: 400,
+    maxWidth: "90%",
+    maxHeight: "92%",
     borderRadius: PATH_PLAN_GLASS.borderRadius,
     borderWidth: 1,
     borderColor: PATH_PLAN_GLASS.border,
     backgroundColor: PATH_PLAN_GLASS.panelBg,
     padding: 16,
-    gap: 14,
+    gap: 12,
   },
   header: {
     flexDirection: "row",
@@ -202,10 +275,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 1.2,
   },
-  description: {
-    color: PATH_PLAN_GLASS.label,
-    fontSize: 12,
-    lineHeight: 18,
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  switchText: {
+    flex: 1,
+    gap: 4,
   },
   inputSection: {
     borderRadius: 10,
@@ -213,12 +290,15 @@ const styles = StyleSheet.create({
     borderColor: PATH_PLAN_GLASS.borderSubtle,
     backgroundColor: PATH_PLAN_GLASS.innerBg,
     padding: 12,
-    gap: 8,
+    gap: 6,
   },
   label: {
     color: PATH_PLAN_GLASS.label,
     fontSize: 11,
     fontWeight: "700",
+  },
+  secondLabel: {
+    marginTop: 8,
   },
   inputRow: {
     flexDirection: "row",
@@ -246,25 +326,34 @@ const styles = StyleSheet.create({
   rangeText: {
     color: PATH_PLAN_GLASS.muted,
     fontSize: 10,
-  },
-  infoBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    borderRadius: 8,
-    backgroundColor: PATH_PLAN_GLASS.iconWrapBg,
-    padding: 10,
-  },
-  infoText: {
-    flex: 1,
-    color: PATH_PLAN_GLASS.label,
-    fontSize: 10,
-    lineHeight: 15,
+    lineHeight: 14,
   },
   errorText: {
     color: "#F87171",
     fontSize: 10,
     fontWeight: "700",
+  },
+  warningText: {
+    color: "#FBBF24",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  reasonBox: {
+    borderRadius: 8,
+    backgroundColor: PATH_PLAN_GLASS.iconWrapBg,
+    padding: 10,
+    gap: 6,
+  },
+  reasonList: {
+    maxHeight: 120,
+  },
+  reasonText: {
+    color: PATH_PLAN_GLASS.muted,
+    fontSize: 10,
+    lineHeight: 15,
+  },
+  reasonAdded: {
+    color: "#FBBF24",
   },
   actions: {
     flexDirection: "row",
@@ -293,6 +382,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 8,
     backgroundColor: PATH_PLAN_GLASS.cyan,
+  },
+  okBtnDisabled: {
+    opacity: 0.5,
   },
   okText: {
     color: "#052E2B",

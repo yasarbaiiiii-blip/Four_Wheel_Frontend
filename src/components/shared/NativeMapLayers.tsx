@@ -120,3 +120,42 @@ export const NativeWaypointLayer = memo(function NativeWaypointLayer({
     </ShapeSource>
   );
 });
+
+// Row extension points: navigation-only stops past a row end. Amber with an
+// "X" so they never read as numbered marking points.
+const EXTENSION_POINT_STYLE: React.ComponentProps<typeof CircleLayer>["style"] = {
+  circleRadius: ["interpolate", ["linear"], ["zoom"], 16, 7, 19, 9, 22, 11],
+  circleColor: "#f59e0b",
+  circleOpacity: 0.9,
+  circleStrokeColor: "#0f172a",
+  circleStrokeWidth: 2,
+};
+
+const EXTENSION_LABEL_STYLE: React.ComponentProps<typeof SymbolLayer>["style"] = {
+  textField: "{label}",
+  textSize: ["interpolate", ["linear"], ["zoom"], 16, 8, 19, 10, 22, 11],
+  textColor: "#0f172a",
+  textAnchor: "center",
+  textAllowOverlap: true,
+  textIgnorePlacement: true,
+};
+
+export const NativeExtensionPointLayer = memo(function NativeExtensionPointLayer({
+  sourceId,
+  layerId,
+  shape,
+  tolerance,
+  maxZoomLevel,
+}: NativeMapLayerProps) {
+  return (
+    <ShapeSource
+      id={sourceId}
+      shape={shape}
+      tolerance={tolerance}
+      maxZoomLevel={maxZoomLevel}
+    >
+      <CircleLayer id={layerId} style={EXTENSION_POINT_STYLE} />
+      <SymbolLayer id={`${layerId}-label`} style={EXTENSION_LABEL_STYLE} />
+    </ShapeSource>
+  );
+});

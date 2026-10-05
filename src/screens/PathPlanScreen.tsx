@@ -47,6 +47,14 @@ import { entitiesToDXF } from "../core/cad";
 import { ManualPathConnectionCanvas } from "../components/pathplan/ManualPathConnectionCanvas";
 import { CornerExtensionDialog } from "../components/pathplan/CornerExtensionDialog";
 import { MissionExtensionDistanceDialog } from "../components/pathplan/MissionExtensionDistanceDialog";
+import { useMissionExtension } from "../hooks/pathplan/useMissionExtension";
+import {
+  DEFAULT_EXTENSION_CHOICE,
+  choiceFromSettings,
+  extensionPointFeatures,
+  extensionSummary,
+  type ExtensionChoice,
+} from "../utils/missionExtension";
 import { SolarTableDialog } from "../components/pathplan/SolarTableDialog";
 import { TemplateManagerDialog } from "../components/pathplan/TemplateManagerDialog";
 import {
@@ -110,7 +118,6 @@ import {
   getMissionStatus,
   getMissionHistory,
   restoreMission,
-  type MissionExtensionMode,
   type MissionControlResponse,
 } from "../services/missionApi";
 import {
@@ -896,9 +903,53 @@ export default function PathPlanScreen({
     showMissionExtensionDistanceDialog,
     setShowMissionExtensionDistanceDialog,
   ] = useState(false);
-  const [missionExtensionDistanceM, setMissionExtensionDistanceM] =
-    useState(4.0);
-  const pendingMissionExtensionUploadRef = useRef<PathPlanWaypoint[] | null>(null);
+  // Every upload (debounced editor updates included) reads the extension
+  // choice from here, so an edit can never silently revert the rover mission
+  // to DISABLE. It follows the rover's settings whenever the rover's mission
+  // is the plan on screen; otherwise it is the choice held for the next upload.
+  const [heldExtensionChoice, setHeldExtensionChoice] =
+    useState<ExtensionChoice>(DEFAULT_EXTENSION_CHOICE);
+  const missionExtensionRef = useRef<ExtensionChoice>(DEFAULT_EXTENSION_CHOICE);
+  const missionExtension = useMissionExtension({
+    missionId: preview.missionId,
+    trajectoryReady: preview.liveTrajectoryReady,
+    pathSignature: preview.pushMeta?.signature ?? null,
+    connected: roverUploadBlockedReason === null,
+  });
+  const roverExtensionSettings = missionExtension.settings;
+  useEffect(() => {
+    if (!roverExtensionSettings || planNeedsUpload) return;
+    const choice = choiceFromSettings(roverExtensionSettings, missionExtension.bounds);
+    missionExtensionRef.current = choice;
+    setHeldExtensionChoice(choice);
+  }, [roverExtensionSettings, planNeedsUpload, missionExtension.bounds]);
+  const extensionDialogChoice = useMemo(
+    () =>
+      roverExtensionSettings && !planNeedsUpload
+        ? choiceFromSettings(roverExtensionSettings, missionExtension.bounds)
+        : heldExtensionChoice,
+    [roverExtensionSettings, planNeedsUpload, missionExtension.bounds, heldExtensionChoice],
+  );
+  const extensionPanelLabel =
+    roverExtensionSettings && !planNeedsUpload
+      ? extensionSummary(roverExtensionSettings)
+      : extensionSummary({
+          enabled: heldExtensionChoice.enabled,
+          distance_m: heldExtensionChoice.distanceM,
+          trigger_distance_m: heldExtensionChoice.triggerDistanceM,
+          source: "OPERATOR",
+          revision: 0,
+        });
+  const extensionPointsGeoJSON = useMemo(
+    () =>
+      planNeedsUpload
+        ? null
+        : extensionPointFeatures(
+            missionExtension.decisions,
+            missionExtension.decisionsCurrent,
+          ),
+    [planNeedsUpload, missionExtension.decisions, missionExtension.decisionsCurrent],
+  );
   const [showSolarTableDialog, setShowSolarTableDialog] = useState(false);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [isDrawingMode, setIsDrawingMode] = useState(false);
@@ -2393,8 +2444,7 @@ export default function PathPlanScreen({
 
   async function uploadWaypointsToBackend(
     waypointsToUpload: PathPlanWaypoint[],
-    extensionMode: MissionExtensionMode,
-    extensionDistanceM?: number,
+    extension: ExtensionChoice,
   ): Promise<void> {
     if (isUploadingRef.current) {
       showPathPlanToast(
@@ -2465,12 +2515,15 @@ export default function PathPlanScreen({
           mimeType: "text/csv",
         } as any,
 
-        extensionMode,
+        extensionMode: extension.enabled ? "ENABLE" : "DISABLE",
 
-        dummyPointDistanceM:
-          extensionMode === "ENABLE"
-            ? extensionDistanceM
-            : undefined,
+        dummyPointDistanceM: extension.enabled
+          ? extension.distanceM
+          : undefined,
+
+        triggerDistanceM: extension.enabled
+          ? extension.triggerDistanceM
+          : undefined,
       });
 
       setUploadProgress(90);
@@ -2512,54 +2565,55 @@ export default function PathPlanScreen({
     }
   }
 
-  function askExtensionAndUpload(waypointsToUpload: PathPlanWaypoint[]): void {
-    if (waypointsToUpload.length < 2) {
-      showPathPlanToast(
-        "error",
-        "Not Enough Points",
-        "Add at least two marking points before uploading the mission.",
-        5000,
-      );
-
+  async function applyMissionExtension(choice: ExtensionChoice): Promise<void> {
+    // The rover's mission is the plan on screen: change it in place (PUT).
+    // The rover keeps the mission, clears the path and prepares it again.
+    if (
+      roverExtensionSettings &&
+      !planNeedsUpload &&
+      !roverUploadBlockedReason
+    ) {
+      const outcome = await missionExtension.apply(choice);
+      if (!mountedRef.current) return;
+      if (outcome.status === "applied") {
+        missionExtensionRef.current = choice;
+        setHeldExtensionChoice(choice);
+        showPathPlanToast(
+          "success",
+          "Row Extension",
+          "Applied. The rover is preparing the path again; Load the mission once the preview is back.",
+          5000,
+        );
+      } else {
+        showPathPlanToast(
+          outcome.status === "conflict" ? "info" : "error",
+          "Row Extension",
+          outcome.message,
+          6000,
+        );
+      }
       return;
     }
 
-    /*
-     * Take a snapshot so the exact displayed order
-     * is sent after the operator selects an option.
-     */
-    const waypointSnapshot = waypointsToUpload.map((waypoint) => ({
-      ...waypoint,
-    }));
+    // Otherwise the choice rides on the upload: the next automatic one if the
+    // plan has unsent edits, or one now if the plan is unchanged.
+    missionExtensionRef.current = choice;
+    setHeldExtensionChoice(choice);
 
-    Alert.alert(
-      "Mission Extension",
-      "Choose whether the backend should generate extension points for short row transitions.",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "DISABLE",
-          onPress: () => {
-            pendingMissionExtensionUploadRef.current = null;
-            void uploadWaypointsToBackend(waypointSnapshot, "DISABLE");
-          },
-        },
-        {
-          text: "ENABLE",
-          onPress: () => {
-            /*
-             * Do not upload yet. The operator first enters the exact row
-             * extension distance and confirms it with OK.
-             */
-            pendingMissionExtensionUploadRef.current = waypointSnapshot;
-            setShowMissionExtensionDistanceDialog(true);
-          },
-        },
-      ],
-    );
+    const current = waypointsRef.current;
+    if (roverUploadBlockedReason || current.length < 2 || planNeedsUpload) return;
+
+    if (autoTrajectoryTimerRef.current) {
+      clearTimeout(autoTrajectoryTimerRef.current);
+      autoTrajectoryTimerRef.current = null;
+    }
+    setIsAutoTrajectoryUpdating(true);
+    void uploadWaypointsToBackend(
+      current.map((waypoint) => ({ ...waypoint })),
+      choice,
+    ).finally(() => {
+      if (mountedRef.current) setIsAutoTrajectoryUpdating(false);
+    });
   }
 
   function applyImportedWaypoints(sanitized: PathPlanWaypoint[]): void {
@@ -2748,7 +2802,10 @@ export default function PathPlanScreen({
         if (mountedRef.current) setIsAutoTrajectoryUpdating(false);
         return;
       }
-      void uploadWaypointsToBackend(snapshot, "DISABLE").finally(() => {
+      void uploadWaypointsToBackend(
+        snapshot,
+        missionExtensionRef.current,
+      ).finally(() => {
         if (mountedRef.current) setIsAutoTrajectoryUpdating(false);
       });
     }, 900);
@@ -3629,6 +3686,7 @@ export default function PathPlanScreen({
             {embedMap && (
             <PathPlanMap
               waypoints={displayedWaypoints}
+              extensionPoints={extensionPointsGeoJSON}
               dxfEntities={dxfMapEntities}
               onMapPress={showPrecisePathDialog ? undefined : handleMapPress}
               onWaypointDrag={
@@ -3694,6 +3752,7 @@ export default function PathPlanScreen({
               {embedMap && (
               <PathPlanMap
                 waypoints={displayedWaypoints}
+                extensionPoints={extensionPointsGeoJSON}
                 dxfEntities={dxfMapEntities}
                 onMapPress={showPrecisePathDialog ? undefined : handleMapPress}
                 onWaypointDrag={
@@ -3840,6 +3899,9 @@ export default function PathPlanScreen({
                   onRequestUpload={handleRequestUpload}
                   planNeedsUpload={planNeedsUpload}
                   trajectoryUpdating={isAutoTrajectoryUpdating}
+                  extensionOn={extensionDialogChoice.enabled}
+                  extensionLabel={extensionPanelLabel}
+                  onOpenExtension={() => setShowMissionExtensionDistanceDialog(true)}
                   uploadBusy={isRestoringMission || isImportingFile}
                   uploadBusyLabel={isRestoringMission ? "Preparing…" : "Opening…"}
                   onLoadMission={handleLoadMissionToController}
@@ -4778,34 +4840,17 @@ export default function PathPlanScreen({
       {/* Backend-generated row extension distance */}
       <MissionExtensionDistanceDialog
         visible={showMissionExtensionDistanceDialog}
-        initialDistanceM={missionExtensionDistanceM}
-        onCancel={() => {
-          pendingMissionExtensionUploadRef.current = null;
-          setShowMissionExtensionDistanceDialog(false);
-        }}
-        onConfirm={(distanceM) => {
-          const waypointSnapshot =
-            pendingMissionExtensionUploadRef.current;
-
-          pendingMissionExtensionUploadRef.current = null;
-          setMissionExtensionDistanceM(distanceM);
-          setShowMissionExtensionDistanceDialog(false);
-
-          if (!waypointSnapshot) {
-            showPathPlanToast(
-              "error",
-              "Mission Upload",
-              "The pending mission upload is no longer available.",
-              4000,
-            );
-            return;
-          }
-
-          void uploadWaypointsToBackend(
-            waypointSnapshot,
-            "ENABLE",
-            distanceM,
-          );
+        initialChoice={extensionDialogChoice}
+        bounds={missionExtension.bounds}
+        settings={planNeedsUpload ? null : roverExtensionSettings}
+        decisions={missionExtension.decisions}
+        decisionsCurrent={missionExtension.decisionsCurrent && !planNeedsUpload}
+        applying={missionExtension.applying}
+        onCancel={() => setShowMissionExtensionDistanceDialog(false)}
+        onApply={(choice) => {
+          void applyMissionExtension(choice).finally(() => {
+            if (mountedRef.current) setShowMissionExtensionDistanceDialog(false);
+          });
         }}
       />
 

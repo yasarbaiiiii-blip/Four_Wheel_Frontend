@@ -22,7 +22,15 @@ import {
   apiGet,
   apiPost,
   apiPostMultipart,
+  apiPut,
 } from "./apiClient";
+
+import {
+  FALLBACK_EXTENSION_BOUNDS,
+  validateChoice,
+  type ExtensionChoice,
+  type MissionExtensionResponse,
+} from "../utils/missionExtension";
 
 // ── Extension settings ────────────────────────────────────────────────────────
 
@@ -48,6 +56,9 @@ export interface MissionUploadOptions {
    * distance is sent to the rover.
    */
   dummyPointDistanceM?: number;
+
+  /** Used only when extensionMode is ENABLE; the rover defaults to 3.0 m. */
+  triggerDistanceM?: number;
 }
 
 // ── Backend response types ────────────────────────────────────────────────────
@@ -550,25 +561,6 @@ function validateCsvFile(
   }
 }
 
-function validateDummyDistance(
-  value: number,
-): void {
-  if (!Number.isFinite(value)) {
-    throw new Error(
-      "Dummy-point distance must be a valid number.",
-    );
-  }
-
-  if (
-    value < 0.1 ||
-    value > 20
-  ) {
-    throw new Error(
-      "Dummy-point distance must be between 0.10 m and 20.00 m.",
-    );
-  }
-}
-
 // ── Mission upload ────────────────────────────────────────────────────────────
 
 export async function uploadMissionCsv(
@@ -578,6 +570,7 @@ export async function uploadMissionCsv(
     file,
     extensionMode,
     dummyPointDistanceM,
+    triggerDistanceM,
   } = options;
 
   validateCsvFile(file);
@@ -600,9 +593,17 @@ export async function uploadMissionCsv(
       );
     }
 
-    validateDummyDistance(
-      dummyPointDistanceM,
-    );
+    const validation = validateChoice({
+      enabled: true,
+      distanceM: dummyPointDistanceM,
+      triggerDistanceM:
+        triggerDistanceM ??
+        FALLBACK_EXTENSION_BOUNDS.trigger_distance_m.default,
+    });
+    const problem = validation.distanceError ?? validation.triggerError;
+    if (problem) {
+      throw new Error(problem);
+    }
   }
 
   const formData =
@@ -642,6 +643,13 @@ export async function uploadMissionCsv(
       ),
     );
 
+    if (triggerDistanceM !== undefined) {
+      formData.append(
+        "trigger_distance_m",
+        String(triggerDistanceM),
+      );
+    }
+
     // The rover honours dummy_point_distance_m only with this marker;
     // earlier builds sent a fixed 3.5 m that it must keep ignoring.
     formData.append(
@@ -656,6 +664,32 @@ export async function uploadMissionCsv(
     {
       timeoutMs: 60_000,
     },
+  );
+}
+
+/** Row-extension settings, limits and row-end decisions of the loaded mission. */
+export async function getMissionExtension(): Promise<MissionExtensionResponse> {
+  return apiGet<MissionExtensionResponse>(PX4_MISSION.EXTENSION);
+}
+
+/**
+ * Change the loaded mission's row extension. The rover keeps the mission,
+ * bumps the revision, clears the path and prepares it again. It refuses with
+ * 409 REVISION_CONFLICT when expectedRevision is not the stored one.
+ */
+export async function updateMissionExtension(
+  choice: ExtensionChoice,
+  expectedRevision: number,
+): Promise<MissionExtensionResponse> {
+  return apiPut<MissionExtensionResponse>(
+    PX4_MISSION.EXTENSION,
+    {
+      enabled: choice.enabled,
+      distance_m: choice.enabled ? choice.distanceM : null,
+      trigger_distance_m: choice.enabled ? choice.triggerDistanceM : null,
+      expected_revision: expectedRevision,
+    },
+    { timeoutMs: 60_000 },
   );
 }
 
