@@ -5756,7 +5756,7 @@ const fieldExperienceStyles = StyleSheet.create({
   homeWatchBadgeGood: { backgroundColor: "#FFFFFF", borderColor: "#DCE9E3" }, homeWatchBadgeGoodDark: { backgroundColor: "#16383D", borderColor: "#28565B" },
   homeWatchBadgeAlert: { backgroundColor: "#FFF8F0", borderColor: "#FFDEB8" }, homeWatchBadgeAlertDark: { backgroundColor: "#4B321C", borderColor: "#82562B" },
   homeWatchBadgeInfo: { backgroundColor: "#F7FAFF", borderColor: "#D8E6FA" }, homeWatchBadgeInfoDark: { backgroundColor: "#19375F", borderColor: "#315A90" },
-  homeStatusHeading: { flexDirection: "row", alignItems: "center", gap: 4 }, homeStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  homeStatusHeading: { flexDirection: "row", alignItems: "center" }, homeStatusDot: { display: "none" },
   homeStatusLabelText: { color: "#173563", fontSize: 10, fontWeight: "900", letterSpacing: -0.1 }, homeStatusLabelTextDark: { color: "#F8FAFC" },
   homeStatusValue: { color: "#7183A1", fontSize: 10, fontWeight: "800", marginTop: 2, maxWidth: 72 }, homeStatusValueDark: { color: "#A9BFDE" }, homeStatusValueGood: { color: "#148263" }, homeStatusValueGoodDark: { color: "#64E0B1" }, homeStatusValueAlert: { color: "#C86412" }, homeStatusValueAlertDark: { color: "#FFC077" }, homeStatusValueInfo: { color: "#176BD1" }, homeStatusValueInfoDark: { color: "#86BEFF" },
   homeSignalsClean: { gap: 10, marginLeft: 22, padding: 0, backgroundColor: "transparent", borderWidth: 0 },
