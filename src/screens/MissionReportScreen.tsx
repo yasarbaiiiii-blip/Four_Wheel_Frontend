@@ -5748,7 +5748,6 @@ function MissionActivityExperience({
         <View style={fieldExperienceStyles.routeMeta}>
           <CommandMeta icon="map-marker-radius-outline" text={`${waypoints.length} points`} />
           <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
-          <CommandMeta icon="crosshairs-gps" text={commandRtkLabel(telemetry.fixType)} />
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
           <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={17} color="#1475EE" /></View><Text style={fieldExperienceStyles.cardTitle}>Mission tools</Text></View><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "MISSION READY" : "GET STARTED"}</Text></View>
