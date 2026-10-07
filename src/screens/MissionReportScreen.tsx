@@ -5638,10 +5638,10 @@ function MissionActivityExperience({
   isMissionPaused, canStart, isPreparing, onStart, onPause, onResume, onStop, onOpenPlan,
 }: MissionActivityExperienceProps) {
   const telemetry = useLiveTelemetrySelector(selectCommandTelemetry, shallowEqual);
-  // Detailed live progress is the default surface; closing it reveals the
-  // lighter mission home without restoring any old navigation chrome.
-  const [activityMounted, setActivityMounted] = useState(true);
-  const activityProgress = useRef(new Animated.Value(1)).current;
+  // Home follows the map-first overview reference. Mission Activity opens the
+  // focused detail view and its close control returns the operator here.
+  const [activityMounted, setActivityMounted] = useState(false);
+  const activityProgress = useRef(new Animated.Value(0)).current;
   const routeKm = useMemo(() => commandRouteKm(waypoints), [waypoints]);
   const safeTotal = Math.max(totalPoints, waypoints.length, 1);
   const safeMarked = Math.min(Math.max(markedPoints, 0), safeTotal);
@@ -5664,6 +5664,10 @@ function MissionActivityExperience({
   const transitionUp = activityProgress.interpolate({ inputRange: [0, 1], outputRange: [42, 0] });
   return (
     <View style={fieldExperienceStyles.host} pointerEvents="box-none">
+      <Animated.View style={[fieldExperienceStyles.homeHeader, { opacity: activityProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]} pointerEvents={activityMounted ? "none" : "auto"}>
+        <View style={fieldExperienceStyles.homeBrand}><Text style={fieldExperienceStyles.homeBrandTitle}>Mission Atlas</Text><View style={fieldExperienceStyles.homeBrandDivider} /><Text style={fieldExperienceStyles.homeBrandSubtitle}>Autonomous Rover Operations</Text></View>
+        <View style={fieldExperienceStyles.homeSignals}><View style={fieldExperienceStyles.homeSignal}><View style={[fieldExperienceStyles.dot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><View><Text style={fieldExperienceStyles.homeSignalTitle}>{telemetry.connected ? "Connected" : "Offline"}</Text><Text style={fieldExperienceStyles.homeSignalSub}>Rover link</Text></View></View><View style={fieldExperienceStyles.homeDivider} /><View style={fieldExperienceStyles.homeSignal}><MaterialCommunityIcons name="crosshairs-gps" size={20} color="#1475EE" /><View><Text style={fieldExperienceStyles.homeSignalTitle}>{commandRtkLabel(telemetry.fixType)}</Text><Text style={fieldExperienceStyles.homeSignalSub}>Position quality</Text></View></View><View style={fieldExperienceStyles.homeDivider} /><View style={fieldExperienceStyles.homeSignal}><MaterialCommunityIcons name="battery" size={21} color="#1475EE" /><View><Text style={fieldExperienceStyles.homeSignalTitle}>{commandValue(telemetry.battery, "%", 0)}</Text><Text style={fieldExperienceStyles.homeSignalSub}>Battery</Text></View></View></View>
+      </Animated.View>
       <Animated.View style={[fieldExperienceStyles.overview, { opacity: activityProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]} pointerEvents={activityMounted ? "none" : "auto"}>
         <View style={fieldExperienceStyles.railHeader}>
           <View><Text style={fieldExperienceStyles.eyebrow}>MISSION</Text><Text style={fieldExperienceStyles.missionTitle} numberOfLines={1}>Field Survey</Text></View>
@@ -5715,6 +5719,7 @@ function MissionActivityExperience({
 
 const fieldExperienceStyles = StyleSheet.create({
   host: { ...StyleSheet.absoluteFillObject, zIndex: 21 },
+  homeHeader: { position: "absolute", top: 0, left: 0, right: 0, height: 59, backgroundColor: "rgba(250,252,255,0.98)", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 25, borderBottomWidth: 1, borderBottomColor: "#D9E3F0", zIndex: 23, shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 5 }, homeBrand: { flexDirection: "row", alignItems: "center", gap: 14 }, homeBrandTitle: { color: "#10244B", fontSize: 26, fontWeight: "900", letterSpacing: -0.8 }, homeBrandDivider: { width: 1, height: 27, backgroundColor: "#B9C7DB" }, homeBrandSubtitle: { color: "#4E6385", fontSize: 14, fontWeight: "700" }, homeSignals: { flexDirection: "row", alignItems: "center", gap: 16 }, homeSignal: { flexDirection: "row", alignItems: "center", gap: 7 }, homeSignalTitle: { color: "#122750", fontSize: 11, fontWeight: "800" }, homeSignalSub: { color: "#7183A1", fontSize: 9, fontWeight: "600", marginTop: 1 }, homeDivider: { height: 30, width: 1, backgroundColor: "#CBD6E5" },
   overview: { position: "absolute", top: 86, right: 18, bottom: 18, width: 382, backgroundColor: "rgba(250,252,255,0.98)", borderRadius: 22, padding: 18, shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 22, elevation: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.85)" },
   railHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }, eyebrow: { color: "#6681AD", fontSize: 10, letterSpacing: 1.2, fontWeight: "800" }, missionTitle: { color: "#10244B", fontSize: 30, lineHeight: 36, fontWeight: "800", marginTop: 2, maxWidth: 215 }, liveBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#E6F8F1", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 20 }, dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#16B980" }, liveText: { color: "#1B5360", fontSize: 11, fontWeight: "800" },
   routeMeta: { flexDirection: "row", gap: 13, marginTop: 10, paddingBottom: 16 }, meta: { flexDirection: "row", alignItems: "center", gap: 4 }, metaText: { color: "#526B93", fontSize: 11, fontWeight: "700" }, tabs: { height: 42, backgroundColor: "#EAF0F8", borderRadius: 11, padding: 3, flexDirection: "row", marginBottom: 12 }, tab: { flex: 1, justifyContent: "center", alignItems: "center", borderRadius: 8 }, tabActive: { backgroundColor: "#1475EE" }, tabText: { color: "#426189", fontSize: 12, fontWeight: "800" }, tabActiveText: { color: "#fff", fontSize: 12, fontWeight: "800" },
