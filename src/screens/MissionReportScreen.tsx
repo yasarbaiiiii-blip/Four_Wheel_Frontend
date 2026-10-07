@@ -5723,6 +5723,11 @@ function MissionActivityExperience({
           <View><Text style={fieldExperienceStyles.eyebrow}>MISSION</Text><Text style={fieldExperienceStyles.missionTitle} numberOfLines={1}>Field Survey</Text></View>
           <View style={fieldExperienceStyles.liveBadge}><View style={[fieldExperienceStyles.dot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><Text style={fieldExperienceStyles.liveText}>{isMissionActive ? "Autonomous" : "Ready"}</Text></View>
         </View>
+        <View style={fieldExperienceStyles.routeMeta}>
+          <CommandMeta icon="map-marker-radius-outline" text={`${waypoints.length} points`} />
+          <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
+          <CommandMeta icon="crosshairs-gps" text={commandRtkLabel(telemetry.fixType)} />
+        </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
           <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={17} color="#1475EE" /></View><Text style={fieldExperienceStyles.cardTitle}>Mission tools</Text></View><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "MISSION READY" : "GET STARTED"}</Text></View>
           {hasMissionLoaded ? <View style={fieldExperienceStyles.missionToolGrid}>
@@ -5731,11 +5736,6 @@ function MissionActivityExperience({
             <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Export mission plan"><MaterialCommunityIcons name="file-export-outline" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Export</Text></TouchableOpacity>
             <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Open mission extension tools"><MaterialCommunityIcons name="vector-polyline-plus" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Extend</Text></TouchableOpacity>
           </View> : <TouchableOpacity style={fieldExperienceStyles.uploadMissionOnly} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Upload mission plan"><View style={fieldExperienceStyles.uploadMissionOnlyIcon}><MaterialCommunityIcons name="file-upload-outline" size={22} color="#FFFFFF" /></View><View><Text style={fieldExperienceStyles.uploadMissionOnlyTitle}>Upload mission plan</Text><Text style={fieldExperienceStyles.uploadMissionOnlySub}>Add a route to start operations</Text></View><MaterialCommunityIcons name="arrow-right" size={20} color="#FFFFFF" /></TouchableOpacity>}
-        </View>
-        <View style={fieldExperienceStyles.routeMeta}>
-          <CommandMeta icon="map-marker-radius-outline" text={`${waypoints.length} points`} />
-          <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
-          <CommandMeta icon="crosshairs-gps" text={commandRtkLabel(telemetry.fixType)} />
         </View>
         <View style={fieldExperienceStyles.progressCard}>
           <View style={fieldExperienceStyles.ring}><Text style={fieldExperienceStyles.ringValue}>{percentage}%</Text><Text style={fieldExperienceStyles.ringLabel}>complete</Text></View>
