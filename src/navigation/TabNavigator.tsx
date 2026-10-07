@@ -1,17 +1,13 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import DashboardScreen from "../screens/DashboardScreen";
 import PathPlanScreen from "../screens/PathPlanScreen";
 import MissionReportScreen from "../screens/MissionReportScreen";
-import { AppHeader } from "../components/shared/AppHeader";
 import { FieldMapHost } from "../components/shared/FieldMapHost";
 import { MissionProgressOverlayProvider } from "../context/MissionProgressOverlayContext";
 import { BackendTrajectoryProvider } from "../context/BackendTrajectoryContext";
 import { FieldMapProvider, useFieldMap } from "../context/FieldMapContext";
 import { OfflineMapProvider } from "../context/OfflineMapContext";
 import { ErrorBoundary } from "../components/shared/ErrorBoundary";
-import { colors } from "../theme/colors";
-import PersistentStorage from "../services/PersistentStorage";
 import { RtkRuntimeNotice } from "../components/rtk/RtkRuntimeNotice";
 import { BatteryCriticalNotice } from "../components/battery/BatteryCriticalNotice";
 import { MissionRecoveryNotice } from "../components/recovery/MissionRecoveryNotice";
@@ -19,151 +15,49 @@ import { SystemEventNotice } from "../components/notifications/SystemEventNotice
 import { Px4LinkNotice } from "../components/px4/Px4LinkNotice";
 import { RoverDataStaleNotice } from "../components/notifications/RoverDataStaleNotice";
 
-const MemoDashboardScreen = React.memo(DashboardScreen);
 const MemoPathPlanScreen = React.memo(PathPlanScreen);
 const MemoMissionReportScreen = React.memo(MissionReportScreen);
 
-type TabName = "Dashboard" | "Marking Plan" | "Mission Progress";
-
-function TabNavigatorInner() {
-  const [activeTab, setActiveTab] = useState<TabName>("Mission Progress");
-  const previousTabRef = useRef<string>("Mission Progress");
-  const mountedRef = useRef(true);
-  const { setActiveSurface } = useFieldMap();
-
-  useEffect(() => {
-    const loadLastActiveTab = async () => {
-      try {
-        const lastTab = await PersistentStorage.loadActiveTab();
-        if (
-          lastTab === "Dashboard" ||
-          lastTab === "Marking Plan" ||
-          lastTab === "Mission Progress"
-        ) {
-          setActiveTab(lastTab);
-          previousTabRef.current = lastTab;
-        }
-      } catch (error) {
-        console.error("[TabNavigator] Failed to load last active tab:", error);
-      }
-    };
-
-    loadLastActiveTab();
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "Marking Plan") setActiveSurface("marking");
-    else if (activeTab === "Mission Progress") setActiveSurface("mission");
-  }, [activeTab, setActiveSurface]);
-
-  const handleTabChange = useCallback(
-    (newTab: TabName) => {
-      if (!mountedRef.current || activeTab === newTab) {
-        return;
-      }
-
-      setActiveTab(newTab);
-
-      PersistentStorage.saveActiveTab(newTab).catch((error) => {
-        console.error("[TabNavigator] Failed to save active tab:", error);
-      });
-
-      previousTabRef.current = newTab;
-    },
-    [activeTab],
-  );
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
+/**
+ * One field-operations workspace. The map never unmounts while switching
+ * between live progress and route authoring, which keeps the native Mapbox
+ * surface stable on Android and removes the old dashboard/tab chrome.
+ */
+function OperationsWorkspace() {
+  const [isPlanningRoute, setIsPlanningRoute] = useState(false);
   const [isDrawingToolsVisible, setIsDrawingToolsVisible] = useState(true);
   const [isMissionOpsVisible, setIsMissionOpsVisible] = useState(true);
   const [isStatisticsVisible, setIsStatisticsVisible] = useState(true);
   const [isBottomTableVisible, setIsBottomTableVisible] = useState(true);
-  const [isLightMode, setIsLightMode] = useState(false);
+  const { setActiveSurface } = useFieldMap();
 
-  const isMarkingPlanVisible = activeTab === "Marking Plan";
-  const isMissionProgressVisible = activeTab === "Mission Progress";
-
-  // Keep exactly one native Mapbox surface alive for the whole map workflow.
-  // Replacing a MapView while moving between these tabs destroys its EGL
-  // surface; on release builds that can leave a permanently white map.
-  const sharedMapActive = true;
+  useEffect(() => {
+    setActiveSurface(isPlanningRoute ? "marking" : "mission");
+  }, [isPlanningRoute, setActiveSurface]);
 
   return (
     <MissionProgressOverlayProvider>
       <View style={styles.root}>
-        <AppHeader 
-          activeTab={activeTab} 
-          onTabChange={handleTabChange} 
-          isLightMode={isLightMode} 
-          onToggleTheme={() => setIsLightMode(!isLightMode)} 
-        />
-
         <RtkRuntimeNotice />
         <BatteryCriticalNotice />
         <SystemEventNotice />
         <Px4LinkNotice />
         <RoverDataStaleNotice />
-        <MissionRecoveryNotice
-          onUploadNewMission={() => handleTabChange("Marking Plan")}
-        />
+        <MissionRecoveryNotice onUploadNewMission={() => setIsPlanningRoute(true)} />
 
         <View style={styles.body}>
-          {sharedMapActive && (
-            <View
-              style={styles.mapHost}
-              pointerEvents="auto"
-              collapsable={false}
-            >
-              <ErrorBoundary
-                componentName="Field Map"
-              >
-                <FieldMapHost />
-              </ErrorBoundary>
-            </View>
-          )}
+          <View style={styles.mapHost} pointerEvents="auto" collapsable={false}>
+            <ErrorBoundary componentName="Field Map">
+              <FieldMapHost />
+            </ErrorBoundary>
+          </View>
 
-          {activeTab === "Dashboard" && (
-            <View
-              style={[
-                styles.screen,
-                {
-                  opacity: activeTab === "Dashboard" ? 1 : 0,
-                  zIndex: activeTab === "Dashboard" ? 2 : 0,
-                },
-              ]}
-              pointerEvents={activeTab === "Dashboard" ? "auto" : "none"}
-              collapsable={false}
-            >
-              <ErrorBoundary componentName="Dashboard Screen">
-                <MemoDashboardScreen isLightMode={isLightMode} />
-              </ErrorBoundary>
-            </View>
-          )}
-
-          {isMarkingPlanVisible && (
-            <View
-              style={[
-                styles.overlayScreen,
-                {
-                  opacity: isMarkingPlanVisible ? 1 : 0,
-                  zIndex: isMarkingPlanVisible ? 1 : 0,
-                },
-              ]}
-              pointerEvents={isMarkingPlanVisible ? "box-none" : "none"}
-              collapsable={false}
-            >
-              <ErrorBoundary
-                componentName="Marking Plan Screen"
-              >
+          {isPlanningRoute ? (
+            <View style={styles.overlayScreen} pointerEvents="box-none" collapsable={false}>
+              <ErrorBoundary componentName="Route Planning">
                 <MemoPathPlanScreen
                   embedMap={false}
-                  isVisible={isMarkingPlanVisible}
+                  isVisible
                   isDrawingToolsVisible={isDrawingToolsVisible}
                   setIsDrawingToolsVisible={setIsDrawingToolsVisible}
                   isMissionOpsVisible={isMissionOpsVisible}
@@ -172,30 +66,17 @@ function TabNavigatorInner() {
                   setIsStatisticsVisible={setIsStatisticsVisible}
                   isBottomTableVisible={isBottomTableVisible}
                   setIsBottomTableVisible={setIsBottomTableVisible}
-                  onLoadMissionSuccess={() => handleTabChange("Mission Progress")}
+                  onLoadMissionSuccess={() => setIsPlanningRoute(false)}
                 />
               </ErrorBoundary>
             </View>
-          )}
-
-          {isMissionProgressVisible && (
-            <View
-              style={[
-                styles.overlayScreen,
-                {
-                  opacity: isMissionProgressVisible ? 1 : 0,
-                  zIndex: isMissionProgressVisible ? 1 : 0,
-                },
-              ]}
-              pointerEvents={isMissionProgressVisible ? "box-none" : "none"}
-              collapsable={false}
-            >
-              <ErrorBoundary componentName="Mission Progress Screen">
+          ) : (
+            <View style={styles.overlayScreen} pointerEvents="box-none" collapsable={false}>
+              <ErrorBoundary componentName="Mission Progress">
                 <MemoMissionReportScreen
-                  // FieldMapHost is the process-wide native map. Mission
-                  // Progress supplies it with live snapshots via FieldMapContext.
                   embedMap={false}
-                  isVisible={isMissionProgressVisible}
+                  isVisible
+                  onOpenPlan={() => setIsPlanningRoute(true)}
                 />
               </ErrorBoundary>
             </View>
@@ -211,7 +92,7 @@ export default function TabNavigator() {
     <FieldMapProvider>
       <BackendTrajectoryProvider>
         <OfflineMapProvider>
-          <TabNavigatorInner />
+          <OperationsWorkspace />
         </OfflineMapProvider>
       </BackendTrajectoryProvider>
     </FieldMapProvider>
@@ -219,26 +100,8 @@ export default function TabNavigator() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: colors.primary,
-  },
-  body: {
-    flex: 1,
-    position: "relative",
-  },
-  mapHost: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 0,
-  },
-  screen: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 1,
-    backgroundColor: colors.primary,
-  },
-  overlayScreen: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 1,
-    backgroundColor: "transparent",
-  },
+  root: { flex: 1, backgroundColor: "#0B1220" },
+  body: { flex: 1, position: "relative" },
+  mapHost: { ...StyleSheet.absoluteFillObject, zIndex: 0 },
+  overlayScreen: { ...StyleSheet.absoluteFillObject, zIndex: 1, backgroundColor: "transparent" },
 });
