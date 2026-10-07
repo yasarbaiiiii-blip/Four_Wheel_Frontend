@@ -5604,6 +5604,13 @@ function commandValue(value: number | null, suffix: string, digits = 1): string 
     : "—";
 }
 
+function commandHeadingDirection(value: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const labels = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const normalized = ((value % 360) + 360) % 360;
+  return labels[Math.round(normalized / 45) % labels.length] ?? "—";
+}
+
 function commandRouteKm(waypoints: Waypoint[]): number {
   if (waypoints.length < 2) return 0;
   const radiusKm = 6371;
@@ -5655,6 +5662,10 @@ function MissionActivityExperience({
   const percentage = Math.round((safeMarked / safeTotal) * 100);
   const nextWaypoint = waypoints[Math.min(Math.max(currentPoint - 1, 0), Math.max(waypoints.length - 1, 0))];
   const rtkIsFixed = commandRtkLabel(telemetry.fixType).toLowerCase().includes("fix");
+  const headingValue = typeof telemetry.heading === "number" && Number.isFinite(telemetry.heading)
+    ? `${Math.round(((telemetry.heading % 360) + 360) % 360)}°`
+    : "—";
+  const headingDirection = commandHeadingDirection(telemetry.heading);
 
   const openActivity = useCallback(() => {
     setActivityMounted(true);
@@ -5695,6 +5706,11 @@ function MissionActivityExperience({
           <View style={[fieldExperienceStyles.homeStatusBlock, isMissionActive ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeInfo : fieldExperienceStyles.homeWatchBadgeInfoDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, isMissionActive ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconInfo]}><MaterialCommunityIcons name="robot-industrial" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: isMissionActive ? "#16B980" : "#1475EE" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>MODE</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, isMissionActive ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueInfo : fieldExperienceStyles.homeStatusValueInfoDark)]} numberOfLines={1}>{String(telemetry.mode)}</Text></View></View>
         </View>
         <View style={[fieldExperienceStyles.homeControls, !isLightHeader && fieldExperienceStyles.homeControlsDark]}><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeThemeButton, !isLightHeader && fieldExperienceStyles.homeThemeButtonDark]} onPress={() => setIsLightHeader((value) => !value)} accessibilityRole="button" accessibilityLabel="Toggle light and dark top bar"><MaterialCommunityIcons name={isLightHeader ? "weather-night" : "white-balance-sunny"} size={19} color="#FFFFFF" /><Text style={fieldExperienceStyles.homeControlLabel}>THEME</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeSettingsButton, !isLightHeader && fieldExperienceStyles.homeControlDark]} onPress={() => setShowSettings(true)} accessibilityRole="button" accessibilityLabel="Open settings"><MaterialCommunityIcons name="tune-variant" size={19} color={isLightHeader ? "#173563" : "#F8FAFC"} /><Text style={[fieldExperienceStyles.homeSettingsLabel, !isLightHeader && fieldExperienceStyles.homeSettingsLabelDark]}>SETTINGS</Text></TouchableOpacity></View>
+      </Animated.View>
+      <Animated.View style={[fieldExperienceStyles.homeHeadingCard, { opacity: homeOpacity, transform: [{ translateX: homeShift }] }]} pointerEvents={activityMounted ? "none" : "auto"}>
+        <View style={fieldExperienceStyles.homeHeadingIcon}><MaterialCommunityIcons name="compass-rose" size={24} color="#FFFFFF" /></View>
+        <View><Text style={fieldExperienceStyles.homeHeadingLabel}>ROVER HEADING</Text><View style={fieldExperienceStyles.homeHeadingValueRow}><Text style={fieldExperienceStyles.homeHeadingValue}>{headingValue}</Text><Text style={fieldExperienceStyles.homeHeadingDirection}>{headingDirection}</Text></View></View>
+        <View style={fieldExperienceStyles.homeHeadingLive}><View style={fieldExperienceStyles.homeHeadingLiveDot} /><Text style={fieldExperienceStyles.homeHeadingLiveText}>LIVE</Text></View>
       </Animated.View>
       <Animated.View style={[fieldExperienceStyles.overview, { opacity: homeOpacity, transform: [{ translateX: homeShift }, { scale: homeScale }] }]} pointerEvents={activityMounted ? "none" : "auto"}>
         <View style={fieldExperienceStyles.railHeader}>
@@ -5748,7 +5764,9 @@ function MissionActivityExperience({
 
 const fieldExperienceStyles = StyleSheet.create({
   host: { ...StyleSheet.absoluteFillObject, zIndex: 21 },
-  homeStatusGroup: { flexDirection: "row", alignItems: "center", gap: 12, marginLeft: "auto", marginRight: 10 },
+  homeHeadingCard: { position: "absolute", top: 88, left: 18, minWidth: 218, height: 68, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 11, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.96)", borderWidth: 1, borderColor: "#DDE8F6", shadowColor: "#173563", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.14, shadowRadius: 10, elevation: 5, zIndex: 22 },
+  homeHeadingIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.24, shadowRadius: 7, elevation: 3 }, homeHeadingLabel: { color: "#6D82A4", fontSize: 9, fontWeight: "900", letterSpacing: 0.85 }, homeHeadingValueRow: { flexDirection: "row", alignItems: "baseline", gap: 6, marginTop: 2 }, homeHeadingValue: { color: "#10244B", fontSize: 26, fontWeight: "900", letterSpacing: -0.8 }, homeHeadingDirection: { color: "#1475EE", fontSize: 13, fontWeight: "900" }, homeHeadingLive: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: "auto", alignSelf: "flex-start", marginTop: 11 }, homeHeadingLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#16B980" }, homeHeadingLiveText: { color: "#159B70", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 },
+  homeStatusGroup: { flexDirection: "row", alignItems: "center", gap: 12, marginLeft: 28, marginRight: 0 },
   homeStatusBlock: { minWidth: 114, height: 46, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderRadius: 13, borderWidth: 1, shadowColor: "#173563", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 }, homeStatusBlockFirst: {}, homeStatusBlockDark: {},
   homeStatusIconCircle: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", transform: [{ scale: 1.08 }], shadowColor: "#173563", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3, elevation: 2 }, homeStatusIconGood: { backgroundColor: "#16B980" }, homeStatusIconAlert: { backgroundColor: "#F08A24" }, homeStatusIconInfo: { backgroundColor: "#1475EE" },
   homeWatchSummary: { minWidth: 118, height: 42, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, borderRadius: 14, borderWidth: 1 }, homeWatchSummaryGood: { backgroundColor: "#E9F9F1", borderColor: "#CBEFDD" }, homeWatchSummaryGoodDark: { backgroundColor: "#123C3D", borderColor: "#236363" }, homeWatchSummaryAlert: { backgroundColor: "#FFF1DF", borderColor: "#FFD5A3" }, homeWatchSummaryAlertDark: { backgroundColor: "#4B321C", borderColor: "#82562B" },
