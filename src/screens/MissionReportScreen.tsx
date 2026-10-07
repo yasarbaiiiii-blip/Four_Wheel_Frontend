@@ -5724,7 +5724,12 @@ function MissionActivityExperience({
           <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
           <CommandMeta icon="crosshairs-gps" text={commandRtkLabel(telemetry.fixType)} />
         </View>
-        <View style={fieldExperienceStyles.tabs}><View style={[fieldExperienceStyles.tab, fieldExperienceStyles.tabActive]}><Text style={fieldExperienceStyles.tabActiveText}>Overview</Text></View><View style={fieldExperienceStyles.tab}><Text style={fieldExperienceStyles.tabText}>Route</Text></View><TouchableOpacity style={fieldExperienceStyles.tab} onPress={openActivity} accessibilityRole="button" accessibilityLabel="Open mission activity"><Text style={fieldExperienceStyles.tabText}>Activity</Text></TouchableOpacity></View>
+        <View style={fieldExperienceStyles.missionTools}>
+          <TouchableOpacity style={[fieldExperienceStyles.missionTool, fieldExperienceStyles.missionToolPrimary]} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={19} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolPrimaryText}>Upload</Text></TouchableOpacity>
+          <TouchableOpacity style={fieldExperienceStyles.missionTool} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Export mission plan"><MaterialCommunityIcons name="file-export-outline" size={19} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolText}>Export</Text></TouchableOpacity>
+          <TouchableOpacity style={fieldExperienceStyles.missionTool} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Open mission extension tools"><MaterialCommunityIcons name="vector-polyline-plus" size={19} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolText}>Extend</Text></TouchableOpacity>
+          <TouchableOpacity style={fieldExperienceStyles.missionTool} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Load mission plan"><MaterialCommunityIcons name="tray-arrow-down" size={19} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolText}>Load</Text></TouchableOpacity>
+        </View>
 
         <View style={fieldExperienceStyles.progressCard}>
           <View style={fieldExperienceStyles.ring}><Text style={fieldExperienceStyles.ringValue}>{percentage}%</Text><Text style={fieldExperienceStyles.ringLabel}>complete</Text></View>
@@ -5766,6 +5771,7 @@ function MissionActivityExperience({
 
 const fieldExperienceStyles = StyleSheet.create({
   host: { ...StyleSheet.absoluteFillObject, zIndex: 21 },
+  missionTools: { height: 58, flexDirection: "row", gap: 8, marginBottom: 12 }, missionTool: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 12, backgroundColor: "#F4F8FE", borderWidth: 1, borderColor: "#DCE8F7" }, missionToolPrimary: { backgroundColor: "#1475EE", borderColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.22, shadowRadius: 6, elevation: 3 }, missionToolText: { color: "#315987", fontSize: 9, fontWeight: "900" }, missionToolPrimaryText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
   homeHeadingCard: { position: "absolute", top: 88, left: 18, width: 162, height: 64, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.97)", borderWidth: 1, borderColor: "#DDE8F6", shadowColor: "#173563", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 9, elevation: 5, zIndex: 22 },
   homeHeadingDial: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF3FF", borderWidth: 1, borderColor: "#D6E6FF" }, homeHeadingLabel: { color: "#7183A1", fontSize: 8, fontWeight: "900", letterSpacing: 0.7, marginTop: 1 }, homeHeadingValue: { color: "#10244B", fontSize: 25, fontWeight: "900", letterSpacing: -0.8 },
   homeStatusGroup: { flexDirection: "row", alignItems: "center", gap: 12, marginLeft: 28, marginRight: 0 },
