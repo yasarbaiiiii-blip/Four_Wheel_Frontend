@@ -27,6 +27,7 @@ function OperationsWorkspace() {
   const [isPlanningRoute, setIsPlanningRoute] = useState(false);
   const [planOpenIntent, setPlanOpenIntent] = useState<"upload" | null>(null);
   const [missionUploadCompletedToken, setMissionUploadCompletedToken] = useState(0);
+  const [missionUploadConfirmed, setMissionUploadConfirmed] = useState(false);
   const [isDrawingToolsVisible, setIsDrawingToolsVisible] = useState(true);
   const [isMissionOpsVisible, setIsMissionOpsVisible] = useState(true);
   const [isStatisticsVisible, setIsStatisticsVisible] = useState(true);
@@ -84,6 +85,8 @@ function OperationsWorkspace() {
                   embedMap={false}
                   isVisible
                   missionUploadCompletedToken={missionUploadCompletedToken}
+                  missionUploadConfirmed={missionUploadConfirmed}
+                  onMissionCleared={() => setMissionUploadConfirmed(false)}
                   onOpenPlan={(intent) => { setPlanOpenIntent(intent ?? null); setIsPlanningRoute(true); }}
                 />
               </ErrorBoundary>
@@ -97,7 +100,7 @@ function OperationsWorkspace() {
                 isVisible
                 openFilePickerOnMount
                 returnToMissionAfterImport
-                onMissionUploadSuccess={() => { setMissionUploadCompletedToken((token) => token + 1); setPlanOpenIntent(null); setIsPlanningRoute(false); }}
+                onMissionUploadSuccess={() => { setMissionUploadConfirmed(true); setMissionUploadCompletedToken((token) => token + 1); setPlanOpenIntent(null); setIsPlanningRoute(false); }}
               />
             </View>
           )}

@@ -243,6 +243,9 @@ interface MissionReportScreenProps {
   embedMap?: boolean;
   /** Increments after a home-screen file upload so status is refreshed now. */
   missionUploadCompletedToken?: number;
+  /** Lets the shell reveal mission tools before status polling catches up. */
+  missionUploadConfirmed?: boolean;
+  onMissionCleared?: () => void;
   /** Opens the existing route-authoring tools inside the unified workspace. */
   onOpenPlan?: (intent?: PlanOpenIntent) => void;
 }
@@ -261,6 +264,8 @@ export default function MissionReportScreen({
   isVisible = true,
   embedMap = false,
   missionUploadCompletedToken = 0,
+  missionUploadConfirmed = false,
+  onMissionCleared,
   onOpenPlan,
 }: MissionReportScreenProps) {
   useRenderCounter("MissionReportScreen");
@@ -3605,11 +3610,15 @@ export default function MissionReportScreen({
   const handleClearMission = async () => {
     try {
       console.log("[MissionReportScreen] Clearing mission...");
-      await clearMission();
+      const result = await clearMission();
+      if (!result.success) {
+        throw new Error(result.message || "The rover could not clear the mission.");
+      }
       clearRetainedMission();
       setBackendMission(null);
       verifiedCtx.clearLoadedMission();
       resetVerifiedProgress();
+      onMissionCleared?.();
       showNotification("success", "Cleared", "Mission cleared from controller");
     } catch (err) {
       console.error("[MissionReportScreen] Clear mission error:", err);
@@ -5311,7 +5320,7 @@ export default function MissionReportScreen({
           isMissionPaused={isBackendMissionPaused}
           canStart={canStartMission}
           isPreparing={isPreparingMission}
-          hasMissionLoaded={hasUploadedMission}
+          hasMissionLoaded={hasUploadedMission || missionUploadConfirmed}
           onStart={handleStart}
           onPause={handlePause}
           onResume={handleResume}
