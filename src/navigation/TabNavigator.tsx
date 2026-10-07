@@ -31,10 +31,12 @@ function OperationsWorkspace() {
   const [isStatisticsVisible, setIsStatisticsVisible] = useState(true);
   const [isBottomTableVisible, setIsBottomTableVisible] = useState(true);
   const { setActiveSurface } = useFieldMap();
+  const isDirectMissionUpload = planOpenIntent === "upload";
+  const isPlannerVisible = isPlanningRoute && !isDirectMissionUpload;
 
   useEffect(() => {
-    setActiveSurface(isPlanningRoute ? "marking" : "mission");
-  }, [isPlanningRoute, setActiveSurface]);
+    setActiveSurface(isPlannerVisible ? "marking" : "mission");
+  }, [isPlannerVisible, setActiveSurface]);
 
   return (
     <MissionProgressOverlayProvider>
@@ -53,14 +55,14 @@ function OperationsWorkspace() {
             </ErrorBoundary>
           </View>
 
-          {isPlanningRoute ? (
+          {isPlannerVisible ? (
             <View style={styles.overlayScreen} pointerEvents="box-none" collapsable={false}>
               <ErrorBoundary componentName="Route Planning">
                 <MemoPathPlanScreen
                   embedMap={false}
                   isVisible
-                  openFilePickerOnMount={planOpenIntent === "upload"}
-                  returnToMissionAfterImport={planOpenIntent === "upload"}
+                  openFilePickerOnMount={false}
+                  returnToMissionAfterImport={false}
                   isDrawingToolsVisible={isDrawingToolsVisible}
                   setIsDrawingToolsVisible={setIsDrawingToolsVisible}
                   isMissionOpsVisible={isMissionOpsVisible}
@@ -83,6 +85,18 @@ function OperationsWorkspace() {
                   onOpenPlan={(intent) => { setPlanOpenIntent(intent ?? null); setIsPlanningRoute(true); }}
                 />
               </ErrorBoundary>
+            </View>
+          )}
+
+          {isDirectMissionUpload && (
+            <View style={styles.hiddenMissionUploader} pointerEvents="none" collapsable={false}>
+              <MemoPathPlanScreen
+                embedMap={false}
+                isVisible
+                openFilePickerOnMount
+                returnToMissionAfterImport
+                onMissionUploadSuccess={() => { setPlanOpenIntent(null); setIsPlanningRoute(false); }}
+              />
             </View>
           )}
         </View>
@@ -108,4 +122,5 @@ const styles = StyleSheet.create({
   body: { flex: 1, position: "relative" },
   mapHost: { ...StyleSheet.absoluteFillObject, zIndex: 0 },
   overlayScreen: { ...StyleSheet.absoluteFillObject, zIndex: 1, backgroundColor: "transparent" },
+  hiddenMissionUploader: { ...StyleSheet.absoluteFillObject, zIndex: 2, opacity: 0 },
 });
