@@ -5298,10 +5298,12 @@ export default function MissionReportScreen({
           isMissionPaused={isBackendMissionPaused}
           canStart={canStartMission}
           isPreparing={isPreparingMission}
+          hasMissionLoaded={hasUploadedMission}
           onStart={handleStart}
           onPause={handlePause}
           onResume={handleResume}
           onStop={handleStop}
+          onClearMission={() => { void handleClearMission(); }}
           onOpenPlan={onOpenPlan ?? (() => undefined)}
         />
       )}
@@ -5571,10 +5573,12 @@ interface MissionActivityExperienceProps {
   isMissionPaused: boolean;
   canStart: boolean;
   isPreparing: boolean;
+  hasMissionLoaded: boolean;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
+  onClearMission: () => void;
   onOpenPlan: () => void;
 }
 
@@ -5646,7 +5650,7 @@ function CommandTelemetry({ icon, value, label }: { icon: React.ComponentProps<t
 
 function MissionActivityExperience({
   waypoints, statusMap, currentIndex, markedPoints, totalPoints, isMissionActive,
-  isMissionPaused, canStart, isPreparing, onStart, onPause, onResume, onStop, onOpenPlan,
+  isMissionPaused, canStart, isPreparing, hasMissionLoaded, onStart, onPause, onResume, onStop, onClearMission, onOpenPlan,
 }: MissionActivityExperienceProps) {
   const telemetry = useLiveTelemetrySelector(selectCommandTelemetry, shallowEqual);
   const [showSettings, setShowSettings] = useState(false);
@@ -5720,13 +5724,13 @@ function MissionActivityExperience({
           <View style={fieldExperienceStyles.liveBadge}><View style={[fieldExperienceStyles.dot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><Text style={fieldExperienceStyles.liveText}>{isMissionActive ? "Autonomous" : "Ready"}</Text></View>
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
-          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={17} color="#1475EE" /></View><Text style={fieldExperienceStyles.cardTitle}>Mission tools</Text></View><Text style={fieldExperienceStyles.toolSectionHint}>PLAN WORKSPACE</Text></View>
-          <View style={fieldExperienceStyles.missionToolGrid}>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTilePrimary]} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={18} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolTilePrimaryText}>Upload</Text></TouchableOpacity>
+          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={17} color="#1475EE" /></View><Text style={fieldExperienceStyles.cardTitle}>Mission tools</Text></View><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "MISSION READY" : "GET STARTED"}</Text></View>
+          {hasMissionLoaded ? <View style={fieldExperienceStyles.missionToolGrid}>
+            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTileClear]} onPress={onClearMission} accessibilityRole="button" accessibilityLabel="Clear mission"><MaterialCommunityIcons name="trash-can-outline" size={18} color="#D94A42" /><Text style={fieldExperienceStyles.missionToolTileClearText}>Clear mission</Text></TouchableOpacity>
             <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Load mission plan"><MaterialCommunityIcons name="tray-arrow-down" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Load</Text></TouchableOpacity>
             <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Export mission plan"><MaterialCommunityIcons name="file-export-outline" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Export</Text></TouchableOpacity>
             <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Open mission extension tools"><MaterialCommunityIcons name="vector-polyline-plus" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Extend</Text></TouchableOpacity>
-          </View>
+          </View> : <TouchableOpacity style={fieldExperienceStyles.uploadMissionOnly} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Upload mission plan"><View style={fieldExperienceStyles.uploadMissionOnlyIcon}><MaterialCommunityIcons name="file-upload-outline" size={22} color="#FFFFFF" /></View><View><Text style={fieldExperienceStyles.uploadMissionOnlyTitle}>Upload mission plan</Text><Text style={fieldExperienceStyles.uploadMissionOnlySub}>Add a route to start operations</Text></View><MaterialCommunityIcons name="arrow-right" size={20} color="#FFFFFF" /></TouchableOpacity>}
         </View>
         <View style={fieldExperienceStyles.routeMeta}>
           <CommandMeta icon="map-marker-radius-outline" text={`${waypoints.length} points`} />
@@ -5769,7 +5773,8 @@ function MissionActivityExperience({
 const fieldExperienceStyles = StyleSheet.create({
   host: { ...StyleSheet.absoluteFillObject, zIndex: 21 },
   missionToolSection: { paddingBottom: 13 }, missionToolHeading: { flexDirection: "row", alignItems: "center", gap: 7 }, missionToolHeadingIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF3FF" }, toolSectionHint: { color: "#7183A1", fontSize: 8, fontWeight: "900", letterSpacing: 0.7 },
-  missionToolGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8, marginTop: 4 }, missionToolTile: { width: "48.7%", height: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 11, backgroundColor: "#F4F8FE", borderWidth: 1, borderColor: "#DCE8F7" }, missionToolTilePrimary: { backgroundColor: "#1475EE", borderColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.18, shadowRadius: 5, elevation: 2 }, missionToolTileText: { color: "#315987", fontSize: 11, fontWeight: "900" }, missionToolTilePrimaryText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
+  missionToolGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8, marginTop: 4 }, missionToolTile: { width: "48.7%", height: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 11, backgroundColor: "#F4F8FE", borderWidth: 1, borderColor: "#DCE8F7" }, missionToolTilePrimary: { backgroundColor: "#1475EE", borderColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.18, shadowRadius: 5, elevation: 2 }, missionToolTileClear: { backgroundColor: "#FFF5F3", borderColor: "#FFD9D2" }, missionToolTileText: { color: "#315987", fontSize: 11, fontWeight: "900" }, missionToolTilePrimaryText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" }, missionToolTileClearText: { color: "#D94A42", fontSize: 11, fontWeight: "900" },
+  uploadMissionOnly: { height: 58, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 11, borderRadius: 14, backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.24, shadowRadius: 8, elevation: 3 }, uploadMissionOnlyIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" }, uploadMissionOnlyTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" }, uploadMissionOnlySub: { color: "#DCEBFF", fontSize: 10, fontWeight: "600", marginTop: 2 },
   missionTools: { height: 58, flexDirection: "row", gap: 8, marginBottom: 12 }, missionTool: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 12, backgroundColor: "#F4F8FE", borderWidth: 1, borderColor: "#DCE8F7" }, missionToolPrimary: { backgroundColor: "#1475EE", borderColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.22, shadowRadius: 6, elevation: 3 }, missionToolText: { color: "#315987", fontSize: 9, fontWeight: "900" }, missionToolPrimaryText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
   homeHeadingCard: { position: "absolute", top: 88, left: 18, width: 162, height: 64, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.97)", borderWidth: 1, borderColor: "#DDE8F6", shadowColor: "#173563", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 9, elevation: 5, zIndex: 22 },
   homeHeadingDial: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF3FF", borderWidth: 1, borderColor: "#D6E6FF" }, homeHeadingLabel: { color: "#7183A1", fontSize: 8, fontWeight: "900", letterSpacing: 0.7, marginTop: 1 }, homeHeadingValue: { color: "#10244B", fontSize: 25, fontWeight: "900", letterSpacing: -0.8 },
