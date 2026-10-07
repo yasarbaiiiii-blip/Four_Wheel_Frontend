@@ -62,8 +62,10 @@ export const MapBottomControlsBar: React.FC<Props> = ({
 const styles = StyleSheet.create({
   dock: {
     position: 'absolute',
-    bottom: 16,
-    right: 16,
+    bottom: 20,
+    // The home screen's mission rail occupies the physical right edge. Keep
+    // the dock in the visible bottom-right corner of the map canvas instead.
+    right: 402,
     alignItems: 'flex-end',
     gap: 9,
     elevation: 8,
