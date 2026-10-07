@@ -5719,6 +5719,15 @@ function MissionActivityExperience({
           <View><Text style={fieldExperienceStyles.eyebrow}>MISSION</Text><Text style={fieldExperienceStyles.missionTitle} numberOfLines={1}>Field Survey</Text></View>
           <View style={fieldExperienceStyles.liveBadge}><View style={[fieldExperienceStyles.dot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><Text style={fieldExperienceStyles.liveText}>{isMissionActive ? "Autonomous" : "Ready"}</Text></View>
         </View>
+        <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
+          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={17} color="#1475EE" /></View><Text style={fieldExperienceStyles.cardTitle}>Mission tools</Text></View><Text style={fieldExperienceStyles.toolSectionHint}>PLAN WORKSPACE</Text></View>
+          <View style={fieldExperienceStyles.missionToolGrid}>
+            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTilePrimary]} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={18} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolTilePrimaryText}>Upload</Text></TouchableOpacity>
+            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Load mission plan"><MaterialCommunityIcons name="tray-arrow-down" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Load</Text></TouchableOpacity>
+            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Export mission plan"><MaterialCommunityIcons name="file-export-outline" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Export</Text></TouchableOpacity>
+            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Open mission extension tools"><MaterialCommunityIcons name="vector-polyline-plus" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Extend</Text></TouchableOpacity>
+          </View>
+        </View>
         <View style={fieldExperienceStyles.routeMeta}>
           <CommandMeta icon="map-marker-radius-outline" text={`${waypoints.length} points`} />
           <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
@@ -5732,16 +5741,6 @@ function MissionActivityExperience({
         <View style={fieldExperienceStyles.card}>
           <View style={fieldExperienceStyles.cardHeading}><MaterialCommunityIcons name="map-marker" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.cardTitle}>Next point</Text><Text style={fieldExperienceStyles.pointNumber}>#{currentPoint} of {safeTotal}</Text></View>
           <View style={fieldExperienceStyles.nextBody}><View style={fieldExperienceStyles.nextIcon}><MaterialCommunityIcons name="flag-checkered" size={22} color="#1475EE" /></View><View style={fieldExperienceStyles.nextCopy}><Text style={fieldExperienceStyles.nextName}>WP-{String(currentPoint).padStart(2, "0")}</Text><Text style={fieldExperienceStyles.nextDescription}>{nextWaypoint ? `${nextWaypoint.lat.toFixed(5)}, ${nextWaypoint.lon.toFixed(5)}` : "Awaiting mission upload"}</Text></View><View style={fieldExperienceStyles.pointPill}><Text style={fieldExperienceStyles.pointPillText}>{currentPoint}</Text></View></View>
-        </View>
-
-        <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
-          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={17} color="#1475EE" /></View><Text style={fieldExperienceStyles.cardTitle}>Mission tools</Text></View><Text style={fieldExperienceStyles.toolSectionHint}>PLAN WORKSPACE</Text></View>
-          <View style={fieldExperienceStyles.missionToolGrid}>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTilePrimary]} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={18} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolTilePrimaryText}>Upload</Text></TouchableOpacity>
-            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Load mission plan"><MaterialCommunityIcons name="tray-arrow-down" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Load</Text></TouchableOpacity>
-            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Export mission plan"><MaterialCommunityIcons name="file-export-outline" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Export</Text></TouchableOpacity>
-            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Open mission extension tools"><MaterialCommunityIcons name="vector-polyline-plus" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Extend</Text></TouchableOpacity>
-          </View>
         </View>
 
         <TouchableOpacity style={fieldExperienceStyles.card} onPress={openActivity} activeOpacity={0.86} accessibilityRole="button" accessibilityLabel="Open mission activity">
