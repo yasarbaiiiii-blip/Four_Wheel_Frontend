@@ -25,6 +25,7 @@ const MemoMissionReportScreen = React.memo(MissionReportScreen);
  */
 function OperationsWorkspace() {
   const [isPlanningRoute, setIsPlanningRoute] = useState(false);
+  const [planOpenIntent, setPlanOpenIntent] = useState<"upload" | null>(null);
   const [isDrawingToolsVisible, setIsDrawingToolsVisible] = useState(true);
   const [isMissionOpsVisible, setIsMissionOpsVisible] = useState(true);
   const [isStatisticsVisible, setIsStatisticsVisible] = useState(true);
@@ -43,7 +44,7 @@ function OperationsWorkspace() {
         <SystemEventNotice />
         <Px4LinkNotice />
         <RoverDataStaleNotice />
-        <MissionRecoveryNotice onUploadNewMission={() => setIsPlanningRoute(true)} />
+        <MissionRecoveryNotice onUploadNewMission={() => { setPlanOpenIntent("upload"); setIsPlanningRoute(true); }} />
 
         <View style={styles.body}>
           <View style={styles.mapHost} pointerEvents="auto" collapsable={false}>
@@ -58,6 +59,7 @@ function OperationsWorkspace() {
                 <MemoPathPlanScreen
                   embedMap={false}
                   isVisible
+                  openFilePickerOnMount={planOpenIntent === "upload"}
                   isDrawingToolsVisible={isDrawingToolsVisible}
                   setIsDrawingToolsVisible={setIsDrawingToolsVisible}
                   isMissionOpsVisible={isMissionOpsVisible}
@@ -66,7 +68,7 @@ function OperationsWorkspace() {
                   setIsStatisticsVisible={setIsStatisticsVisible}
                   isBottomTableVisible={isBottomTableVisible}
                   setIsBottomTableVisible={setIsBottomTableVisible}
-                  onLoadMissionSuccess={() => setIsPlanningRoute(false)}
+                  onLoadMissionSuccess={() => { setPlanOpenIntent(null); setIsPlanningRoute(false); }}
                 />
               </ErrorBoundary>
             </View>
@@ -76,7 +78,7 @@ function OperationsWorkspace() {
                 <MemoMissionReportScreen
                   embedMap={false}
                   isVisible
-                  onOpenPlan={() => setIsPlanningRoute(true)}
+                  onOpenPlan={(intent) => { setPlanOpenIntent(intent ?? null); setIsPlanningRoute(true); }}
                 />
               </ErrorBoundary>
             </View>

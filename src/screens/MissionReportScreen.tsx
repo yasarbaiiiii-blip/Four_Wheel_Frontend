@@ -236,11 +236,13 @@ type WpStatus = {
 const getRtkFailureMessage = (err: unknown, fallback: string) =>
   formatRtkApiError(err, fallback);
 
+type PlanOpenIntent = "upload";
+
 interface MissionReportScreenProps {
   isVisible?: boolean;
   embedMap?: boolean;
   /** Opens the existing route-authoring tools inside the unified workspace. */
-  onOpenPlan?: () => void;
+  onOpenPlan?: (intent?: PlanOpenIntent) => void;
 }
 
 /** The only telemetry the screen itself re-renders for (slow-changing). */
@@ -5579,7 +5581,7 @@ interface MissionActivityExperienceProps {
   onResume: () => void;
   onStop: () => void;
   onClearMission: () => void;
-  onOpenPlan: () => void;
+  onOpenPlan: (intent?: PlanOpenIntent) => void;
 }
 
 function selectCommandTelemetry(snapshot: LiveTelemetrySnapshot) {
@@ -5735,7 +5737,7 @@ function MissionActivityExperience({
             <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Load mission plan"><MaterialCommunityIcons name="tray-arrow-down" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Load</Text></TouchableOpacity>
             <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Export mission plan"><MaterialCommunityIcons name="file-export-outline" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Export</Text></TouchableOpacity>
             <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Open mission extension tools"><MaterialCommunityIcons name="vector-polyline-plus" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Extend</Text></TouchableOpacity>
-          </View> : <TouchableOpacity style={fieldExperienceStyles.uploadMissionOnly} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Upload mission plan"><View style={fieldExperienceStyles.uploadMissionOnlyIcon}><MaterialCommunityIcons name="file-upload-outline" size={22} color="#FFFFFF" /></View><View><Text style={fieldExperienceStyles.uploadMissionOnlyTitle}>Upload mission plan</Text><Text style={fieldExperienceStyles.uploadMissionOnlySub}>Add a route to start operations</Text></View><MaterialCommunityIcons name="arrow-right" size={20} color="#FFFFFF" /></TouchableOpacity>}
+          </View> : <TouchableOpacity style={fieldExperienceStyles.uploadMissionOnly} onPress={() => onOpenPlan("upload")} accessibilityRole="button" accessibilityLabel="Upload mission plan"><View style={fieldExperienceStyles.uploadMissionOnlyIcon}><MaterialCommunityIcons name="file-upload-outline" size={22} color="#FFFFFF" /></View><View><Text style={fieldExperienceStyles.uploadMissionOnlyTitle}>Upload mission plan</Text><Text style={fieldExperienceStyles.uploadMissionOnlySub}>Add a route to start operations</Text></View><MaterialCommunityIcons name="arrow-right" size={20} color="#FFFFFF" /></TouchableOpacity>}
         </View>
         <View style={fieldExperienceStyles.progressCard}>
           <View style={fieldExperienceStyles.ring}><Text style={fieldExperienceStyles.ringValue}>{percentage}%</Text><Text style={fieldExperienceStyles.ringLabel}>complete</Text></View>

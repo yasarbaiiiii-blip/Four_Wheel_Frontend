@@ -387,6 +387,8 @@ const buildMissionCsvFromWaypoints = (
 interface PathPlanScreenProps {
   embedMap?: boolean;
   isVisible?: boolean;
+  /** Opens the existing mission-file picker once the planner is mounted. */
+  openFilePickerOnMount?: boolean;
   isDrawingToolsVisible?: boolean;
   setIsDrawingToolsVisible?: (val: boolean) => void;
   isMissionOpsVisible?: boolean;
@@ -433,6 +435,7 @@ function selectPathPlanTelemetry(snapshot: {
 export default function PathPlanScreen({
   isVisible = true,
   embedMap = false,
+  openFilePickerOnMount = false,
   isDrawingToolsVisible: propIsDrawingToolsVisible,
   setIsDrawingToolsVisible: propSetIsDrawingToolsVisible,
   isMissionOpsVisible: propIsMissionOpsVisible,
@@ -531,6 +534,7 @@ export default function PathPlanScreen({
   const mountedRef = useRef(true);
   // Guard to prevent re-entrant upload handling causing recursive state updates
   const isUploadingRef = useRef(false);
+  const autoFilePickerRequestedRef = useRef(false);
   const isRestoringMissionRef = useRef(false);
   const autoRestoreAttemptedRef = useRef(false);
   const userEditedWaypointsRef = useRef(false);
@@ -3292,6 +3296,20 @@ export default function PathPlanScreen({
       if (mountedRef.current) setIsImportingFile(false);
     }
   };
+
+  // The home-screen Upload action uses the same guarded import flow as the
+  // existing mission controls. Delay it until this screen has mounted so the
+  // native picker always has a valid Android activity to attach to.
+  useEffect(() => {
+    if (!openFilePickerOnMount || autoFilePickerRequestedRef.current) return;
+
+    autoFilePickerRequestedRef.current = true;
+    const interaction = InteractionManager.runAfterInteractions(() => {
+      if (mountedRef.current) void handleRequestUpload();
+    });
+
+    return () => interaction.cancel();
+  }, [openFilePickerOnMount]);
 
   const handleGPSSubmit = () => {
     const latA = parseFloat(gpsInputA.lat);
