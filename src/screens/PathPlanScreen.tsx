@@ -3266,6 +3266,10 @@ export default function PathPlanScreen({
 
       if (returnToMissionAfterImport) {
         recordAndApply(sanitized);
+        // File parsing and backend upload use the same guard in the legacy
+        // planner. Hand the guard over before starting the direct upload;
+        // otherwise the upload correctly refuses itself as already busy.
+        isUploadingRef.current = false;
         const uploaded = await uploadWaypointsToBackend(
           sanitized,
           missionExtensionRef.current,

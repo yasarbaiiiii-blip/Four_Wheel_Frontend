@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
     bottom: 20,
     // The home screen's mission rail occupies the physical right edge. Keep
     // the dock in the visible bottom-right corner of the map canvas instead.
-    right: 402,
+    right: 430,
     alignItems: 'flex-end',
     gap: 9,
     elevation: 8,
