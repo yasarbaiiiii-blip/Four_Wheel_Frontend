@@ -11,6 +11,10 @@ jest.mock("../../hooks/usePointMissionEvents", () => ({
 
 import useRoverTelemetry from "../../hooks/useRoverTelemetry";
 import {
+  clearSocketTelemetryPacket,
+  markSocketTelemetryPacket,
+} from "../../utils/socketPacketClock";
+import {
   TelemetryProvider,
   useTelemetry,
   type MissionLifecycleSlice,
@@ -55,6 +59,9 @@ beforeEach(() => {
     hasLiveTelemetry: true,
   } as unknown as ReturnType<typeof useRoverTelemetry>;
   mockUseRoverTelemetry.mockImplementation(() => rover);
+  // Staleness is measured from the tablet-side Socket.IO receive clock,
+  // which the real hook marks per packet; the mocked hook never does.
+  markSocketTelemetryPacket(Date.now());
 });
 
 afterEach(() => {
@@ -62,6 +69,7 @@ afterEach(() => {
   renderer = undefined;
   jest.useRealTimers();
   jest.clearAllMocks();
+  clearSocketTelemetryPacket();
 });
 
 it("does not broadcast repeated lifecycle snapshots to telemetry consumers", () => {
