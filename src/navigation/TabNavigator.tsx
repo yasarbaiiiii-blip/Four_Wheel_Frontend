@@ -60,6 +60,7 @@ function OperationsWorkspace() {
                   embedMap={false}
                   isVisible
                   openFilePickerOnMount={planOpenIntent === "upload"}
+                  returnToMissionAfterImport={planOpenIntent === "upload"}
                   isDrawingToolsVisible={isDrawingToolsVisible}
                   setIsDrawingToolsVisible={setIsDrawingToolsVisible}
                   isMissionOpsVisible={isMissionOpsVisible}
@@ -69,6 +70,7 @@ function OperationsWorkspace() {
                   isBottomTableVisible={isBottomTableVisible}
                   setIsBottomTableVisible={setIsBottomTableVisible}
                   onLoadMissionSuccess={() => { setPlanOpenIntent(null); setIsPlanningRoute(false); }}
+                  onMissionUploadSuccess={() => { setPlanOpenIntent(null); setIsPlanningRoute(false); }}
                 />
               </ErrorBoundary>
             </View>

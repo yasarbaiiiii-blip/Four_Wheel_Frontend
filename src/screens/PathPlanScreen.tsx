@@ -389,6 +389,8 @@ interface PathPlanScreenProps {
   isVisible?: boolean;
   /** Opens the existing mission-file picker once the planner is mounted. */
   openFilePickerOnMount?: boolean;
+  /** Completes a home-screen import without exposing the legacy planner UI. */
+  returnToMissionAfterImport?: boolean;
   isDrawingToolsVisible?: boolean;
   setIsDrawingToolsVisible?: (val: boolean) => void;
   isMissionOpsVisible?: boolean;
@@ -399,6 +401,8 @@ interface PathPlanScreenProps {
   setIsBottomTableVisible?: (val: boolean) => void;
   /** Moves to Mission Progress after a confirmed Load. */
   onLoadMissionSuccess?: () => void;
+  /** Returns to the modern mission home after a direct file upload. */
+  onMissionUploadSuccess?: () => void;
 }
 
 type MissionControlResponseWithRestore = MissionControlResponse & {
@@ -436,6 +440,7 @@ export default function PathPlanScreen({
   isVisible = true,
   embedMap = false,
   openFilePickerOnMount = false,
+  returnToMissionAfterImport = false,
   isDrawingToolsVisible: propIsDrawingToolsVisible,
   setIsDrawingToolsVisible: propSetIsDrawingToolsVisible,
   isMissionOpsVisible: propIsMissionOpsVisible,
@@ -445,6 +450,7 @@ export default function PathPlanScreen({
   isBottomTableVisible: propIsBottomTableVisible,
   setIsBottomTableVisible: propSetIsBottomTableVisible,
   onLoadMissionSuccess,
+  onMissionUploadSuccess,
 }: PathPlanScreenProps) {
   const {
     missionWaypoints,
@@ -2470,7 +2476,7 @@ export default function PathPlanScreen({
   async function uploadWaypointsToBackend(
     waypointsToUpload: PathPlanWaypoint[],
     extension: ExtensionChoice,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (isUploadingRef.current) {
       showPathPlanToast(
         "info",
@@ -2478,7 +2484,7 @@ export default function PathPlanScreen({
         "A mission upload is already in progress.",
       );
 
-      return;
+      return false;
     }
 
     if (waypointsToUpload.length < 2) {
@@ -2489,7 +2495,7 @@ export default function PathPlanScreen({
         5000,
       );
 
-      return;
+      return false;
     }
 
     if (roverUploadBlockedReason) {
@@ -2500,7 +2506,7 @@ export default function PathPlanScreen({
         5000,
       );
       Alert.alert("Connect Rover", roverUploadBlockedReason);
-      return;
+      return false;
     }
 
     let temporaryFileUri: string | null = null;
@@ -2559,11 +2565,16 @@ export default function PathPlanScreen({
         );
       }
 
+      await refreshNow().catch((refreshError) =>
+        console.warn("[PathPlan] Mission status refresh after upload failed:", refreshError),
+      );
+
       if (!mountedRef.current) {
-        return;
+        return true;
       }
 
       setUploadProgress(100);
+      return true;
     } catch (error) {
       resumePreviewAfterFailedUpload();
       void refreshNow();
@@ -2572,6 +2583,7 @@ export default function PathPlanScreen({
       console.error("[PathPlan] Mission upload failed:", error);
 
       Alert.alert("Mission Upload Failed", message);
+      return false;
     } finally {
       if (temporaryFileUri) {
         await FileSystem.deleteAsync(temporaryFileUri, {
@@ -3245,10 +3257,20 @@ export default function PathPlanScreen({
       }
 
       const sanitized = sanitizeWaypointsForUpload(waypointsWithMark);
-      if (pathAssignmentMode === "manual") {
+      if (pathAssignmentMode === "manual" && !returnToMissionAfterImport) {
         recordAndApply(sanitized);
         setManualPathConnections([]);
         setShowManualConnectionCanvas(true);
+        return;
+      }
+
+      if (returnToMissionAfterImport) {
+        recordAndApply(sanitized);
+        const uploaded = await uploadWaypointsToBackend(
+          sanitized,
+          missionExtensionRef.current,
+        );
+        if (uploaded) onMissionUploadSuccess?.();
         return;
       }
 
