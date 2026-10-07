@@ -26,7 +26,7 @@ import { getObstacleStatus, setObstacleConfig } from "../services/obstacleServic
 import {
   getMissionStatus,
   saveMissionDefaults,
-  setMissionMarkingTool,
+  setMissionMarkingTool as sendMissionMarkingTool,
 } from "../services/missionApi";
 import {
   ObstacleView,
@@ -271,7 +271,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     if (isMissionActive || isSavingMissionMode) return;
     setIsSavingMissionMode(true);
     try {
-      const toolResponse = await setMissionMarkingTool(missionMarkingTool);
+      const toolResponse = await sendMissionMarkingTool(missionMarkingTool);
       if (!toolResponse.success) {
         throw new Error(toolResponse.message || "The rover rejected the mission tool.");
       }
