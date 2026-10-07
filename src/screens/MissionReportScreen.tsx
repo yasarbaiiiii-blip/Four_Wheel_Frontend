@@ -27,6 +27,7 @@ import {
 import {
   AppState,
   Animated,
+  Easing,
   ScrollView,
   TouchableOpacity,
   View,
@@ -5652,23 +5653,37 @@ function MissionActivityExperience({
   const openActivity = useCallback(() => {
     setActivityMounted(true);
     activityProgress.setValue(0);
-    Animated.timing(activityProgress, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    Animated.spring(activityProgress, {
+      toValue: 1,
+      tension: 68,
+      friction: 9,
+      useNativeDriver: true,
+    }).start();
   }, [activityProgress]);
   const closeActivity = useCallback(() => {
-    Animated.timing(activityProgress, { toValue: 0, duration: 220, useNativeDriver: true }).start(({ finished }) => {
+    Animated.timing(activityProgress, {
+      toValue: 0,
+      duration: 360,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
       if (finished) setActivityMounted(false);
     });
   }, [activityProgress]);
   useEffect(() => () => activityProgress.stopAnimation(), [activityProgress]);
 
   const transitionUp = activityProgress.interpolate({ inputRange: [0, 1], outputRange: [42, 0] });
+  const homeOpacity = activityProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  const homeShift = activityProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 34] });
+  const homeScale = activityProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.985] });
+  const detailScale = activityProgress.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] });
   return (
     <View style={fieldExperienceStyles.host} pointerEvents="box-none">
-      <Animated.View style={[fieldExperienceStyles.homeHeader, { opacity: activityProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]} pointerEvents={activityMounted ? "none" : "auto"}>
+      <Animated.View style={[fieldExperienceStyles.homeHeader, { opacity: homeOpacity, transform: [{ translateX: homeShift }] }]} pointerEvents={activityMounted ? "none" : "auto"}>
         <View style={fieldExperienceStyles.homeBrand}><Text style={fieldExperienceStyles.homeBrandTitle}>Mission Atlas</Text><View style={fieldExperienceStyles.homeBrandDivider} /><Text style={fieldExperienceStyles.homeBrandSubtitle}>Autonomous Rover Operations</Text></View>
         <View style={fieldExperienceStyles.homeSignals}><View style={fieldExperienceStyles.homeSignal}><View style={[fieldExperienceStyles.dot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><View><Text style={fieldExperienceStyles.homeSignalTitle}>{telemetry.connected ? "Connected" : "Offline"}</Text><Text style={fieldExperienceStyles.homeSignalSub}>Rover link</Text></View></View><View style={fieldExperienceStyles.homeDivider} /><View style={fieldExperienceStyles.homeSignal}><MaterialCommunityIcons name="crosshairs-gps" size={20} color="#1475EE" /><View><Text style={fieldExperienceStyles.homeSignalTitle}>{commandRtkLabel(telemetry.fixType)}</Text><Text style={fieldExperienceStyles.homeSignalSub}>Position quality</Text></View></View><View style={fieldExperienceStyles.homeDivider} /><View style={fieldExperienceStyles.homeSignal}><MaterialCommunityIcons name="battery" size={21} color="#1475EE" /><View><Text style={fieldExperienceStyles.homeSignalTitle}>{commandValue(telemetry.battery, "%", 0)}</Text><Text style={fieldExperienceStyles.homeSignalSub}>Battery</Text></View></View></View>
       </Animated.View>
-      <Animated.View style={[fieldExperienceStyles.overview, { opacity: activityProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]} pointerEvents={activityMounted ? "none" : "auto"}>
+      <Animated.View style={[fieldExperienceStyles.overview, { opacity: homeOpacity, transform: [{ translateX: homeShift }, { scale: homeScale }] }]} pointerEvents={activityMounted ? "none" : "auto"}>
         <View style={fieldExperienceStyles.railHeader}>
           <View><Text style={fieldExperienceStyles.eyebrow}>MISSION</Text><Text style={fieldExperienceStyles.missionTitle} numberOfLines={1}>Field Survey</Text></View>
           <View style={fieldExperienceStyles.liveBadge}><View style={[fieldExperienceStyles.dot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><Text style={fieldExperienceStyles.liveText}>{isMissionActive ? "Autonomous" : "Ready"}</Text></View>
@@ -5704,7 +5719,7 @@ function MissionActivityExperience({
         <View style={fieldExperienceStyles.actions}><TouchableOpacity style={[fieldExperienceStyles.actionButton, fieldExperienceStyles.startButton, (!canStart || isPreparing) && fieldExperienceStyles.disabled]} onPress={onStart} disabled={!canStart || isPreparing}><MaterialCommunityIcons name="play" size={20} color="#fff" /><Text style={fieldExperienceStyles.startText}>{isPreparing ? "Preparing" : "Start"}</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.actionButton, fieldExperienceStyles.pauseButton, !isMissionActive && fieldExperienceStyles.disabled]} onPress={isMissionPaused ? onResume : onPause} disabled={!isMissionActive}><MaterialCommunityIcons name={isMissionPaused ? "play" : "pause"} size={20} color="#12315f" /><Text style={fieldExperienceStyles.pauseText}>{isMissionPaused ? "Resume" : "Pause"}</Text></TouchableOpacity><TouchableOpacity style={fieldExperienceStyles.stopButton} onPress={onStop} accessibilityLabel="Stop mission"><MaterialCommunityIcons name="stop" size={20} color="#D92540" /></TouchableOpacity></View>
       </Animated.View>
 
-      {activityMounted && <Animated.View style={[fieldExperienceStyles.activityScreen, { opacity: activityProgress, transform: [{ translateY: transitionUp }] }]}>
+      {activityMounted && <Animated.View style={[fieldExperienceStyles.activityScreen, { opacity: activityProgress, transform: [{ translateY: transitionUp }, { scale: detailScale }] }]}>
         <View style={fieldExperienceStyles.activityTopbar}><View style={fieldExperienceStyles.activityTitleGroup}><View style={fieldExperienceStyles.activityIcon}><MaterialCommunityIcons name="map" size={24} color="#fff" /></View><View><Text style={fieldExperienceStyles.activityTitle}>Field Navigator</Text><Text style={fieldExperienceStyles.activitySubtitle}>Mission: Field Survey</Text></View></View><View style={fieldExperienceStyles.topSignals}><View style={fieldExperienceStyles.topSignal}><View style={[fieldExperienceStyles.dot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><Text style={fieldExperienceStyles.topSignalText}>{telemetry.connected ? "Connected" : "Offline"}</Text></View><View style={fieldExperienceStyles.topSignal}><MaterialCommunityIcons name="crosshairs-gps" size={16} color="#1475EE" /><Text style={fieldExperienceStyles.topSignalText}>{commandRtkLabel(telemetry.fixType)}</Text></View><View style={fieldExperienceStyles.topSignal}><MaterialCommunityIcons name="battery" size={17} color="#1475EE" /><Text style={fieldExperienceStyles.topSignalText}>{commandValue(telemetry.battery, "%", 0)}</Text></View></View><View style={fieldExperienceStyles.topActions}><TouchableOpacity style={fieldExperienceStyles.planButton} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="Plan mission route"><MaterialCommunityIcons name="pencil-outline" size={20} color="#1475EE" /></TouchableOpacity><TouchableOpacity style={fieldExperienceStyles.closeActivity} onPress={closeActivity} accessibilityRole="button" accessibilityLabel="Return to mission home"><MaterialCommunityIcons name="close" size={24} color="#13254a" /></TouchableOpacity></View></View>
         <View style={fieldExperienceStyles.mapCallout}><Text style={fieldExperienceStyles.mapCalloutLabel}>NEXT WAYPOINT</Text><Text style={fieldExperienceStyles.mapCalloutValue}>WP-{String(currentPoint).padStart(2, "0")}</Text><Text style={fieldExperienceStyles.mapCalloutSub}>Following planned blue route</Text></View>
         <View style={fieldExperienceStyles.activityFooter}>
@@ -5719,8 +5734,8 @@ function MissionActivityExperience({
 
 const fieldExperienceStyles = StyleSheet.create({
   host: { ...StyleSheet.absoluteFillObject, zIndex: 21 },
-  homeHeader: { position: "absolute", top: 0, left: 0, right: 0, height: 59, backgroundColor: "rgba(250,252,255,0.98)", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 25, borderBottomWidth: 1, borderBottomColor: "#D9E3F0", zIndex: 23, shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 5 }, homeBrand: { flexDirection: "row", alignItems: "center", gap: 14 }, homeBrandTitle: { color: "#10244B", fontSize: 26, fontWeight: "900", letterSpacing: -0.8 }, homeBrandDivider: { width: 1, height: 27, backgroundColor: "#B9C7DB" }, homeBrandSubtitle: { color: "#4E6385", fontSize: 14, fontWeight: "700" }, homeSignals: { flexDirection: "row", alignItems: "center", gap: 16 }, homeSignal: { flexDirection: "row", alignItems: "center", gap: 7 }, homeSignalTitle: { color: "#122750", fontSize: 11, fontWeight: "800" }, homeSignalSub: { color: "#7183A1", fontSize: 9, fontWeight: "600", marginTop: 1 }, homeDivider: { height: 30, width: 1, backgroundColor: "#CBD6E5" },
-  overview: { position: "absolute", top: 86, right: 18, bottom: 18, width: 382, backgroundColor: "rgba(250,252,255,0.98)", borderRadius: 22, padding: 18, shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 22, elevation: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.85)" },
+  homeHeader: { position: "absolute", top: 0, left: 0, right: 0, height: 59, backgroundColor: "rgba(250,252,255,0.98)", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 25, borderBottomWidth: 1, borderBottomColor: "#D9E3F0", zIndex: 23 }, homeBrand: { flexDirection: "row", alignItems: "center", gap: 14 }, homeBrandTitle: { color: "#10244B", fontSize: 26, fontWeight: "900", letterSpacing: -0.8 }, homeBrandDivider: { width: 1, height: 27, backgroundColor: "#B9C7DB" }, homeBrandSubtitle: { color: "#4E6385", fontSize: 14, fontWeight: "700" }, homeSignals: { flexDirection: "row", alignItems: "center", gap: 16 }, homeSignal: { flexDirection: "row", alignItems: "center", gap: 7 }, homeSignalTitle: { color: "#122750", fontSize: 11, fontWeight: "800" }, homeSignalSub: { color: "#7183A1", fontSize: 9, fontWeight: "600", marginTop: 1 }, homeDivider: { height: 30, width: 1, backgroundColor: "#CBD6E5" },
+  overview: { position: "absolute", top: 59, right: 0, bottom: 0, width: 382, backgroundColor: "rgba(250,252,255,0.98)", borderLeftWidth: 1, borderLeftColor: "#D9E3F0", padding: 18, zIndex: 22 },
   railHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }, eyebrow: { color: "#6681AD", fontSize: 10, letterSpacing: 1.2, fontWeight: "800" }, missionTitle: { color: "#10244B", fontSize: 30, lineHeight: 36, fontWeight: "800", marginTop: 2, maxWidth: 215 }, liveBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#E6F8F1", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 20 }, dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#16B980" }, liveText: { color: "#1B5360", fontSize: 11, fontWeight: "800" },
   routeMeta: { flexDirection: "row", gap: 13, marginTop: 10, paddingBottom: 16 }, meta: { flexDirection: "row", alignItems: "center", gap: 4 }, metaText: { color: "#526B93", fontSize: 11, fontWeight: "700" }, tabs: { height: 42, backgroundColor: "#EAF0F8", borderRadius: 11, padding: 3, flexDirection: "row", marginBottom: 12 }, tab: { flex: 1, justifyContent: "center", alignItems: "center", borderRadius: 8 }, tabActive: { backgroundColor: "#1475EE" }, tabText: { color: "#426189", fontSize: 12, fontWeight: "800" }, tabActiveText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   progressCard: { borderWidth: 1, borderColor: "#DDE7F3", borderRadius: 15, padding: 14, flexDirection: "row", gap: 13 }, ring: { width: 96, height: 96, borderRadius: 48, borderWidth: 9, borderColor: "#13B885", alignItems: "center", justifyContent: "center" }, ringValue: { color: "#122750", fontWeight: "800", fontSize: 25 }, ringLabel: { color: "#657A9D", fontWeight: "700", fontSize: 9, textTransform: "uppercase" }, metrics: { flex: 1, flexDirection: "row", flexWrap: "wrap", alignContent: "center" }, metric: { width: "50%", paddingLeft: 10, marginVertical: 5, borderLeftWidth: 1, borderLeftColor: "#E0E7F0" }, metricValue: { color: "#10244B", fontSize: 14, fontWeight: "800" }, metricLabel: { color: "#7183A1", fontSize: 9, fontWeight: "600", marginTop: 2 },
