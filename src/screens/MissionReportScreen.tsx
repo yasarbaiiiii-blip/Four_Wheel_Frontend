@@ -26,6 +26,8 @@ import {
 } from "../utils/pointResultStore";
 import {
   AppState,
+  Animated,
+  ScrollView,
   TouchableOpacity,
   View,
   StyleSheet,
@@ -33,6 +35,7 @@ import {
   Text,
   Alert,
 } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../theme/colors";
 import { Toast } from "../components/shared/Toast";
@@ -2413,6 +2416,12 @@ export default function MissionReportScreen({
       totalPoints,
     };
   }, [waypoints, reportStatusMap, effectiveCurrentIndex]);
+
+  // The field command experience is a presentation layer over the established
+  // mission workflow. Keep the legacy widgets mounted in source (and all of
+  // their data/control handlers intact), while the operator uses the focused
+  // map-first surface requested for normal field operation.
+  const useMissionActivityExperience = true;
 
   // Automatically derive currentIndex from statusMap to keep UI in sync
   // This fixes the issue where currentIndex gets stuck even though statusMap updates correctly
@@ -5125,7 +5134,7 @@ export default function MissionReportScreen({
         )}
       </View>
 
-      {isVisible && isRobotStatusVisible && (
+      {!useMissionActivityExperience && isVisible && isRobotStatusVisible && (
         <DraggableCard
           style={styles.floatingRobotStatusPanel}
           handleType="custom"
@@ -5137,7 +5146,7 @@ export default function MissionReportScreen({
         </DraggableCard>
       )}
 
-      {isMissionProgressVisible && (
+      {!useMissionActivityExperience && isMissionProgressVisible && (
         <DraggableCard
           style={[
             styles.floatingMissionProgressPanel,
@@ -5164,7 +5173,7 @@ export default function MissionReportScreen({
         </DraggableCard>
       )}
 
-      {isMissionProgressVisible && (
+      {!useMissionActivityExperience && isMissionProgressVisible && (
         <View
           style={styles.floatingQuickNtripPanel}
         >
@@ -5178,7 +5187,7 @@ export default function MissionReportScreen({
         </View>
       )}
 
-      {isVisible && isAccuracyMonitorVisible && (
+      {!useMissionActivityExperience && isVisible && isAccuracyMonitorVisible && (
         <DraggableCard
           style={styles.floatingAccuracyMonitorPanel}
           handleType="custom"
@@ -5190,7 +5199,7 @@ export default function MissionReportScreen({
         </DraggableCard>
       )}
 
-      {isVisible && isDistanceToTargetVisible && (
+      {!useMissionActivityExperience && isVisible && isDistanceToTargetVisible && (
         <DraggableCard
           style={styles.floatingDistanceToTargetPanel}
           handleType="custom"
@@ -5199,7 +5208,7 @@ export default function MissionReportScreen({
         </DraggableCard>
       )}
 
-      {isMissionControlsVisible && !isManualDriveVisible && (
+      {!useMissionActivityExperience && isMissionControlsVisible && !isManualDriveVisible && (
         <DraggableCard
           style={styles.floatingMissionControlsPanel}
           handleType="custom"
@@ -5235,7 +5244,7 @@ export default function MissionReportScreen({
         </DraggableCard>
       )}
 
-      {isBottomTableVisible && (
+      {!useMissionActivityExperience && isBottomTableVisible && (
         <DraggableCard style={styles.floatingBottomTable} handleType="custom">
           <MissionTableHeader
             progressCurrent={missionProgressRef.current}
@@ -5271,6 +5280,24 @@ export default function MissionReportScreen({
             </View>
           )}
         </DraggableCard>
+      )}
+
+      {useMissionActivityExperience && (
+        <MissionActivityExperience
+          waypoints={displayData.waypoints}
+          statusMap={displayData.statusMap}
+          currentIndex={effectiveCurrentIndex}
+          markedPoints={missionProgressStats.markedPoints}
+          totalPoints={missionProgressStats.totalPoints}
+          isMissionActive={effectiveMissionActive}
+          isMissionPaused={isBackendMissionPaused}
+          canStart={canStartMission}
+          isPreparing={isPreparingMission}
+          onStart={handleStart}
+          onPause={handlePause}
+          onResume={handleResume}
+          onStop={handleStop}
+        />
       )}
 
       <Toast
@@ -5519,4 +5546,176 @@ const styles = StyleSheet.create({
     color: "#001219",
     fontWeight: "700",
   },
+});
+
+// -----------------------------------------------------------------------------
+// Field command presentation
+// Kept in this screen intentionally: it is a visual layer over the existing
+// mission state and handlers, rather than a second mission implementation.
+
+type CommandWaypointStatus = { status?: string } | undefined;
+
+interface MissionActivityExperienceProps {
+  waypoints: Waypoint[];
+  statusMap: Record<number, CommandWaypointStatus>;
+  currentIndex: number | null;
+  markedPoints: number;
+  totalPoints: number;
+  isMissionActive: boolean;
+  isMissionPaused: boolean;
+  canStart: boolean;
+  isPreparing: boolean;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+}
+
+function selectCommandTelemetry(snapshot: LiveTelemetrySnapshot) {
+  const telemetry = snapshot.telemetry;
+  return {
+    connected: snapshot.connectionState === "connected",
+    battery: telemetry.battery?.percentage ?? null,
+    speed: telemetry.global?.vel ?? telemetry.rpp_actual_speed_mps ?? null,
+    heading: telemetry.attitude?.yaw_deg ?? null,
+    fixType: telemetry.rtk?.fix_type ?? 0,
+  };
+}
+
+function commandRtkLabel(fixType: number): string {
+  if (fixType >= 6) return "RTK Fixed";
+  if (fixType === 5) return "RTK Float";
+  if (fixType >= 3) return "GPS Fix";
+  return "GPS acquiring";
+}
+
+function commandValue(value: number | null, suffix: string, digits = 1): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(digits)}${suffix}`
+    : "—";
+}
+
+function commandRouteKm(waypoints: Waypoint[]): number {
+  if (waypoints.length < 2) return 0;
+  const radiusKm = 6371;
+  return waypoints.slice(1).reduce((total, point, index) => {
+    const previous = waypoints[index];
+    if (Number.isFinite(point.distance)) return total + Number(point.distance) / 1000;
+    const lat1 = previous.lat * (Math.PI / 180);
+    const lat2 = point.lat * (Math.PI / 180);
+    const dLat = lat2 - lat1;
+    const dLon = (point.lon - previous.lon) * (Math.PI / 180);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    return total + radiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }, 0);
+}
+
+function commandPointState(status: CommandWaypointStatus, index: number, currentIndex: number | null) {
+  const normalized = String(status?.status ?? "").toLowerCase();
+  if (["completed", "marked", "reached", "skipped"].includes(normalized)) return "complete";
+  return index === currentIndex ? "active" : "pending";
+}
+
+function CommandMeta({ icon, text }: { icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"]; text: string }) {
+  return <View style={fieldExperienceStyles.meta}><MaterialCommunityIcons name={icon} size={15} color="#5C78A8" /><Text style={fieldExperienceStyles.metaText}>{text}</Text></View>;
+}
+
+function CommandMetric({ value, label }: { value: string; label: string }) {
+  return <View style={fieldExperienceStyles.metric}><Text style={fieldExperienceStyles.metricValue}>{value}</Text><Text style={fieldExperienceStyles.metricLabel}>{label}</Text></View>;
+}
+
+function CommandTelemetry({ icon, value, label }: { icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"]; value: string; label: string }) {
+  return <View style={fieldExperienceStyles.telemetry}><MaterialCommunityIcons name={icon} size={19} color="#1475EE" /><Text style={fieldExperienceStyles.telemetryValue} numberOfLines={1}>{value}</Text><Text style={fieldExperienceStyles.telemetryLabel}>{label}</Text></View>;
+}
+
+function MissionActivityExperience({
+  waypoints, statusMap, currentIndex, markedPoints, totalPoints, isMissionActive,
+  isMissionPaused, canStart, isPreparing, onStart, onPause, onResume, onStop,
+}: MissionActivityExperienceProps) {
+  const telemetry = useLiveTelemetrySelector(selectCommandTelemetry, shallowEqual);
+  const [activityMounted, setActivityMounted] = useState(false);
+  const activityProgress = useRef(new Animated.Value(0)).current;
+  const routeKm = useMemo(() => commandRouteKm(waypoints), [waypoints]);
+  const safeTotal = Math.max(totalPoints, waypoints.length, 1);
+  const safeMarked = Math.min(Math.max(markedPoints, 0), safeTotal);
+  const currentPoint = Math.min(safeTotal, Math.max(1, currentIndex == null ? safeMarked + 1 : currentIndex + 1));
+  const percentage = Math.round((safeMarked / safeTotal) * 100);
+  const nextWaypoint = waypoints[Math.min(Math.max(currentPoint - 1, 0), Math.max(waypoints.length - 1, 0))];
+
+  const openActivity = useCallback(() => {
+    setActivityMounted(true);
+    activityProgress.setValue(0);
+    Animated.timing(activityProgress, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+  }, [activityProgress]);
+  const closeActivity = useCallback(() => {
+    Animated.timing(activityProgress, { toValue: 0, duration: 220, useNativeDriver: true }).start(({ finished }) => {
+      if (finished) setActivityMounted(false);
+    });
+  }, [activityProgress]);
+  useEffect(() => () => activityProgress.stopAnimation(), [activityProgress]);
+
+  const transitionUp = activityProgress.interpolate({ inputRange: [0, 1], outputRange: [42, 0] });
+  return (
+    <View style={fieldExperienceStyles.host} pointerEvents="box-none">
+      <Animated.View style={[fieldExperienceStyles.overview, { opacity: activityProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]} pointerEvents={activityMounted ? "none" : "auto"}>
+        <View style={fieldExperienceStyles.railHeader}>
+          <View><Text style={fieldExperienceStyles.eyebrow}>MISSION</Text><Text style={fieldExperienceStyles.missionTitle} numberOfLines={1}>Field Survey</Text></View>
+          <View style={fieldExperienceStyles.liveBadge}><View style={[fieldExperienceStyles.dot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><Text style={fieldExperienceStyles.liveText}>{isMissionActive ? "Autonomous" : "Ready"}</Text></View>
+        </View>
+        <View style={fieldExperienceStyles.routeMeta}>
+          <CommandMeta icon="map-marker-radius-outline" text={`${waypoints.length} points`} />
+          <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
+          <CommandMeta icon="crosshairs-gps" text={commandRtkLabel(telemetry.fixType)} />
+        </View>
+        <View style={fieldExperienceStyles.tabs}><View style={[fieldExperienceStyles.tab, fieldExperienceStyles.tabActive]}><Text style={fieldExperienceStyles.tabActiveText}>Overview</Text></View><View style={fieldExperienceStyles.tab}><Text style={fieldExperienceStyles.tabText}>Route</Text></View><TouchableOpacity style={fieldExperienceStyles.tab} onPress={openActivity} accessibilityRole="button" accessibilityLabel="Open mission activity"><Text style={fieldExperienceStyles.tabText}>Activity</Text></TouchableOpacity></View>
+
+        <View style={fieldExperienceStyles.progressCard}>
+          <View style={fieldExperienceStyles.ring}><Text style={fieldExperienceStyles.ringValue}>{percentage}%</Text><Text style={fieldExperienceStyles.ringLabel}>complete</Text></View>
+          <View style={fieldExperienceStyles.metrics}><CommandMetric value={`${safeMarked} / ${safeTotal}`} label="Points reached" /><CommandMetric value={`${routeKm.toFixed(1)} km`} label="Planned route" /><CommandMetric value={isMissionActive ? "Live" : "Standby"} label="Mission state" /><CommandMetric value={commandRtkLabel(telemetry.fixType).replace("RTK ", "")} label="Positioning" /></View>
+        </View>
+
+        <View style={fieldExperienceStyles.card}>
+          <View style={fieldExperienceStyles.cardHeading}><MaterialCommunityIcons name="map-marker" size={18} color="#1475EE" /><Text style={fieldExperienceStyles.cardTitle}>Next point</Text><Text style={fieldExperienceStyles.pointNumber}>#{currentPoint} of {safeTotal}</Text></View>
+          <View style={fieldExperienceStyles.nextBody}><View style={fieldExperienceStyles.nextIcon}><MaterialCommunityIcons name="flag-checkered" size={22} color="#1475EE" /></View><View style={fieldExperienceStyles.nextCopy}><Text style={fieldExperienceStyles.nextName}>WP-{String(currentPoint).padStart(2, "0")}</Text><Text style={fieldExperienceStyles.nextDescription}>{nextWaypoint ? `${nextWaypoint.lat.toFixed(5)}, ${nextWaypoint.lon.toFixed(5)}` : "Awaiting mission upload"}</Text></View><View style={fieldExperienceStyles.pointPill}><Text style={fieldExperienceStyles.pointPillText}>{currentPoint}</Text></View></View>
+        </View>
+
+        <View style={fieldExperienceStyles.card}>
+          <View style={fieldExperienceStyles.cardHeading}><Text style={fieldExperienceStyles.cardTitle}>Rover telemetry</Text><Text style={fieldExperienceStyles.liveNow}>LIVE</Text></View>
+          <View style={fieldExperienceStyles.telemetryRow}><CommandTelemetry icon="speedometer" value={commandValue(telemetry.speed, " m/s")} label="Speed" /><CommandTelemetry icon="compass-outline" value={commandValue(telemetry.heading, "°", 0)} label="Heading" /><CommandTelemetry icon="signal" value={commandRtkLabel(telemetry.fixType)} label="Position" /><CommandTelemetry icon="battery" value={commandValue(telemetry.battery, "%", 0)} label="Battery" /></View>
+        </View>
+
+        <TouchableOpacity style={fieldExperienceStyles.card} onPress={openActivity} activeOpacity={0.86} accessibilityRole="button" accessibilityLabel="Open mission activity">
+          <View style={fieldExperienceStyles.cardHeading}><Text style={fieldExperienceStyles.cardTitle}>Mission activity</Text><View style={fieldExperienceStyles.liveInline}><View style={fieldExperienceStyles.dot} /><Text style={fieldExperienceStyles.liveNow}>LIVE</Text></View></View>
+          <View style={fieldExperienceStyles.activityPreview}>{["Mission ready", `${safeMarked} points completed`, `Heading to waypoint ${currentPoint}`].map((label, index) => <View style={fieldExperienceStyles.activityLine} key={label}><View style={[fieldExperienceStyles.activityState, index === 2 && fieldExperienceStyles.activityStateCurrent]}><MaterialCommunityIcons name={index === 2 ? "navigation" : "check"} size={10} color="#fff" /></View><Text style={[fieldExperienceStyles.activityText, index === 2 && fieldExperienceStyles.activityTextCurrent]}>{label}</Text></View>)}</View>
+          <View style={fieldExperienceStyles.openActivity}><Text style={fieldExperienceStyles.openActivityText}>Open live activity</Text><MaterialCommunityIcons name="arrow-right" size={17} color="#1475EE" /></View>
+        </TouchableOpacity>
+
+        <View style={fieldExperienceStyles.actions}><TouchableOpacity style={[fieldExperienceStyles.actionButton, fieldExperienceStyles.startButton, (!canStart || isPreparing) && fieldExperienceStyles.disabled]} onPress={onStart} disabled={!canStart || isPreparing}><MaterialCommunityIcons name="play" size={20} color="#fff" /><Text style={fieldExperienceStyles.startText}>{isPreparing ? "Preparing" : "Start"}</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.actionButton, fieldExperienceStyles.pauseButton, !isMissionActive && fieldExperienceStyles.disabled]} onPress={isMissionPaused ? onResume : onPause} disabled={!isMissionActive}><MaterialCommunityIcons name={isMissionPaused ? "play" : "pause"} size={20} color="#12315f" /><Text style={fieldExperienceStyles.pauseText}>{isMissionPaused ? "Resume" : "Pause"}</Text></TouchableOpacity><TouchableOpacity style={fieldExperienceStyles.stopButton} onPress={onStop} accessibilityLabel="Stop mission"><MaterialCommunityIcons name="stop" size={20} color="#D92540" /></TouchableOpacity></View>
+      </Animated.View>
+
+      {activityMounted && <Animated.View style={[fieldExperienceStyles.activityScreen, { opacity: activityProgress, transform: [{ translateY: transitionUp }] }]}>
+        <View style={fieldExperienceStyles.activityTopbar}><View style={fieldExperienceStyles.activityTitleGroup}><View style={fieldExperienceStyles.activityIcon}><MaterialCommunityIcons name="map" size={24} color="#fff" /></View><View><Text style={fieldExperienceStyles.activityTitle}>Mission activity</Text><Text style={fieldExperienceStyles.activitySubtitle}>Live route progress</Text></View></View><TouchableOpacity style={fieldExperienceStyles.closeActivity} onPress={closeActivity} accessibilityRole="button" accessibilityLabel="Return to mission home"><MaterialCommunityIcons name="close" size={24} color="#13254a" /></TouchableOpacity></View>
+        <View style={fieldExperienceStyles.mapCallout}><Text style={fieldExperienceStyles.mapCalloutLabel}>NEXT WAYPOINT</Text><Text style={fieldExperienceStyles.mapCalloutValue}>WP-{String(currentPoint).padStart(2, "0")}</Text><Text style={fieldExperienceStyles.mapCalloutSub}>Following planned blue route</Text></View>
+        <View style={fieldExperienceStyles.activityFooter}>
+          <View style={fieldExperienceStyles.footerMission}><View style={fieldExperienceStyles.footerIcon}><MaterialCommunityIcons name="clipboard-text-outline" size={22} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.footerTitle}>Field Survey</Text><Text style={fieldExperienceStyles.footerSub}>Waypoint {currentPoint} of {safeTotal}</Text></View></View>
+          <View style={fieldExperienceStyles.timelineArea}><View style={fieldExperienceStyles.timelineHeading}><Text style={fieldExperienceStyles.timelineTitle}>Route progress</Text><Text style={fieldExperienceStyles.timelinePercent}>{percentage}%</Text></View><View style={fieldExperienceStyles.timelineTrack}><View style={[fieldExperienceStyles.timelineFill, { width: `${percentage}%` }]} /></View><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={fieldExperienceStyles.stepsScroll} style={fieldExperienceStyles.stepsScroller}>{waypoints.length > 0 ? waypoints.map((waypoint, index) => { const state = commandPointState(statusMap[waypoint.sn], index, currentIndex); return <View key={`${waypoint.sn}-${index}`} style={fieldExperienceStyles.step}><View style={[fieldExperienceStyles.stepDot, state === "complete" && fieldExperienceStyles.stepDone, state === "active" && fieldExperienceStyles.stepActive]}><Text style={[fieldExperienceStyles.stepText, state !== "pending" && fieldExperienceStyles.stepTextBright]}>{state === "complete" ? "✓" : index + 1}</Text></View><Text style={[fieldExperienceStyles.stepLabel, state === "active" && fieldExperienceStyles.stepLabelActive]}>WP {index + 1}</Text></View>; }) : <Text style={fieldExperienceStyles.emptyRoute}>Upload a plan to see live route points.</Text>}</ScrollView>{waypoints.length > 5 && <Text style={fieldExperienceStyles.swipeHint}>Swipe to view all {waypoints.length} points →</Text>}</View>
+          <View style={fieldExperienceStyles.footerActions}><TouchableOpacity style={[fieldExperienceStyles.largeStart, (!canStart || isPreparing) && fieldExperienceStyles.disabled]} onPress={onStart} disabled={!canStart || isPreparing}><MaterialCommunityIcons name="play" size={23} color="#fff" /><Text style={fieldExperienceStyles.largeStartText}>{isPreparing ? "Preparing" : "Start"}</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.largePause, !isMissionActive && fieldExperienceStyles.disabled]} onPress={isMissionPaused ? onResume : onPause} disabled={!isMissionActive}><MaterialCommunityIcons name={isMissionPaused ? "play" : "pause"} size={23} color="#fff" /><Text style={fieldExperienceStyles.largePauseText}>{isMissionPaused ? "Resume" : "Pause"}</Text></TouchableOpacity><TouchableOpacity style={fieldExperienceStyles.largeStop} onPress={onStop}><MaterialCommunityIcons name="stop" size={22} color="#fff" /></TouchableOpacity></View>
+        </View>
+      </Animated.View>}
+    </View>
+  );
+}
+
+const fieldExperienceStyles = StyleSheet.create({
+  host: { ...StyleSheet.absoluteFillObject, zIndex: 21 },
+  overview: { position: "absolute", top: 86, right: 18, bottom: 18, width: 382, backgroundColor: "rgba(250,252,255,0.98)", borderRadius: 22, padding: 18, shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 22, elevation: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.85)" },
+  railHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }, eyebrow: { color: "#6681AD", fontSize: 10, letterSpacing: 1.2, fontWeight: "800" }, missionTitle: { color: "#10244B", fontSize: 30, lineHeight: 36, fontWeight: "800", marginTop: 2, maxWidth: 215 }, liveBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#E6F8F1", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 20 }, dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#16B980" }, liveText: { color: "#1B5360", fontSize: 11, fontWeight: "800" },
+  routeMeta: { flexDirection: "row", gap: 13, marginTop: 10, paddingBottom: 16 }, meta: { flexDirection: "row", alignItems: "center", gap: 4 }, metaText: { color: "#526B93", fontSize: 11, fontWeight: "700" }, tabs: { height: 42, backgroundColor: "#EAF0F8", borderRadius: 11, padding: 3, flexDirection: "row", marginBottom: 12 }, tab: { flex: 1, justifyContent: "center", alignItems: "center", borderRadius: 8 }, tabActive: { backgroundColor: "#1475EE" }, tabText: { color: "#426189", fontSize: 12, fontWeight: "800" }, tabActiveText: { color: "#fff", fontSize: 12, fontWeight: "800" },
+  progressCard: { borderWidth: 1, borderColor: "#DDE7F3", borderRadius: 15, padding: 14, flexDirection: "row", gap: 13 }, ring: { width: 96, height: 96, borderRadius: 48, borderWidth: 9, borderColor: "#13B885", alignItems: "center", justifyContent: "center" }, ringValue: { color: "#122750", fontWeight: "800", fontSize: 25 }, ringLabel: { color: "#657A9D", fontWeight: "700", fontSize: 9, textTransform: "uppercase" }, metrics: { flex: 1, flexDirection: "row", flexWrap: "wrap", alignContent: "center" }, metric: { width: "50%", paddingLeft: 10, marginVertical: 5, borderLeftWidth: 1, borderLeftColor: "#E0E7F0" }, metricValue: { color: "#10244B", fontSize: 14, fontWeight: "800" }, metricLabel: { color: "#7183A1", fontSize: 9, fontWeight: "600", marginTop: 2 },
+  card: { borderWidth: 1, borderColor: "#DDE7F3", borderRadius: 15, padding: 13, marginTop: 10 }, cardHeading: { flexDirection: "row", alignItems: "center", gap: 7 }, cardTitle: { color: "#152A50", fontWeight: "800", fontSize: 14, flex: 1 }, pointNumber: { color: "#6B7E9D", fontSize: 10, fontWeight: "700" }, nextBody: { flexDirection: "row", alignItems: "center", marginTop: 10 }, nextIcon: { width: 45, height: 45, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#E7F1FF" }, nextCopy: { flex: 1, marginLeft: 10 }, nextName: { color: "#172C51", fontWeight: "800", fontSize: 16 }, nextDescription: { color: "#7385A1", fontWeight: "600", fontSize: 10, marginTop: 2 }, pointPill: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#1475EE", alignItems: "center", justifyContent: "center" }, pointPillText: { color: "#fff", fontWeight: "800", fontSize: 17 },
+  liveNow: { color: "#13A978", fontSize: 10, fontWeight: "900", letterSpacing: 0.6 }, telemetryRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 12 }, telemetry: { width: "24%", alignItems: "center" }, telemetryValue: { color: "#1A3159", fontWeight: "800", fontSize: 11, marginTop: 5, maxWidth: 78 }, telemetryLabel: { color: "#7183A1", fontSize: 9, marginTop: 2 },
+  liveInline: { flexDirection: "row", gap: 5, alignItems: "center" }, activityPreview: { marginTop: 10, borderLeftWidth: 1, borderLeftColor: "#DCE5F1", gap: 8, paddingLeft: 12 }, activityLine: { flexDirection: "row", alignItems: "center", gap: 8 }, activityState: { width: 16, height: 16, marginLeft: -21, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#15B981" }, activityStateCurrent: { backgroundColor: "#1475EE" }, activityText: { color: "#6A7E9D", fontSize: 11, fontWeight: "600" }, activityTextCurrent: { color: "#1475EE", fontWeight: "800" }, openActivity: { borderTopWidth: 1, borderTopColor: "#E3EAF4", marginTop: 11, paddingTop: 9, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, openActivityText: { color: "#1475EE", fontSize: 11, fontWeight: "800" },
+  actions: { flexDirection: "row", gap: 9, marginTop: "auto" }, actionButton: { flex: 1, height: 47, borderRadius: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 }, startButton: { backgroundColor: "#10B981" }, pauseButton: { backgroundColor: "#E7F1FF" }, startText: { color: "#fff", fontWeight: "800", fontSize: 14 }, pauseText: { color: "#12315F", fontWeight: "800", fontSize: 14 }, stopButton: { width: 47, height: 47, borderRadius: 12, backgroundColor: "#FFF0F2", alignItems: "center", justifyContent: "center" }, disabled: { opacity: 0.45 },
+  activityScreen: { ...StyleSheet.absoluteFillObject, backgroundColor: "transparent", zIndex: 24 }, activityTopbar: { position: "absolute", top: 22, left: 22, right: 22, height: 66, borderRadius: 18, backgroundColor: "rgba(250,252,255,0.97)", paddingHorizontal: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 10 }, activityTitleGroup: { flexDirection: "row", alignItems: "center", gap: 11 }, activityIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#123267" }, activityTitle: { color: "#122750", fontSize: 17, fontWeight: "800" }, activitySubtitle: { color: "#6A7D9C", fontSize: 11, fontWeight: "600", marginTop: 2 }, closeActivity: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#E7EEF8", alignItems: "center", justifyContent: "center" }, mapCallout: { position: "absolute", top: 122, left: "47%", backgroundColor: "rgba(255,255,255,0.96)", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, borderLeftWidth: 4, borderLeftColor: "#1475EE", shadowColor: "#10244B", shadowOpacity: 0.18, shadowRadius: 10, elevation: 8 }, mapCalloutLabel: { color: "#1475EE", fontSize: 9, fontWeight: "900", letterSpacing: 0.8 }, mapCalloutValue: { color: "#132850", fontSize: 17, fontWeight: "900", marginTop: 1 }, mapCalloutSub: { color: "#6C7E9C", fontSize: 10, fontWeight: "600", marginTop: 2 },
+  activityFooter: { position: "absolute", left: 22, right: 22, bottom: 22, minHeight: 118, borderRadius: 20, padding: 15, backgroundColor: "rgba(250,252,255,0.98)", flexDirection: "row", alignItems: "center", gap: 16, shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 13 }, footerMission: { width: 172, flexDirection: "row", alignItems: "center", gap: 9 }, footerIcon: { width: 42, height: 42, borderRadius: 11, backgroundColor: "#E8F1FF", alignItems: "center", justifyContent: "center" }, footerTitle: { color: "#142850", fontSize: 15, fontWeight: "800" }, footerSub: { color: "#7182A0", fontSize: 10, fontWeight: "700", marginTop: 3 }, timelineArea: { flex: 1, minWidth: 250 }, timelineHeading: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }, timelineTitle: { color: "#536D97", fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 }, timelinePercent: { color: "#1475EE", fontSize: 12, fontWeight: "900" }, timelineTrack: { height: 4, borderRadius: 3, backgroundColor: "#DCE5F1", overflow: "hidden" }, timelineFill: { height: "100%", borderRadius: 3, backgroundColor: "#1475EE" }, stepsScroller: { maxHeight: 49 }, stepsScroll: { alignItems: "flex-start", gap: 7, paddingVertical: 8 }, step: { width: 66, alignItems: "center" }, stepDot: { width: 27, height: 27, borderRadius: 14, backgroundColor: "#E8EDF4", borderWidth: 2, borderColor: "#CCD7E5", alignItems: "center", justifyContent: "center" }, stepDone: { borderColor: "#12B981", backgroundColor: "#12B981" }, stepActive: { borderColor: "#1475EE", backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.55, shadowRadius: 7, elevation: 5 }, stepText: { color: "#7182A0", fontSize: 11, fontWeight: "900" }, stepTextBright: { color: "#fff" }, stepLabel: { color: "#788AA5", fontSize: 8, fontWeight: "700", marginTop: 3 }, stepLabelActive: { color: "#1475EE" }, emptyRoute: { color: "#7182A0", fontWeight: "600", fontSize: 11 }, swipeHint: { color: "#6E85A6", fontSize: 9, fontWeight: "700", textAlign: "right", marginTop: -3 }, footerActions: { flexDirection: "row", alignItems: "center", gap: 9 }, largeStart: { height: 57, paddingHorizontal: 18, borderRadius: 14, backgroundColor: "#10B981", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" }, largeStartText: { color: "#fff", fontSize: 15, fontWeight: "800" }, largePause: { height: 57, paddingHorizontal: 16, borderRadius: 14, backgroundColor: "#152A50", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" }, largePauseText: { color: "#fff", fontSize: 15, fontWeight: "800" }, largeStop: { width: 57, height: 57, borderRadius: 29, backgroundColor: "#DD2443", alignItems: "center", justifyContent: "center" },
 });

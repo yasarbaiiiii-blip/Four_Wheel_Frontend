@@ -10,6 +10,10 @@ const mockTelemetryContext = React.createContext({
   telemetry: { attitude: { yaw_deg: 0 }, state: { armed: false }, rtk: { fix_type: 5 } },
   roverPosition: { lat: 13.1, lng: 80.2 },
 });
+const mockLiveTelemetryContext = React.createContext({
+  telemetry: { attitude: { yaw_deg: 0 }, state: { armed: false }, rtk: { fix_type: 5 } },
+  roverPosition: { lat: 13.1, lng: 80.2 },
+});
 let mockPreview: TrajectoryPreviewState;
 let mockSnapshot: {
   waypoints: Array<{ sn: number; lat: number; lon: number }>;
@@ -39,8 +43,9 @@ jest.mock("@rnmapbox/maps", () => ({
 jest.mock("../../../context/BackendTrajectoryContext", () => ({
   useBackendTrajectory: () => ({ preview: mockPreview }),
 }));
-jest.mock("../../../context/TelemetryContext", () => ({
-  useTelemetry: () => React.useContext(mockTelemetryContext),
+jest.mock("../../../context/liveTelemetryStore", () => ({
+  shallowEqual: (left: unknown, right: unknown) => left === right,
+  useLiveTelemetrySelector: (selector: (snapshot: unknown) => unknown) => selector(React.useContext(mockLiveTelemetryContext)),
 }));
 jest.mock("../../../context/FieldMapContext", () => ({
   useFieldMap: () => ({
@@ -62,6 +67,7 @@ jest.mock("../../../config/mapboxConfig", () => ({
 jest.mock("../RoverVehicleIcon", () => ({ RoverVehicleIcon: () => null }));
 jest.mock("../MapBottomControlsBar", () => ({ MapBottomControlsBar: () => null }));
 jest.mock("../TrajectoryStatusBanner", () => ({ TrajectoryStatusBanner: () => null }));
+jest.mock("../OfflineMapStatusBadge", () => ({ OfflineMapStatusBadge: () => null }));
 
 import { FieldMapHost } from "../FieldMapHost";
 import { NativeTrajectoryLayer, NativeWaypointLayer } from "../NativeMapLayers";
@@ -104,13 +110,16 @@ afterEach(() => {
 });
 
 function fieldMap(tick: number) {
+  const liveSnapshot = {
+    telemetry: { attitude: { yaw_deg: tick }, state: { armed: false }, rtk: { fix_type: 5 } },
+    roverPosition: { lat: 13.1 + tick * 0.00001, lng: 80.2 },
+  };
   return (
-    <mockTelemetryContext.Provider value={{
-      telemetry: { attitude: { yaw_deg: tick }, state: { armed: false }, rtk: { fix_type: 5 } },
-      roverPosition: { lat: 13.1 + tick * 0.00001, lng: 80.2 },
-    }}>
-      <FieldMapHost />
-    </mockTelemetryContext.Provider>
+    <mockLiveTelemetryContext.Provider value={liveSnapshot}>
+      <mockTelemetryContext.Provider value={liveSnapshot}>
+        <FieldMapHost />
+      </mockTelemetryContext.Provider>
+    </mockLiveTelemetryContext.Provider>
   );
 }
 
@@ -145,7 +154,7 @@ test("rover telemetry and preview metadata do not reserialize unchanged mission 
 
   mockPreview = { ...mockPreview, phase: "idle" };
   act(() => { renderer!.update(fieldMap(23)); });
-  expect(renderer!.root.findAllByType("ShapeSource").map((node: any) => node.props.id)).toEqual(["field-points"]);
+  expect(renderer!.root.findAllByType("ShapeSource").map((node: any) => node.props.id)).toEqual(["field-trajectory", "field-points"]);
 });
 
 test("authoring layers retain their source options and visual styles", () => {
@@ -163,7 +172,7 @@ test("authoring layers retain their source options and visual styles", () => {
   expect(renderer!.root.findByType("LineLayer").props).toMatchObject({
     id: "path-layer",
     filter: ["==", ["get", "kind"], "line"],
-    style: { lineColor: "#A855F7", lineWidth: 4, lineJoin: "round", lineCap: "round", lineOpacity: 0.96, lineBlur: 0.15 },
+    style: { lineColor: "#1475EE", lineWidth: 4, lineJoin: "round", lineCap: "round", lineOpacity: 0.96, lineBlur: 0.15 },
   });
   expect(renderer!.root.findByType("CircleLayer").props).toMatchObject({
     id: "waypoint-layer",

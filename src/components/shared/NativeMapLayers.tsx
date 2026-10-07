@@ -1,6 +1,5 @@
 import React, { memo } from "react";
 import { CircleLayer, LineLayer, ShapeSource, SymbolLayer } from "@rnmapbox/maps";
-import { BACKEND_TRAJECTORY_LINE_COLOR } from "../../utils/backendTrajectoryPreview";
 
 type ShapeSourceProps = React.ComponentProps<typeof ShapeSource>;
 
@@ -18,7 +17,8 @@ const LINE_FILTER: React.ComponentProps<typeof LineLayer>["filter"] = [
 ];
 
 const MISSION_LINE_STYLE: React.ComponentProps<typeof LineLayer>["style"] = {
-  lineColor: BACKEND_TRAJECTORY_LINE_COLOR,
+  // Consistent high-contrast route treatment used by the field command UI.
+  lineColor: "#1475EE",
   lineWidth: ["interpolate", ["linear"], ["zoom"], 15, 2, 19, 3, 22, 4, 24, 5],
   lineOpacity: 0.96,
   lineCap: "round",

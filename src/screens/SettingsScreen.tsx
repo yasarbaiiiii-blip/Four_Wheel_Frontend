@@ -857,7 +857,10 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
         <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>⚙️ Settings</Text>
+            <View>
+              <Text style={styles.headerTitle}>System settings</Text>
+              <Text style={styles.headerSubtitle}>Rover configuration and safety controls</Text>
+            </View>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
@@ -1424,7 +1427,7 @@ export const SettingsScreen = React.memo(
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    backgroundColor: "rgba(3, 10, 24, 0.74)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1432,32 +1435,38 @@ const styles = StyleSheet.create({
     width: "95%",
     maxWidth: 800,
     height: "95%",
-    backgroundColor: "#1a1a1a",
-    borderRadius: 16,
+    backgroundColor: "#0B1220",
+    borderRadius: 20,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(103, 232, 249, 0.3)",
+    borderColor: "rgba(148, 163, 184, 0.26)",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    backgroundColor: "#002244",
+    paddingHorizontal: 26,
+    paddingVertical: 18,
+    backgroundColor: "#111C2D",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(103, 232, 249, 0.3)",
+    borderBottomColor: "rgba(148, 163, 184, 0.18)",
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
+    fontSize: 21,
+    fontWeight: "800",
     color: colors.text,
+  },
+  headerSubtitle: {
+    color: "#94A3B8",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 3,
   },
   closeButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "rgba(148, 163, 184, 0.15)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1472,16 +1481,16 @@ const styles = StyleSheet.create({
     minHeight: 400,
   },
   scrollContent: {
-    padding: 24,
+    padding: 22,
     flexGrow: 1,
   },
   section: {
-    backgroundColor: "#2a2a2a",
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 20,
+    backgroundColor: "#111C2D",
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: "rgba(103, 232, 249, 0.2)",
+    borderColor: "rgba(148, 163, 184, 0.16)",
   },
   sectionDisabled: {
     opacity: 0.5,
@@ -1496,8 +1505,8 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
+    fontSize: 17,
+    fontWeight: "800",
     color: colors.text,
     flex: 1,
   },
@@ -1523,19 +1532,19 @@ const styles = StyleSheet.create({
     marginRight: 2,
   },
   settingLabel: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 16,
+    fontWeight: "700",
     color: colors.text,
     marginBottom: 4,
   },
   settingDescription: {
     fontSize: 15,
-    color: "#94a3b8",
+    color: "#A8B6CA",
     lineHeight: 22,
   },
   divider: {
     height: 1,
-    backgroundColor: "rgba(103, 232, 249, 0.2)",
+    backgroundColor: "rgba(148, 163, 184, 0.12)",
     marginVertical: 12,
   },
   languageButtons: {
@@ -1548,9 +1557,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: "#1a1a1a",
+    backgroundColor: "#0B1220",
     borderWidth: 2,
-    borderColor: "#4a5568",
+    borderColor: "#334155",
     alignItems: "center",
   },
   languageButtonActive: {
