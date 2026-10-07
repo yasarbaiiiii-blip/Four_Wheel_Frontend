@@ -241,6 +241,8 @@ type PlanOpenIntent = "upload";
 interface MissionReportScreenProps {
   isVisible?: boolean;
   embedMap?: boolean;
+  /** Increments after a home-screen file upload so status is refreshed now. */
+  missionUploadCompletedToken?: number;
   /** Opens the existing route-authoring tools inside the unified workspace. */
   onOpenPlan?: (intent?: PlanOpenIntent) => void;
 }
@@ -258,6 +260,7 @@ const LIVE_REPORT_REFRESH_DELAY_MS = 80;
 export default function MissionReportScreen({
   isVisible = true,
   embedMap = false,
+  missionUploadCompletedToken = 0,
   onOpenPlan,
 }: MissionReportScreenProps) {
   useRenderCounter("MissionReportScreen");
@@ -1680,6 +1683,14 @@ export default function MissionReportScreen({
       );
     }
   }, [setBackendMission]);
+
+  // The hidden direct-upload host already completed successfully. Do not wait
+  // for the normal 15-second polling cadence before replacing Upload with the
+  // available mission actions on the modern home.
+  useEffect(() => {
+    if (missionUploadCompletedToken < 1) return;
+    void Promise.all([refreshBackendMission(), refreshNow()]);
+  }, [missionUploadCompletedToken, refreshBackendMission, refreshNow]);
 
   const refreshCanonicalMissionReport = useCallback(async (): Promise<void> => {
     if (isOfflineMode()) {

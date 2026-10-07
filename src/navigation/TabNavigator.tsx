@@ -26,6 +26,7 @@ const MemoMissionReportScreen = React.memo(MissionReportScreen);
 function OperationsWorkspace() {
   const [isPlanningRoute, setIsPlanningRoute] = useState(false);
   const [planOpenIntent, setPlanOpenIntent] = useState<"upload" | null>(null);
+  const [missionUploadCompletedToken, setMissionUploadCompletedToken] = useState(0);
   const [isDrawingToolsVisible, setIsDrawingToolsVisible] = useState(true);
   const [isMissionOpsVisible, setIsMissionOpsVisible] = useState(true);
   const [isStatisticsVisible, setIsStatisticsVisible] = useState(true);
@@ -82,6 +83,7 @@ function OperationsWorkspace() {
                 <MemoMissionReportScreen
                   embedMap={false}
                   isVisible
+                  missionUploadCompletedToken={missionUploadCompletedToken}
                   onOpenPlan={(intent) => { setPlanOpenIntent(intent ?? null); setIsPlanningRoute(true); }}
                 />
               </ErrorBoundary>
@@ -95,7 +97,7 @@ function OperationsWorkspace() {
                 isVisible
                 openFilePickerOnMount
                 returnToMissionAfterImport
-                onMissionUploadSuccess={() => { setPlanOpenIntent(null); setIsPlanningRoute(false); }}
+                onMissionUploadSuccess={() => { setMissionUploadCompletedToken((token) => token + 1); setPlanOpenIntent(null); setIsPlanningRoute(false); }}
               />
             </View>
           )}
