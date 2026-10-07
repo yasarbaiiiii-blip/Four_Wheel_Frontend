@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 export type MapStyleMode = 'satellite' | 'streets' | 'dark';
@@ -33,17 +33,6 @@ export const MapBottomControlsBar: React.FC<Props> = ({
   style,
 }) => (
   <View style={[styles.dock, style]} pointerEvents="box-none">
-    <View style={styles.focusGroup}>
-      <TouchableOpacity style={[styles.focusButton, disabled && styles.disabled]} onPress={onFitMission} disabled={disabled} activeOpacity={0.78} accessibilityRole="button" accessibilityLabel="Focus mission plan">
-        <MaterialCommunityIcons name="vector-polyline" size={18} color="#1475EE" />
-        <Text style={styles.focusText}>Plan</Text>
-      </TouchableOpacity>
-      <View style={styles.focusDivider} />
-      <TouchableOpacity style={[styles.focusButton, disabled && styles.disabled]} onPress={onCenterRover} disabled={disabled} activeOpacity={0.78} accessibilityRole="button" accessibilityLabel="Focus rover">
-        <MaterialCommunityIcons name="crosshairs-gps" size={18} color="#1475EE" />
-        <Text style={styles.focusText}>Rover</Text>
-      </TouchableOpacity>
-    </View>
     <View style={styles.zoomGroup}>
       <TouchableOpacity style={[styles.zoomButton, disabled && styles.disabled]} onPress={onZoomIn} disabled={disabled} activeOpacity={0.78} accessibilityRole="button" accessibilityLabel="Zoom in">
         <MaterialCommunityIcons name="plus" size={24} color="#173563" />
@@ -53,9 +42,13 @@ export const MapBottomControlsBar: React.FC<Props> = ({
         <MaterialCommunityIcons name="minus" size={24} color="#173563" />
       </TouchableOpacity>
     </View>
-    <TouchableOpacity style={[styles.layersButton, disabled && styles.disabled]} onPress={onToggleMapStyle} disabled={disabled} activeOpacity={0.78} accessibilityRole="button" accessibilityLabel="Change map style">
-      <MaterialCommunityIcons name={MAP_STYLE_ICON[mapStyle]} size={20} color="#536D97" />
-    </TouchableOpacity>
+    <View style={styles.actionGroup}>
+      <TouchableOpacity style={[styles.actionButton, disabled && styles.disabled]} onPress={onFitMission} disabled={disabled} activeOpacity={0.78} accessibilityRole="button" accessibilityLabel="Focus mission plan"><MaterialCommunityIcons name="vector-polyline" size={20} color="#1475EE" /></TouchableOpacity>
+      <View style={styles.actionDivider} />
+      <TouchableOpacity style={[styles.actionButton, disabled && styles.disabled]} onPress={onCenterRover} disabled={disabled} activeOpacity={0.78} accessibilityRole="button" accessibilityLabel="Focus rover"><MaterialCommunityIcons name="crosshairs-gps" size={20} color="#1475EE" /></TouchableOpacity>
+      <View style={styles.actionDivider} />
+      <TouchableOpacity style={[styles.actionButton, disabled && styles.disabled]} onPress={onToggleMapStyle} disabled={disabled} activeOpacity={0.78} accessibilityRole="button" accessibilityLabel="Change map view"><MaterialCommunityIcons name={MAP_STYLE_ICON[mapStyle]} size={20} color="#536D97" /></TouchableOpacity>
+    </View>
   </View>
 );
 
@@ -75,7 +68,7 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     zIndex: 1000,
   },
-  focusGroup: {
+  actionGroup: {
     height: 48,
     flexDirection: 'row',
     alignItems: 'center',
@@ -85,22 +78,14 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 5,
   },
-  focusButton: {
+  actionButton: {
+    width: 44,
     height: 38,
-    minWidth: 78,
-    paddingHorizontal: 10,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
     borderRadius: 10,
   },
-  focusText: {
-    color: '#173563',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  focusDivider: {
+  actionDivider: {
     width: 1,
     height: 24,
     backgroundColor: '#DCE7F5',
@@ -123,16 +108,6 @@ const styles = StyleSheet.create({
     height: 1,
     marginHorizontal: 8,
     backgroundColor: '#DCE7F5',
-  },
-  layersButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.97)',
-    borderWidth: 1,
-    borderColor: '#DCE7F5',
   },
   disabled: {
     opacity: 0.42,
