@@ -226,24 +226,10 @@ const FieldMapHostBase: React.FC = () => {
     return buildBackendTrajectoryCollection(preview.points, BACKEND_LINE_RENDER);
   }, [showTrajectory, preview.points]);
 
-  // A backend trajectory is the most accurate route. Until it arrives, draw
-  // the uploaded mission itself so operators always see the same blue route
-  // connecting the numbered points instead of isolated markers.
-  const waypointRouteCollection = useMemo(() => {
-    const coordinates = fallbackSnapshot.waypoints
-      .filter((point) => isValidLngLat(point.lon, point.lat))
-      .map((point) => [point.lon, point.lat]);
-    if (coordinates.length < 2) return null;
-    return {
-      type: "FeatureCollection" as const,
-      features: [{
-        type: "Feature" as const,
-        properties: { kind: "line" },
-        geometry: { type: "LineString" as const, coordinates },
-      }],
-    };
-  }, [fallbackSnapshot.waypoints]);
-  const visibleRouteCollection = trajectoryCollection ?? waypointRouteCollection;
+  // Only the rover backend may provide a navigation route.  The uploaded
+  // points remain visible as markers, but they are never joined locally into
+  // a line while trajectory_generator is preparing the real path.
+  const visibleRouteCollection = trajectoryCollection;
 
   const handleToggleMapStyle = useCallback(() => {
     if (usingFallback) return;
