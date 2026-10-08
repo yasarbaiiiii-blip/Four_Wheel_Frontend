@@ -9,7 +9,9 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "../theme/colors";
 import { useRover } from "../context/RoverContext";
@@ -840,10 +842,18 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     <Modal
       visible={visible}
       animationType="slide"
-      transparent={true}
+      transparent={false}
       onRequestClose={onClose}
+      supportedOrientations={[
+        "portrait",
+        "portrait-upside-down",
+        "landscape",
+        "landscape-left",
+        "landscape-right",
+      ]}
     >
-      <View style={styles.overlay}>
+      <SafeAreaView style={styles.container} edges={["top", "bottom", "left", "right"]}>
+        <StatusBar barStyle="light-content" backgroundColor="#111C2D" />
         {/* Success Toast */}
         <Toast
           visible={Boolean(successMessage)}
@@ -854,9 +864,9 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           onDismiss={() => setSuccessMessage("")}
         />
 
-        <View style={styles.container}>
-          {/* Header */}
-          <View style={styles.header}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerInner}>
             <View>
               <Text style={styles.headerTitle}>System settings</Text>
               <Text style={styles.headerSubtitle}>Rover configuration and safety controls</Text>
@@ -865,6 +875,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
           </View>
+        </View>
 
           {/* Content */}
           <ScrollView
@@ -1352,25 +1363,26 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           {/* Footer */}
           {/* Footer */}
           <View style={styles.footer}>
-            <TouchableOpacity
-              style={styles.logoutButton}
-              onPress={handleLogout}
-              accessibilityRole="button"
-              accessibilityLabel="Logout from rover"
-            >
-              <Text style={styles.logoutButtonText}>Logout</Text>
-            </TouchableOpacity>
+            <View style={styles.footerInner}>
+              <TouchableOpacity
+                style={styles.logoutButton}
+                onPress={handleLogout}
+                accessibilityRole="button"
+                accessibilityLabel="Logout from rover"
+              >
+                <Text style={styles.logoutButtonText}>Logout</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.doneButton}
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Close settings"
-            >
-              <Text style={styles.doneButtonText}>Done</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.doneButton}
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close settings"
+              >
+                <Text style={styles.doneButtonText}>Done</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
 
         {/* Failsafe Mode Selector Modal (Disabled/Commented out) */}
         {/*
@@ -1409,7 +1421,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           services={services}
           isConnected={connectionState === "connected"}
         />
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 };
@@ -1427,31 +1439,26 @@ export const SettingsScreen = React.memo(
 );
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(3, 10, 24, 0.74)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
   container: {
-    width: "95%",
-    maxWidth: 800,
-    height: "95%",
+    flex: 1,
+    width: "100%",
+    height: "100%",
     backgroundColor: "#0B1220",
-    borderRadius: 20,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.26)",
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 26,
     paddingVertical: 18,
     backgroundColor: "#111C2D",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(148, 163, 184, 0.18)",
+  },
+  headerInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    maxWidth: 960,
+    width: "100%",
+    alignSelf: "center",
   },
   headerTitle: {
     fontSize: 21,
@@ -1485,6 +1492,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 22,
     flexGrow: 1,
+    maxWidth: 960,
+    width: "100%",
+    alignSelf: "center",
   },
   section: {
     backgroundColor: "#111C2D",
@@ -1673,13 +1683,18 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   footer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 16,
-    backgroundColor: "#002244",
+    backgroundColor: "#111C2D",
     borderTopWidth: 1,
-    borderTopColor: "rgba(103, 232, 249, 0.3)",
+    borderTopColor: "rgba(148, 163, 184, 0.18)",
+  },
+  footerInner: {
     flexDirection: "row",
     gap: 12,
+    maxWidth: 960,
+    width: "100%",
+    alignSelf: "center",
   },
 
   logoutButton: {
