@@ -13,7 +13,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "../theme/colors";
 import { useRover } from "../context/RoverContext";
-import { FailsafeModeSelector } from "../components/pathplan/FailsafeModeSelector";
+// import { FailsafeModeSelector } from "../components/pathplan/FailsafeModeSelector";
 import { ServoConfigModal } from "../components/settings/ServoConfigModal";
 import { ParamBrowserModal } from "../components/settings/ParamBrowserModal";
 import { RTKInjectionScreen } from "../components/missionreport/RTKInjectionScreen";
@@ -83,7 +83,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     connectionState,
     onMissionEvent,
   } = useRover();
-  const [showFailsafeSelector, setShowFailsafeSelector] = useState(false);
+  // const [showFailsafeSelector, setShowFailsafeSelector] = useState(false);
 
   // TTS State
   const [ttsEnabled, setTtsEnabled] = useState(false);
@@ -952,7 +952,8 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
               )}
             </View>
 
-            {/* 2. GPS Failsafe Section */}
+            {/* 2. GPS Failsafe Section (Disabled/Commented out) */}
+            {/*
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionIcon}>🛡️</Text>
@@ -989,6 +990,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                 </View>
               )}
             </View>
+            */}
 
             {/* 3. Mission Mode Section */}
             <View style={styles.section}>
@@ -1370,9 +1372,8 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           </View>
         </View>
 
-        {/* Failsafe Mode Selector Modal */}
-
-        {/* Failsafe Mode Selector Modal */}
+        {/* Failsafe Mode Selector Modal (Disabled/Commented out) */}
+        {/*
         <FailsafeModeSelector
           visible={showFailsafeSelector}
           currentMode={gpsFailsafeMode}
@@ -1380,6 +1381,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           onClose={() => setShowFailsafeSelector(false)}
           disabled={isMissionActive}
         />
+        */}
 
         {/* Servo Configuration Modal */}
         <ServoConfigModal
