@@ -71,11 +71,38 @@ const getRtkFailureMessage = (err: unknown, fallback: string) => {
   return fallback;
 };
 
+export type SettingsCategory =
+  | "rtk"
+  | "spray"
+  | "mission"
+  | "obstacle"
+  | "voice"
+  | "led"
+  | "mavlink";
+
+interface SettingsCategoryItem {
+  id: SettingsCategory;
+  title: string;
+  subtitle: string;
+  icon: string;
+}
+
+const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
+  { id: "rtk", title: "GNSS & RTK", subtitle: "Differential fix & NTRIP", icon: "📡" },
+  { id: "spray", title: "Spray Actuator", subtitle: "AUX5 servo & duration", icon: "⚡" },
+  { id: "mission", title: "Mission Defaults", subtitle: "Marking tool & defaults", icon: "🎯" },
+  { id: "obstacle", title: "Obstacle Safety", subtitle: "Front LiDAR & auto-stop", icon: "🚫" },
+  { id: "voice", title: "Voice Feedback", subtitle: "Language & audio updates", icon: "🔊" },
+  { id: "led", title: "LED Controller", subtitle: "Chassis indicator lights", icon: "💡" },
+  { id: "mavlink", title: "MAVLink Params", subtitle: "ArduRover autopilot", icon: "⚙️" },
+];
+
 const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
   visible,
   onClose,
 }) => {
   const { logout, session } = useAuth();
+  const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>("rtk");
 
   const {
     gpsFailsafeMode,
@@ -853,7 +880,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       ]}
     >
       <SafeAreaView style={styles.container} edges={["top", "bottom", "left", "right"]}>
-        <StatusBar barStyle="light-content" backgroundColor="#111C2D" />
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         {/* Success Toast */}
         <Toast
           visible={Boolean(successMessage)}
@@ -864,536 +891,628 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
           onDismiss={() => setSuccessMessage("")}
         />
 
-        {/* Header */}
+        {/* Top Header */}
         <View style={styles.header}>
-          <View style={styles.headerInner}>
-            <View>
-              <Text style={styles.headerTitle}>System settings</Text>
-              <Text style={styles.headerSubtitle}>Rover configuration and safety controls</Text>
+          <View style={styles.headerLeft}>
+            <View style={styles.headerIconBadge}>
+              <Text style={styles.headerIconText}>⚙️</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>✕</Text>
-            </TouchableOpacity>
+            <View>
+              <View style={styles.headerTitleRow}>
+                <Text style={styles.headerTitle}>System Settings</Text>
+                <View style={styles.onlineBadge}>
+                  <View style={styles.onlineDot} />
+                  <Text style={styles.onlineBadgeText}>
+                    {connectionState === "connected" ? "ROVER ONLINE" : "OFFLINE"}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.headerSubtitle}>
+                Rover configuration, precision actuators, and safety telemetry
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            onPress={onClose}
+            style={styles.closeButton}
+            accessibilityRole="button"
+            accessibilityLabel="Close settings"
+          >
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Master-Detail Split Body */}
+        <View style={styles.bodySplit}>
+          {/* Left Navigation Sidebar */}
+          <View style={styles.sidebar}>
+            <Text style={styles.sidebarHeading}>CATEGORIES</Text>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.sidebarList}
+            >
+              {SETTINGS_CATEGORIES.map((cat) => {
+                const isActive = selectedCategory === cat.id;
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.sidebarItem, isActive && styles.sidebarItemActive]}
+                    onPress={() => setSelectedCategory(cat.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.sidebarItemIconWrap, isActive && styles.sidebarItemIconWrapActive]}>
+                      <Text style={styles.sidebarItemIcon}>{cat.icon}</Text>
+                    </View>
+                    <View style={styles.sidebarItemTextContainer}>
+                      <Text style={[styles.sidebarItemTitle, isActive && styles.sidebarItemTitleActive]}>
+                        {cat.title}
+                      </Text>
+                      <Text
+                        style={[styles.sidebarItemSubtitle, isActive && styles.sidebarItemSubtitleActive]}
+                        numberOfLines={1}
+                      >
+                        {cat.subtitle}
+                      </Text>
+                    </View>
+                    {isActive && <Text style={styles.sidebarActiveArrow}>›</Text>}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* Right Detail Panel */}
+          <View style={styles.detailContainer}>
+            <ScrollView
+              style={styles.detailScroll}
+              contentContainerStyle={styles.detailScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* 1. RTK Injection Category */}
+              {selectedCategory === "rtk" && (
+                <View style={styles.detailCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}>
+                      <View style={styles.cardHeaderIconBadge}>
+                        <Text style={styles.cardHeaderIcon}>📡</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.cardEyebrow}>POSITIONING & DGPS</Text>
+                        <Text style={styles.cardTitle}>RTK Injection</Text>
+                      </View>
+                    </View>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        canStopRtk ? styles.statusBadgeOn : styles.statusBadgeOff,
+                      ]}
+                    >
+                      <Text style={styles.statusBadgeText}>
+                        {rtkHeadline.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingInfo}>
+                      <Text style={styles.settingLabel}>{rtkHeadline}</Text>
+                      <Text style={styles.settingDescription}>
+                        {rtkStatusMessage}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  <TouchableOpacity
+                    style={[
+                      styles.configureTile,
+                      isRTKSubmitting && { opacity: 0.6 },
+                    ]}
+                    onPress={handleOpenRTKModal}
+                    disabled={isRTKSubmitting}
+                  >
+                    <View style={styles.configureTileIconWrap}>
+                      <Text style={styles.configureTileIcon}>
+                        {isRTKSubmitting ? "⏳" : "⚙️"}
+                      </Text>
+                    </View>
+                    <View style={styles.configureTileContent}>
+                      <Text style={styles.configureTileTitle}>
+                        Configure RTK Injection
+                      </Text>
+                      <Text style={styles.configureTileDescription}>
+                        Backend RTK profiles, activate, start, and stop
+                      </Text>
+                    </View>
+                    <View style={styles.chevronCircle}>
+                      <Text style={styles.chevronText}>›</Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {canStopRtk && (
+                    <TouchableOpacity
+                      style={[styles.stopRtkButton, { marginTop: 12 }]}
+                      onPress={handleStopRTKStream}
+                      disabled={isRTKSubmitting}
+                    >
+                      <Text style={styles.stopRtkButtonIcon}>⏹️</Text>
+                      <View style={styles.configureTileContent}>
+                        <Text style={styles.stopRtkButtonTitle}>
+                          Stop RTK Stream
+                        </Text>
+                        <Text style={styles.stopRtkButtonDescription}>
+                          Persist STOPPED state on the rover
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {/* 2. Spray Actuator Category */}
+              {selectedCategory === "spray" && (
+                <View style={styles.detailCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}>
+                      <View style={styles.cardHeaderIconBadge}>
+                        <Text style={styles.cardHeaderIcon}>⚡</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.cardEyebrow}>ACTUATOR HARDWARE</Text>
+                        <Text style={styles.cardTitle}>Spray Configuration</Text>
+                      </View>
+                    </View>
+                    <Switch
+                      value={servoEnabled}
+                      onValueChange={handleServoEnabledToggle}
+                      disabled={isLoadingServo}
+                      trackColor={{ false: "#CBD5E1", true: "#1475EE" }}
+                      thumbColor="#FFFFFF"
+                    />
+                  </View>
+
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingInfo}>
+                      <Text style={styles.settingLabel}>Spray Controller</Text>
+                      <Text style={styles.settingDescription}>
+                        AUX5 production spray controller master switch
+                      </Text>
+                    </View>
+                  </View>
+
+                  {servoConfigLoaded && (
+                    <View style={styles.telemetryWell}>
+                      <View style={styles.telemetryWellRow}>
+                        <Text style={styles.telemetryWellLabel}>Hardware Mapping:</Text>
+                        <Text style={styles.telemetryWellBadge}>AUX5 CHANNEL</Text>
+                      </View>
+                      <View style={styles.telemetryWellDivider} />
+                      <View style={styles.telemetryWellGrid}>
+                        <View style={styles.telemetryWellItem}>
+                          <Text style={styles.telemetryWellItemLabel}>PRESS PWM</Text>
+                          <Text style={styles.telemetryWellItemValue}>{servoPwmOn} µs</Text>
+                        </View>
+                        <View style={styles.telemetryWellItem}>
+                          <Text style={styles.telemetryWellItemLabel}>RELEASE PWM</Text>
+                          <Text style={styles.telemetryWellItemValue}>{servoPwmOff} µs</Text>
+                        </View>
+                        <View style={styles.telemetryWellItem}>
+                          <Text style={styles.telemetryWellItemLabel}>SPRAY DURATION</Text>
+                          <Text style={[styles.telemetryWellItemValue, { color: "#1475EE" }]}>
+                            {servoSprayDuration.toFixed(2)} s
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.divider} />
+
+                  <TouchableOpacity
+                    style={[
+                      styles.configureTile,
+                      isLoadingServoModal && { opacity: 0.6 },
+                    ]}
+                    onPress={handleOpenServoConfigModal}
+                    disabled={isLoadingServoModal}
+                  >
+                    <View style={styles.configureTileIconWrap}>
+                      <Text style={styles.configureTileIcon}>
+                        {isLoadingServoModal ? "⏳" : "⚙️"}
+                      </Text>
+                    </View>
+                    <View style={styles.configureTileContent}>
+                      <Text style={styles.configureTileTitle}>
+                        Configure Spray Settings
+                      </Text>
+                      <Text style={styles.configureTileDescription}>
+                        {isLoadingServoModal
+                          ? "Loading config..."
+                          : "Configure AUX5 press and release PWM thresholds"}
+                      </Text>
+                    </View>
+                    <View style={styles.chevronCircle}>
+                      <Text style={styles.chevronText}>›</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* 3. Mission Mode Defaults Category */}
+              {selectedCategory === "mission" && (
+                <View style={styles.detailCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}>
+                      <View style={styles.cardHeaderIconBadge}>
+                        <Text style={styles.cardHeaderIcon}>🎯</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.cardEyebrow}>AUTONOMOUS MARKING</Text>
+                        <Text style={styles.cardTitle}>Mission Mode Defaults</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <Text style={styles.cardDescription}>
+                    Select the marking tool for the next mission and save it as the rover default. AUTO / MANUAL remains a mission-control choice.
+                  </Text>
+
+                  <View style={styles.segmentedContainer}>
+                    {(["LASER", "SPRAY"] as const).map((tool) => {
+                      const isSelected = missionMarkingTool === tool;
+                      return (
+                        <TouchableOpacity
+                          key={tool}
+                          style={[
+                            styles.segmentedButton,
+                            isSelected && styles.segmentedButtonActive,
+                            (isMissionActive || isSavingMissionMode) && styles.disabledControl,
+                          ]}
+                          onPress={() => setMissionMarkingTool(tool)}
+                          disabled={isMissionActive || isSavingMissionMode}
+                        >
+                          <Text style={styles.segmentedButtonIcon}>
+                            {tool === "SPRAY" ? "💧" : "🎯"}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.segmentedButtonText,
+                              isSelected && styles.segmentedButtonTextActive,
+                            ]}
+                          >
+                            {tool}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.infoWell}>
+                    <Text style={styles.infoWellText}>{missionDefaultSummary}</Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.primaryActionButton,
+                      (isMissionActive || isSavingMissionMode) && styles.disabledControl,
+                    ]}
+                    onPress={() => void handleSaveMissionMode()}
+                    disabled={isMissionActive || isSavingMissionMode}
+                  >
+                    <Text style={styles.primaryActionIcon}>
+                      {isSavingMissionMode ? "⏳" : "💾"}
+                    </Text>
+                    <Text style={styles.primaryActionText}>
+                      {isSavingMissionMode ? "Saving Mission Mode..." : "Save as Default"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {isMissionActive && (
+                    <View style={styles.warningBox}>
+                      <Text style={styles.warningText}>
+                        ⚠️ Stop the mission before changing its default mode
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* 4. Obstacle Safety Category */}
+              {selectedCategory === "obstacle" && (
+                <View style={styles.detailCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}>
+                      <View style={styles.cardHeaderIconBadge}>
+                        <Text style={styles.cardHeaderIcon}>🚫</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.cardEyebrow}>COLLISION AVOIDANCE</Text>
+                        <Text style={styles.cardTitle}>Obstacle Detection</Text>
+                      </View>
+                    </View>
+                    {isLoadingObstacle ? (
+                      <ActivityIndicator color="#1475EE" />
+                    ) : (
+                      <Switch
+                        value={obstacleStatus?.enabled ?? false}
+                        onValueChange={handleObstacleDetectionToggle}
+                        disabled={!obstacleStatus}
+                        trackColor={{ false: "#CBD5E1", true: "#1475EE" }}
+                        thumbColor="#FFFFFF"
+                      />
+                    )}
+                  </View>
+
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingInfo}>
+                      <Text style={styles.settingLabel}>Stop for obstacles ahead</Text>
+                      <Text style={styles.settingDescription}>
+                        {obstacleStatus && obstacleStatus.danger_mm !== null && obstacleStatus.warning_mm !== null
+                          ? `Pauses the mission at ≤ ${formatMetres(obstacleStatus.danger_mm)} · announces at ≤ ${formatMetres(obstacleStatus.warning_mm)}`
+                          : "Pauses the mission when something is close ahead in the forward corridor"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.obstacleReadingCard}>
+                    <View
+                      style={[
+                        styles.obstacleDot,
+                        { backgroundColor: obstacleZoneColor(obstacleStatus) },
+                      ]}
+                    />
+                    <Text style={styles.obstacleReadingText}>
+                      {obstacleStatusError && !obstacleStatus
+                        ? `Sensor status unavailable: ${obstacleStatusError}`
+                        : obstacleReadingText(obstacleStatus)}
+                    </Text>
+                  </View>
+
+                  {obstacleStatus && !obstacleStatus.healthy && (
+                    <View style={styles.warningBox}>
+                      <Text style={styles.warningText}>
+                        ⚠ Sensor not reporting
+                        {obstacleStatus.serial_error ? `: ${obstacleStatus.serial_error}` : ""}.
+                        {obstacleStatus.enabled
+                          ? " Missions continue WITHOUT obstacle protection."
+                          : ""}
+                      </Text>
+                    </View>
+                  )}
+
+                  {obstacleStatus?.enabled && obstacleStatus.zone === "danger" && (
+                    <View style={styles.dangerBox}>
+                      <Text style={styles.dangerText}>
+                        🚫 START, RESUME and NEXT are blocked while something is inside
+                        the stop distance. Clear the path first.
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* 5. Voice Feedback Category */}
+              {selectedCategory === "voice" && (
+                <View style={styles.detailCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}>
+                      <View style={styles.cardHeaderIconBadge}>
+                        <Text style={styles.cardHeaderIcon}>🔊</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.cardEyebrow}>AUDITORY TELEMETRY</Text>
+                        <Text style={styles.cardTitle}>Voice Settings</Text>
+                      </View>
+                    </View>
+                    <Switch
+                      value={ttsEnabled}
+                      onValueChange={handleTTSToggle}
+                      disabled={isLoadingTTS}
+                      trackColor={{ false: "#CBD5E1", true: "#1475EE" }}
+                      thumbColor="#FFFFFF"
+                    />
+                  </View>
+
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingInfo}>
+                      <Text style={styles.settingLabel}>Enable Voice Feedback</Text>
+                      <Text style={styles.settingDescription}>
+                        Hear spoken mission updates, status announcements, and warnings
+                      </Text>
+                    </View>
+                  </View>
+
+                  {ttsEnabled && (
+                    <>
+                      <View style={styles.divider} />
+
+                      <Text style={styles.subLabel}>Voice Gender</Text>
+                      <View style={styles.segmentedContainer}>
+                        {(["male", "female"] as const).map((g) => {
+                          const isSelected = ttsGender === g;
+                          return (
+                            <TouchableOpacity
+                              key={g}
+                              style={[
+                                styles.segmentedButton,
+                                isSelected && styles.segmentedButtonActive,
+                              ]}
+                              onPress={() => handleGenderChange(g)}
+                              disabled={isLoadingTTS}
+                            >
+                              <Text style={styles.segmentedButtonIcon}>
+                                {g === "male" ? "👨" : "👩"}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.segmentedButtonText,
+                                  isSelected && styles.segmentedButtonTextActive,
+                                ]}
+                              >
+                                {g === "male" ? "Male Voice" : "Female Voice"}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      <Text style={[styles.subLabel, { marginTop: 14 }]}>Language</Text>
+                      <View style={styles.segmentedContainer}>
+                        {(["en", "ta", "hi"] as const).map((lang) => {
+                          const isSelected = ttsLanguage === lang;
+                          return (
+                            <TouchableOpacity
+                              key={lang}
+                              style={[
+                                styles.segmentedButton,
+                                isSelected && styles.segmentedButtonActive,
+                              ]}
+                              onPress={() => handleLanguageChange(lang)}
+                              disabled={isLoadingTTS}
+                            >
+                              <Text
+                                style={[
+                                  styles.segmentedButtonText,
+                                  isSelected && styles.segmentedButtonTextActive,
+                                ]}
+                              >
+                                {getLanguageLabel(lang)}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      <TouchableOpacity
+                        style={styles.testVoiceButton}
+                        onPress={handleTestTTS}
+                        disabled={isLoadingTTS}
+                      >
+                        <Text style={styles.testVoiceButtonIcon}>🎵</Text>
+                        <Text style={styles.testVoiceButtonText}>Test Voice Output</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              )}
+
+              {/* 6. LED Controller Category */}
+              {selectedCategory === "led" && (
+                <View style={styles.detailCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}>
+                      <View style={styles.cardHeaderIconBadge}>
+                        <Text style={styles.cardHeaderIcon}>💡</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.cardEyebrow}>CHASSIS LIGHTING</Text>
+                        <Text style={styles.cardTitle}>LED Controller</Text>
+                      </View>
+                    </View>
+                    <Switch
+                      value={ledEnabled}
+                      onValueChange={handleLedToggle}
+                      disabled={isLoadingLed}
+                      trackColor={{ false: "#CBD5E1", true: "#F59E0B" }}
+                      thumbColor="#FFFFFF"
+                    />
+                  </View>
+
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingInfo}>
+                      <Text style={styles.settingLabel}>Enable LED Indicator Lights</Text>
+                      <Text style={styles.settingDescription}>
+                        Control high-visibility status LED indicators mounted on the rover body
+                      </Text>
+                    </View>
+                  </View>
+
+                  {lastLedUpdate ? (
+                    <View style={styles.infoWell}>
+                      <Text style={styles.infoWellText}>
+                        Last confirmed by rover: {lastLedUpdate}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+
+              {/* 7. MAVLink Parameters Category */}
+              {selectedCategory === "mavlink" && (
+                <View style={styles.detailCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}>
+                      <View style={styles.cardHeaderIconBadge}>
+                        <Text style={styles.cardHeaderIcon}>⚙️</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.cardEyebrow}>AUTOPILOT CONFIGURATION</Text>
+                        <Text style={styles.cardTitle}>MAVLink Parameters</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <Text style={styles.cardDescription}>
+                    Inspect and configure low-level ArduRover autopilot parameters grouped by subsystems (NAVL1, ATC_STR, WP, GPS).
+                  </Text>
+
+                  <TouchableOpacity
+                    style={styles.configureTile}
+                    onPress={() => setShowParamBrowser(true)}
+                    disabled={connectionState !== "connected"}
+                  >
+                    <View style={styles.configureTileIconWrap}>
+                      <Text style={styles.configureTileIcon}>📋</Text>
+                    </View>
+                    <View style={styles.configureTileContent}>
+                      <Text style={styles.configureTileTitle}>
+                        Browse & Edit Parameters
+                      </Text>
+                      <Text style={styles.configureTileDescription}>
+                        {connectionState !== "connected"
+                          ? "Connect to rover to access parameters"
+                          : "View and modify ArduRover parameters by group"}
+                      </Text>
+                    </View>
+                    <View style={styles.chevronCircle}>
+                      <Text style={styles.chevronText}>›</Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {connectionState === "connected" && (
+                    <View style={[styles.infoWell, { marginTop: 14 }]}>
+                      <Text style={styles.infoWellText}>
+                        💡 Tip: Use group filters inside the browser to find params faster (NAVL1, ATC_STR, WP, etc.)
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </ScrollView>
           </View>
         </View>
 
-          {/* Content */}
-          <ScrollView
-            style={styles.content}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
+        {/* Bottom Footer */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={handleLogout}
+            accessibilityRole="button"
+            accessibilityLabel="Logout from rover"
           >
-            {/* 1. RTK Injection Section */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionIcon}>📡</Text>
-                <Text style={styles.sectionTitle}>RTK Injection</Text>
-              </View>
+            <Text style={styles.logoutButtonText}>Logout</Text>
+          </TouchableOpacity>
 
-              <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>{rtkHeadline}</Text>
-                  <Text style={styles.settingDescription}>
-                    {rtkStatusMessage}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    canStopRtk ? styles.statusBadgeOn : styles.statusBadgeOff,
-                  ]}
-                >
-                  <Text style={styles.statusBadgeText}>
-                    {rtkHeadline.toUpperCase()}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.divider} />
-
-              {/* Configure RTK Button */}
-              <TouchableOpacity
-                style={[
-                  styles.configureButton,
-                  isRTKSubmitting && { opacity: 0.6 },
-                ]}
-                onPress={handleOpenRTKModal}
-                disabled={isRTKSubmitting}
-              >
-                <Text style={styles.configureButtonIcon}>
-                  {isRTKSubmitting ? "⏳" : "⚙️"}
-                </Text>
-                <View style={styles.configureButtonContent}>
-                  <Text style={styles.configureButtonTitle}>
-                    Configure RTK Injection
-                  </Text>
-                  <Text style={styles.configureButtonDescription}>
-                    Backend RTK profiles, activate, start, and stop
-                  </Text>
-                </View>
-                <Text style={styles.configureButtonArrow}>›</Text>
-              </TouchableOpacity>
-
-              {canStopRtk && (
-                <TouchableOpacity
-                  style={[
-                    styles.configureButton,
-                    { backgroundColor: "#dc2626", marginTop: 12 },
-                  ]}
-                  onPress={handleStopRTKStream}
-                  disabled={isRTKSubmitting}
-                >
-                  <Text style={styles.configureButtonIcon}>⏹️</Text>
-                  <View style={styles.configureButtonContent}>
-                    <Text
-                      style={[styles.configureButtonTitle, { color: "#fff" }]}
-                    >
-                      Stop RTK
-                    </Text>
-                    <Text
-                      style={[
-                        styles.configureButtonDescription,
-                        { color: "#fca5a5" },
-                      ]}
-                    >
-                      Persist STOPPED on the rover
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* 2. GPS Failsafe Section (Disabled/Commented out) */}
-            {/*
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionIcon}>🛡️</Text>
-                <Text style={styles.sectionTitle}>GPS Mode Config</Text>
-              </View>
-
-              <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>Current Mode</Text>
-                  <Text style={styles.settingDescription}>
-                    {gpsFailsafeMode === "disable"
-                      ? "Disabled - No GPS accuracy checks"
-                      : gpsFailsafeMode === "strict"
-                        ? "Strict - Pause on low accuracy"
-                        : "Relax - Warning only"}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.changeButton}
-                  onPress={() => setShowFailsafeSelector(true)}
-                  disabled={isMissionActive}
-                >
-                  <Text style={styles.changeButtonText}>
-                    {gpsFailsafeMode.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {isMissionActive && (
-                <View style={styles.warningBox}>
-                  <Text style={styles.warningText}>
-                    ⚠️ Cannot change failsafe mode during active mission
-                  </Text>
-                </View>
-              )}
-            </View>
-            */}
-
-            {/* 3. Mission Mode Section */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionIcon}>🎯</Text>
-                <Text style={styles.sectionTitle}>Mission Mode</Text>
-              </View>
-
-              <Text style={styles.settingDescription}>
-                Select the marking tool for the next mission and save it as the rover default. AUTO / MANUAL remains a mission-control choice.
-              </Text>
-
-              <View style={styles.languageButtons}>
-                {(["LASER", "SPRAY"] as const).map((tool) => (
-                  <TouchableOpacity
-                    key={tool}
-                    style={[
-                      styles.languageButton,
-                      missionMarkingTool === tool && styles.languageButtonActive,
-                      (isMissionActive || isSavingMissionMode) && styles.disabledControl,
-                    ]}
-                    onPress={() => setMissionMarkingTool(tool)}
-                    disabled={isMissionActive || isSavingMissionMode}
-                  >
-                    <Text style={[
-                      styles.languageButtonText,
-                      missionMarkingTool === tool && styles.languageButtonTextActive,
-                    ]}>
-                      {tool}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.settingDescription}>{missionDefaultSummary}</Text>
-
-              <TouchableOpacity
-                style={[styles.configureButton, (isMissionActive || isSavingMissionMode) && styles.disabledControl]}
-                onPress={() => void handleSaveMissionMode()}
-                disabled={isMissionActive || isSavingMissionMode}
-              >
-                <Text style={styles.configureButtonIcon}>{isSavingMissionMode ? "⏳" : "💾"}</Text>
-                <View style={styles.configureButtonContent}>
-                  <Text style={styles.configureButtonTitle}>
-                    {isSavingMissionMode ? "Saving Mission Mode..." : "Save as Default"}
-                  </Text>
-                  <Text style={styles.configureButtonDescription}>
-                    Applies to future missions; an active mission is never changed.
-                  </Text>
-                </View>
-              </TouchableOpacity>
-
-              {isMissionActive && (
-                <View style={styles.warningBox}>
-                  <Text style={styles.warningText}>⚠️ Stop the mission before changing its default mode</Text>
-                </View>
-              )}
-            </View>
-
-            {/* 4. Servo Configuration Section */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionIcon}>⚡</Text>
-                <Text style={styles.sectionTitle}>Spray Configuration</Text>
-              </View>
-
-              {/* Read-only status toggle */}
-              <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>Spray Controller</Text>
-
-                  <Text style={styles.settingDescription}>
-                    AUX5 production spray controller
-                  </Text>
-                </View>
-                <Switch
-                  value={servoEnabled}
-                  onValueChange={handleServoEnabledToggle}
-                  disabled={isLoadingServo}
-                  trackColor={{ false: "#4a5568", true: "#10b981" }}
-                  thumbColor={servoEnabled ? "#ffffff" : "#d1d5db"}
-                />
-              </View>
-
-              <View style={styles.divider} />
-
-              {/* Configure Servo Button */}
-              <TouchableOpacity
-                style={[
-                  styles.configureButton,
-                  isLoadingServoModal && { opacity: 0.6 },
-                ]}
-                onPress={handleOpenServoConfigModal}
-                disabled={isLoadingServoModal}
-              >
-                <Text style={styles.configureButtonIcon}>
-                  {isLoadingServoModal ? "⏳" : "⚙️"}
-                </Text>
-                <View style={styles.configureButtonContent}>
-                  <Text style={styles.configureButtonTitle}>
-                    Configure Spray Settings
-                  </Text>
-                  <Text style={styles.configureButtonDescription}>
-                    {isLoadingServoModal
-                      ? "Loading config..."
-                      : "Configure AUX5 press and release PWM"}
-                  </Text>
-                </View>
-                <Text style={styles.configureButtonArrow}>›</Text>
-              </TouchableOpacity>
-
-              {servoConfigLoaded && (
-                <View style={styles.infoBox}>
-                  <Text style={styles.infoText}>
-                    AUX5 | PRESS: {servoPwmOn} µs | RELEASE: {servoPwmOff} µs
-                    {" | "}
-                    Spray: {servoSprayDuration.toFixed(2)} s
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* 4. MAVLink Parameters Section */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionIcon}>⚙️</Text>
-                <Text style={styles.sectionTitle}>MAVLink Parameters</Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.configureButton}
-                onPress={() => setShowParamBrowser(true)}
-                disabled={connectionState !== "connected"}
-              >
-                <Text style={styles.configureButtonIcon}>📋</Text>
-                <View style={styles.configureButtonContent}>
-                  <Text style={styles.configureButtonTitle}>
-                    Browse & Edit Parameters
-                  </Text>
-                  <Text style={styles.configureButtonDescription}>
-                    {connectionState !== "connected"
-                      ? "Connect to rover to access parameters"
-                      : "View and modify ArduRover parameters by group"}
-                  </Text>
-                </View>
-                <Text style={styles.configureButtonArrow}>›</Text>
-              </TouchableOpacity>
-
-              {connectionState === "connected" && (
-                <View style={styles.infoBox}>
-                  <Text style={styles.infoText}>
-                    💡 Tip: Use group filters to find params faster (NAVL1,
-                    ATC_STR, WP, etc.)
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* 5. Voice Settings Section */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionIcon}>🔊</Text>
-                <Text style={styles.sectionTitle}>Voice Settings</Text>
-              </View>
-
-              <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>Enable Voice Feedback</Text>
-                  <Text style={styles.settingDescription}>
-                    Hear mission updates and status announcements
-                  </Text>
-                </View>
-                <Switch
-                  value={ttsEnabled}
-                  onValueChange={handleTTSToggle}
-                  disabled={isLoadingTTS}
-                  trackColor={{ false: "#4a5568", true: "#10b981" }}
-                  thumbColor={ttsEnabled ? "#ffffff" : "#d1d5db"}
-                />
-              </View>
-
-              {ttsEnabled && (
-                <>
-                  <View style={styles.divider} />
-
-                  {/* Gender Selection */}
-                  <View style={styles.settingRow}>
-                    <Text style={styles.settingLabel}>Voice Gender</Text>
-                  </View>
-                  <View style={styles.languageButtons}>
-                    {(["male", "female"] as const).map((g) => (
-                      <TouchableOpacity
-                        key={g}
-                        style={[
-                          styles.languageButton,
-                          ttsGender === g && styles.languageButtonActive,
-                        ]}
-                        onPress={() => handleGenderChange(g)}
-                        disabled={isLoadingTTS}
-                      >
-                        <Text
-                          style={[
-                            styles.languageButtonText,
-                            ttsGender === g && styles.languageButtonTextActive,
-                          ]}
-                        >
-                          {g === "male" ? "👨 Male" : "👩 Female"}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <View style={styles.divider} />
-
-                  {/* Language Selection */}
-                  <View style={styles.settingRow}>
-                    <Text style={styles.settingLabel}>Language</Text>
-                  </View>
-                  <View style={styles.languageButtons}>
-                    {(["en", "ta", "hi"] as const).map((lang) => (
-                      <TouchableOpacity
-                        key={lang}
-                        style={[
-                          styles.languageButton,
-                          ttsLanguage === lang && styles.languageButtonActive,
-                        ]}
-                        onPress={() => handleLanguageChange(lang)}
-                        disabled={isLoadingTTS}
-                      >
-                        <Text
-                          style={[
-                            styles.languageButtonText,
-                            ttsLanguage === lang &&
-                              styles.languageButtonTextActive,
-                          ]}
-                        >
-                          {getLanguageLabel(lang)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.testButton}
-                    onPress={handleTestTTS}
-                    disabled={isLoadingTTS}
-                  >
-                    <Text style={styles.testButtonText}>🎵 Test Voice</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-
-            {/* 5. LED Controller Section */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionIcon}>💡</Text>
-                <Text style={styles.sectionTitle}>LED Controller</Text>
-              </View>
-
-              <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>Enable LED Controller</Text>
-                  <Text style={styles.settingDescription}>
-                    Control LED indicator lights for system status
-                  </Text>
-                </View>
-                <Switch
-                  value={ledEnabled}
-                  onValueChange={handleLedToggle}
-                  disabled={isLoadingLed}
-                  trackColor={{ false: "#4a5568", true: "#fbbf24" }}
-                  thumbColor={ledEnabled ? "#ffffff" : "#d1d5db"}
-                />
-              </View>
-
-              {lastLedUpdate && (
-                <Text style={styles.timestampText}>
-                  Last updated: {lastLedUpdate}
-                </Text>
-              )}
-            </View>
-
-            {/* 6. Obstacle Detection Section */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionIcon}>🚫</Text>
-                <Text style={styles.sectionTitle}>Obstacle Detection</Text>
-              </View>
-
-              <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>Stop for obstacles ahead</Text>
-                  <Text style={styles.settingDescription}>
-                    {obstacleStatus && obstacleStatus.danger_mm !== null && obstacleStatus.warning_mm !== null
-                      ? `Pauses the mission at ≤ ${formatMetres(obstacleStatus.danger_mm)} · announces at ≤ ${formatMetres(obstacleStatus.warning_mm)}`
-                      : "Pauses the mission when something is close ahead"}
-                  </Text>
-                </View>
-                {isLoadingObstacle ? (
-                  <ActivityIndicator color={colors.textSecondary} />
-                ) : (
-                  <Switch
-                    value={obstacleStatus?.enabled ?? false}
-                    onValueChange={handleObstacleDetectionToggle}
-                    disabled={!obstacleStatus}
-                    trackColor={{ false: "#4a5568", true: "#10b981" }}
-                    thumbColor={obstacleStatus?.enabled ? "#ffffff" : "#d1d5db"}
-                  />
-                )}
-              </View>
-
-              <View style={styles.obstacleReadingRow}>
-                <View
-                  style={[
-                    styles.obstacleDot,
-                    { backgroundColor: obstacleZoneColor(obstacleStatus) },
-                  ]}
-                />
-                <Text style={styles.obstacleReadingText}>
-                  {obstacleStatusError && !obstacleStatus
-                    ? `Sensor status unavailable: ${obstacleStatusError}`
-                    : obstacleReadingText(obstacleStatus)}
-                </Text>
-              </View>
-
-              {obstacleStatus && !obstacleStatus.healthy && (
-                <Text style={styles.obstacleWarningText}>
-                  ⚠ Sensor not reporting
-                  {obstacleStatus.serial_error ? `: ${obstacleStatus.serial_error}` : ""}.
-                  {obstacleStatus.enabled
-                    ? " Missions continue WITHOUT obstacle protection."
-                    : ""}
-                </Text>
-              )}
-
-              {obstacleStatus?.enabled && obstacleStatus.zone === "danger" && (
-                <View style={styles.infoBox}>
-                  <Text style={styles.infoText}>
-                    START, RESUME and NEXT are blocked while something is inside
-                    the stop distance. Clear the path first.
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* 7. Sprayer Configuration Section */}
-            <View style={[styles.section, styles.sectionDisabled]}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionIcon}>💧</Text>
-                <Text style={styles.sectionTitle}>Sprayer Configuration</Text>
-                <View style={styles.comingSoonBadge}>
-                  <Text style={styles.comingSoonText}>Coming Soon</Text>
-                </View>
-              </View>
-            </View>
-          </ScrollView>
-
-          {/* Footer */}
-          {/* Footer */}
-          <View style={styles.footer}>
-            <View style={styles.footerInner}>
-              <TouchableOpacity
-                style={styles.logoutButton}
-                onPress={handleLogout}
-                accessibilityRole="button"
-                accessibilityLabel="Logout from rover"
-              >
-                <Text style={styles.logoutButtonText}>Logout</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.doneButton}
-                onPress={onClose}
-                accessibilityRole="button"
-                accessibilityLabel="Close settings"
-              >
-                <Text style={styles.doneButtonText}>Done</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-        {/* Failsafe Mode Selector Modal (Disabled/Commented out) */}
-        {/*
-        <FailsafeModeSelector
-          visible={showFailsafeSelector}
-          currentMode={gpsFailsafeMode}
-          onModeChange={setGpsFailsafeMode}
-          onClose={() => setShowFailsafeSelector(false)}
-          disabled={isMissionActive}
-        />
-        */}
+          <TouchableOpacity
+            style={styles.doneButton}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close settings"
+          >
+            <Text style={styles.doneButtonText}>Done</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Servo Configuration Modal */}
         <ServoConfigModal
@@ -1443,218 +1562,558 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
-    backgroundColor: "#0B1220",
+    backgroundColor: "#F1F5F9",
   },
   header: {
-    paddingHorizontal: 26,
-    paddingVertical: 18,
-    backgroundColor: "#111C2D",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148, 163, 184, 0.18)",
-  },
-  headerInner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    maxWidth: 960,
-    width: "100%",
-    alignSelf: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#D8E0EA",
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  headerIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#EAF3FF",
+    borderWidth: 1,
+    borderColor: "#D6E6FF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerIconText: {
+    fontSize: 20,
+  },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   headerTitle: {
-    fontSize: 21,
+    fontSize: 18,
     fontWeight: "800",
-    color: colors.text,
+    color: "#10244B",
+    letterSpacing: -0.2,
+  },
+  onlineBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#E6F8F1",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    gap: 5,
+  },
+  onlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#16B980",
+  },
+  onlineBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#059669",
+    letterSpacing: 0.5,
   },
   headerSubtitle: {
-    color: "#94A3B8",
+    color: "#526B93",
     fontSize: 12,
-    fontWeight: "600",
-    marginTop: 3,
+    fontWeight: "500",
+    marginTop: 2,
   },
   closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(148, 163, 184, 0.15)",
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#D8E0EA",
     justifyContent: "center",
     alignItems: "center",
   },
   closeButtonText: {
-    fontSize: 20,
-    color: colors.text,
-    fontWeight: "bold",
+    fontSize: 16,
+    color: "#526B93",
+    fontWeight: "700",
+    lineHeight: 18,
   },
-  content: {
+  bodySplit: {
     flex: 1,
-    flexGrow: 1,
-    minHeight: 400,
+    flexDirection: "row",
+    overflow: "hidden",
   },
-  scrollContent: {
-    padding: 22,
-    flexGrow: 1,
-    maxWidth: 960,
-    width: "100%",
-    alignSelf: "center",
+  sidebar: {
+    width: 250,
+    backgroundColor: "#FFFFFF",
+    borderRightWidth: 1,
+    borderRightColor: "#D8E0EA",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
   },
-  section: {
-    backgroundColor: "#111C2D",
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.16)",
+  sidebarHeading: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#6681AD",
+    letterSpacing: 0.8,
+    paddingHorizontal: 8,
+    marginBottom: 8,
   },
-  sectionDisabled: {
-    opacity: 0.5,
+  sidebarList: {
+    paddingBottom: 20,
+    gap: 4,
   },
-  sectionHeader: {
+  sidebarItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
-  sectionIcon: {
-    fontSize: 24,
+  sidebarItemActive: {
+    backgroundColor: "#EAF3FF",
+    borderColor: "#D6E6FF",
+  },
+  sidebarItemIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 10,
   },
-  sectionTitle: {
+  sidebarItemIconWrapActive: {
+    backgroundColor: "#D6E6FF",
+  },
+  sidebarItemIcon: {
     fontSize: 17,
-    fontWeight: "800",
-    color: colors.text,
+  },
+  sidebarItemTextContainer: {
     flex: 1,
   },
-  comingSoonBadge: {
-    backgroundColor: "rgba(251, 191, 36, 0.2)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+  sidebarItemTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#315987",
   },
-  comingSoonText: {
+  sidebarItemTitleActive: {
+    color: "#1475EE",
+    fontWeight: "800",
+  },
+  sidebarItemSubtitle: {
+    fontSize: 11,
+    color: "#889BB7",
+    fontWeight: "500",
+    marginTop: 1,
+  },
+  sidebarItemSubtitleActive: {
+    color: "#3B82F6",
+  },
+  sidebarActiveArrow: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#1475EE",
+    marginLeft: 4,
+  },
+  detailContainer: {
+    flex: 1,
+    backgroundColor: "#F8FAFC",
+  },
+  detailScroll: {
+    flex: 1,
+  },
+  detailScrollContent: {
+    padding: 24,
+    maxWidth: 820,
+    width: "100%",
+  },
+  detailCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#DDE8F7",
+    padding: 20,
+    shadowColor: "#173563",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    marginBottom: 16,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  cardHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  cardHeaderIconBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#EAF3FF",
+    borderWidth: 1,
+    borderColor: "#D6E6FF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cardHeaderIcon: {
+    fontSize: 20,
+  },
+  cardEyebrow: {
     fontSize: 10,
-    fontWeight: "600",
-    color: "#fbbf24",
+    fontWeight: "800",
+    color: "#6681AD",
+    letterSpacing: 0.8,
+  },
+  cardTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#10244B",
+    marginTop: 2,
+  },
+  cardDescription: {
+    fontSize: 13,
+    color: "#526B93",
+    lineHeight: 19,
+    marginBottom: 14,
+  },
+  statusBadge: {
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  statusBadgeOn: {
+    backgroundColor: "#E6F8F1",
+    borderColor: "#A7F3D0",
+  },
+  statusBadgeOff: {
+    backgroundColor: "#F1F5F9",
+    borderColor: "#CBD5E1",
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#10244B",
   },
   settingRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 22,
+    marginVertical: 4,
   },
   settingInfo: {
     flex: 1,
-    marginRight: 2,
   },
   settingLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
-    color: colors.text,
-    marginBottom: 4,
+    color: "#10244B",
+    marginBottom: 3,
   },
   settingDescription: {
-    fontSize: 15,
-    color: "#A8B6CA",
-    lineHeight: 22,
+    fontSize: 13,
+    color: "#526B93",
+    lineHeight: 18,
   },
   divider: {
     height: 1,
-    backgroundColor: "rgba(148, 163, 184, 0.12)",
-    marginVertical: 12,
+    backgroundColor: "#E2E8F0",
+    marginVertical: 14,
   },
-  languageButtons: {
+  configureTile: {
     flexDirection: "row",
-    gap: 8,
-    marginBottom: 12,
+    alignItems: "center",
+    backgroundColor: "#F7FAFF",
+    borderWidth: 1,
+    borderColor: "#D0E1FD",
+    borderRadius: 12,
+    padding: 14,
   },
-  languageButton: {
+  configureTileIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "#EAF3FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  configureTileIcon: {
+    fontSize: 18,
+  },
+  configureTileContent: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: "#0B1220",
-    borderWidth: 2,
-    borderColor: "#334155",
+  },
+  configureTileTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#1475EE",
+  },
+  configureTileDescription: {
+    fontSize: 12,
+    color: "#526B93",
+    marginTop: 2,
+  },
+  chevronCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#EAF3FF",
+    justifyContent: "center",
     alignItems: "center",
   },
-  languageButtonActive: {
-    backgroundColor: "#06b6d4",
-    borderColor: "#06b6d4",
+  chevronText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#1475EE",
   },
-  languageButtonText: {
+  stopRtkButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF5F5",
+    borderWidth: 1,
+    borderColor: "#FED7D7",
+    borderRadius: 12,
+    padding: 14,
+    gap: 12,
+  },
+  stopRtkButtonIcon: {
+    fontSize: 20,
+  },
+  stopRtkButtonTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#E53E3E",
+  },
+  stopRtkButtonDescription: {
+    fontSize: 12,
+    color: "#9B2C2C",
+    marginTop: 2,
+  },
+  telemetryWell: {
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 14,
+    marginVertical: 12,
+  },
+  telemetryWellRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  telemetryWellLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  telemetryWellBadge: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#1475EE",
+    backgroundColor: "#EAF3FF",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  telemetryWellDivider: {
+    height: 1,
+    backgroundColor: "#E2E8F0",
+    marginVertical: 10,
+  },
+  telemetryWellGrid: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  telemetryWellItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  telemetryWellItemLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#64748B",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  telemetryWellItemValue: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#10244B",
+  },
+  segmentedContainer: {
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
+    borderRadius: 10,
+    padding: 4,
+    gap: 6,
+    marginVertical: 8,
+  },
+  segmentedButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  segmentedButtonActive: {
+    backgroundColor: "#1475EE",
+    shadowColor: "#1475EE",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  segmentedButtonIcon: {
+    fontSize: 14,
+  },
+  segmentedButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  segmentedButtonTextActive: {
+    color: "#FFFFFF",
+  },
+  subLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#315987",
+    marginBottom: 6,
+    marginTop: 10,
+  },
+  infoWell: {
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    borderRadius: 10,
+    padding: 12,
+    marginVertical: 8,
+  },
+  infoWellText: {
+    fontSize: 12,
+    color: "#166534",
+    lineHeight: 17,
+    fontWeight: "500",
+  },
+  primaryActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1475EE",
+    borderRadius: 12,
+    paddingVertical: 13,
+    marginVertical: 10,
+    shadowColor: "#1475EE",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  primaryActionIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  primaryActionText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  warningBox: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 10,
+    padding: 12,
+    marginVertical: 8,
+  },
+  warningText: {
+    fontSize: 12,
+    color: "#B45309",
+    lineHeight: 17,
+    fontWeight: "500",
+  },
+  dangerBox: {
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 10,
+    padding: 12,
+    marginVertical: 8,
+  },
+  dangerText: {
+    fontSize: 12,
+    color: "#B91C1C",
+    lineHeight: 17,
+    fontWeight: "500",
+  },
+  obstacleReadingCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 10,
+    padding: 12,
+    gap: 10,
+    marginVertical: 8,
+  },
+  obstacleDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  obstacleReadingText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#94a3b8",
+    color: "#1E293B",
   },
-  languageButtonTextActive: {
-    color: colors.text,
+  testVoiceButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 10,
+    paddingVertical: 10,
+    marginTop: 12,
+  },
+  testVoiceButtonIcon: {
+    fontSize: 14,
+    marginRight: 6,
+  },
+  testVoiceButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1E293B",
   },
   disabledControl: {
     opacity: 0.5,
   },
-  testButton: {
-    backgroundColor: "#7c3aed",
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  testButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.text,
-  },
-  changeButton: {
-    backgroundColor: "#1a75d2",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#059669",
-  },
-  changeButtonText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: colors.text,
-  },
-  warningBox: {
-    backgroundColor: "rgba(251, 191, 36, 0.1)",
-    borderWidth: 1,
-    borderColor: "#fbbf24",
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 8,
-  },
-  warningText: {
-    fontSize: 13,
-    color: "#fbbf24",
-    textAlign: "center",
-  },
-  infoBox: {
-    backgroundColor: "rgba(6, 182, 212, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(103, 232, 249, 0.3)",
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 8,
-  },
-  infoText: {
-    fontSize: 13,
-    color: "#67e8f9",
-    lineHeight: 18,
-  },
-  timestampText: {
-    fontSize: 11,
-    color: "#94a3b8",
-    marginTop: 8,
-    fontStyle: "italic",
-  },
-  obstacleReadingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 8,
-  },
-  obstacleDot: { width: 10, height: 10, borderRadius: 5 },
-  obstacleReadingText: { color: colors.textSecondary, fontWeight: "600" },
-  obstacleWarningText: { color: colors.warning, marginTop: 6 },
   successToast: {
     position: "absolute",
     top: 20,
@@ -1673,226 +2132,48 @@ const styles = StyleSheet.create({
     elevation: 5,
     zIndex: 9999,
   },
-  successToastText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "600",
-    marginLeft: 8,
-  },
-  successIcon: {
-    fontSize: 20,
-  },
   footer: {
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    backgroundColor: "#111C2D",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(148, 163, 184, 0.18)",
-  },
-  footerInner: {
     flexDirection: "row",
-    gap: 12,
-    maxWidth: 960,
-    width: "100%",
-    alignSelf: "center",
-  },
-
-  logoutButton: {
-    flex: 1,
-    backgroundColor: "#7F1D1D",
-    borderWidth: 1,
-    borderColor: "#EF4444",
-    paddingVertical: 14,
-    borderRadius: 8,
+    justifyContent: "space-between",
     alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: "#D8E0EA",
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    gap: 14,
   },
-
+  logoutButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#FFF5F3",
+    borderWidth: 1,
+    borderColor: "#FFD9D2",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   logoutButtonText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#FEE2E2",
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#D94A42",
   },
-
   doneButton: {
     flex: 1,
-    backgroundColor: "#10b981",
-    paddingVertical: 14,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#1475EE",
     alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#1475EE",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 2,
   },
-
   doneButtonText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: colors.text,
-  },
-  // Servo Configuration Styles
-  channelButtons: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 12,
-  },
-  channelButton: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: "#1a1a1a",
-    borderWidth: 2,
-    borderColor: "#4a5568",
-    alignItems: "center",
-  },
-  channelButtonActive: {
-    backgroundColor: "#f59e0b",
-    borderColor: "#f59e0b",
-  },
-  channelButtonText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#94a3b8",
-  },
-  channelButtonTextActive: {
-    color: "#1a1a1a",
-  },
-  pwmContainer: {
-    flexDirection: "row",
-    gap: 16,
-    marginBottom: 12,
-  },
-  pwmInput: {
-    flex: 1,
-    backgroundColor: "#1a1a1a",
-    borderRadius: 8,
-    padding: 12,
-  },
-  pwmLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#94a3b8",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  pwmValueContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  pwmButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: "#374151",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  pwmButtonText: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: colors.text,
-  },
-  pwmValue: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#f59e0b",
-    minWidth: 60,
-    textAlign: "center",
-  },
-  timingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
-    backgroundColor: "#1a1a1a",
-    borderRadius: 8,
-    padding: 12,
-  },
-  timingInfo: {
-    flex: 1,
-  },
-  timingLabel: {
     fontSize: 14,
-    fontWeight: "600",
-    color: colors.text,
-    marginBottom: 2,
-  },
-  timingDescription: {
-    fontSize: 12,
-    color: "#94a3b8",
-  },
-  timingControls: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  timingButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    backgroundColor: "#374151",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  timingButtonText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: colors.text,
-  },
-  timingValue: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#10b981",
-    minWidth: 50,
-    textAlign: "center",
-    marginHorizontal: 8,
-  },
-  // New Servo UI Styles
-  statusBadge: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-  },
-  statusBadgeOn: {
-    backgroundColor: "rgba(16, 185, 129, 0.2)",
-    borderColor: "#10b981",
-  },
-  statusBadgeOff: {
-    backgroundColor: "rgba(107, 114, 128, 0.2)",
-    borderColor: "#6b7280",
-  },
-  statusBadgeText: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: colors.text,
-  },
-  configureButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#1a75d2",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 2,
-    borderColor: "#059669",
-  },
-  configureButtonIcon: {
-    fontSize: 28,
-    marginRight: 12,
-  },
-  configureButtonContent: {
-    flex: 1,
-  },
-  configureButtonTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: colors.text,
-    marginBottom: 4,
-  },
-  configureButtonDescription: {
-    fontSize: 13,
-    color: "#94a3b8",
-  },
-  configureButtonArrow: {
-    fontSize: 32,
-    color: colors.text,
-    fontWeight: "bold",
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 });
