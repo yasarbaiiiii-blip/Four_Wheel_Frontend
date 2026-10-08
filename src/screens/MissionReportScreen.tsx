@@ -5317,6 +5317,13 @@ export default function MissionReportScreen({
           hasMissionLoaded={hasUploadedMission || missionUploadConfirmed}
           onClearMission={() => { void handleClearMission(); }}
           onOpenPlan={onOpenPlan ?? (() => undefined)}
+          onStart={() => { void handleStart(); }}
+          onPause={() => { void handlePause(); }}
+          onResume={() => { void handleResume(); }}
+          onStop={() => { void handleStop(); }}
+          canStart={canStartMission}
+          isPreparing={isPreparingMission}
+          isMissionPaused={isBackendMissionPaused}
         />
       )}
 
@@ -5579,6 +5586,13 @@ interface MissionActivityExperienceProps {
   hasMissionLoaded: boolean;
   onClearMission: () => void;
   onOpenPlan: (intent?: PlanOpenIntent) => void;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  canStart: boolean;
+  isPreparing: boolean;
+  isMissionPaused: boolean;
 }
 
 // UI preview only. These points are never written to mission state, shown on
@@ -5672,6 +5686,8 @@ function CommandMeta({ icon, text }: { icon: React.ComponentProps<typeof Materia
 function MissionActivityExperience({
   waypoints, isMissionActive,
   hasMissionLoaded, onClearMission, onOpenPlan,
+  onStart, onPause, onResume, onStop,
+  canStart, isPreparing, isMissionPaused
 }: MissionActivityExperienceProps) {
   const telemetry = useLiveTelemetrySelector(selectCommandTelemetry, shallowEqual);
   const { width: viewportWidth } = useWindowDimensions();
@@ -5680,10 +5696,36 @@ function MissionActivityExperience({
   const [isPointsExpanded, setIsPointsExpanded] = useState(false);
   const [isEditingPoints, setIsEditingPoints] = useState(false);
   const [activityCardHeight, setActivityCardHeight] = useState(0);
+
+  const [isProgressVisible, setIsProgressVisible] = useState(false);
+  const progressScreenAnim = useRef(new Animated.Value(0)).current;
+
+  const openProgressScreen = useCallback(() => {
+    setIsProgressVisible(true);
+    Animated.timing(progressScreenAnim, {
+      toValue: 1,
+      duration: 350,
+      easing: Easing.out(Easing.poly(4)),
+      useNativeDriver: false,
+    }).start();
+  }, [progressScreenAnim]);
+
+  const closeProgressScreen = useCallback(() => {
+    Animated.timing(progressScreenAnim, {
+      toValue: 0,
+      duration: 250,
+      easing: Easing.in(Easing.poly(4)),
+      useNativeDriver: false,
+    }).start(() => setIsProgressVisible(false));
+  }, [progressScreenAnim]);
   const [activityCardWidth, setActivityCardWidth] = useState(0);
   const pointsPanelProgress = useRef(new Animated.Value(0)).current;
   const isDemoPoints = waypoints.length === 0;
   const activityWaypoints = isDemoPoints ? COMMAND_DEMO_WAYPOINTS : waypoints;
+  const currentPoint = useMemo(() => {
+    let cp = activityWaypoints.findIndex((w) => w.status === "Pending");
+    return cp === -1 ? Math.max(0, activityWaypoints.length - 1) : cp;
+  }, [activityWaypoints]);
   const routeKm = useMemo(() => commandRouteKm(activityWaypoints), [activityWaypoints]);
   const mapAreaWidth = Math.max(viewportWidth - 410, 0);
   const currentActivityWidth = activityCardWidth || 378;
@@ -5733,9 +5775,20 @@ function MissionActivityExperience({
     outputRange: [currentActivityWidth, expandedPanelWidth],
   });
 
+  const homeOpacity = progressScreenAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [1, 0, 0],
+  });
+  
+  const homeScale = progressScreenAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.96],
+  });
+
   return (
     <View style={fieldExperienceStyles.host} pointerEvents="box-none">
-      <View style={[fieldExperienceStyles.homeHeader, !isLightHeader && fieldExperienceStyles.homeHeaderDark]}>
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: homeOpacity, transform: [{ scale: homeScale }] }]} pointerEvents={isProgressVisible ? "none" : "box-none"}>
+        <View style={[fieldExperienceStyles.homeHeader, !isLightHeader && fieldExperienceStyles.homeHeaderDark]}>
         <View style={fieldExperienceStyles.homeBrand}><View style={fieldExperienceStyles.homeBrandIcon}><MaterialCommunityIcons name="map-marker-path" size={22} color="#FFFFFF" /></View><Text style={[fieldExperienceStyles.homeBrandTitle, !isLightHeader && fieldExperienceStyles.homeBrandTitleDark]}>Way To Mark</Text></View>
         <View style={fieldExperienceStyles.homeStatusGroup}>
           <View style={[fieldExperienceStyles.homeStatusBlock, telemetry.connected ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, telemetry.connected ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name="lan-connect" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>LINK</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, telemetry.connected ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{telemetry.connected ? "Connected" : "Offline"}</Text></View></View>
@@ -5780,9 +5833,79 @@ function MissionActivityExperience({
               <View style={[fieldExperienceStyles.activityPointDetails, fieldExperienceStyles.pointDataCentered]}><View style={fieldExperienceStyles.activityCoordinatePair}><View style={fieldExperienceStyles.activityCoordinateItem}><Text style={[fieldExperienceStyles.activityCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>LAT</Text><Text style={[fieldExperienceStyles.activityCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>{commandCoordinate(waypoint.lat)}</Text></View><View style={fieldExperienceStyles.activityCoordinateDivider} /><View style={fieldExperienceStyles.activityCoordinateItem}><Text style={[fieldExperienceStyles.activityCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>LON</Text><Text style={[fieldExperienceStyles.activityCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>{commandCoordinate(waypoint.lon)}</Text></View></View></View>
             </View>)}
           </ScrollView>
-          <TouchableOpacity style={fieldExperienceStyles.expandPointsButton} onPress={openPointsPanel} activeOpacity={0.82} accessibilityRole="button" accessibilityLabel="Expand mission points"><View style={fieldExperienceStyles.expandPointsIcon}><MaterialCommunityIcons name="arrow-expand-horizontal" size={18} color="#FFFFFF" /></View><Text style={fieldExperienceStyles.expandPointsText}>Expand</Text><MaterialCommunityIcons name="chevron-left" size={22} color="#FFFFFF" /></TouchableOpacity>
+          <View style={fieldExperienceStyles.actionRow}>
+            <TouchableOpacity style={[fieldExperienceStyles.expandPointsButton, fieldExperienceStyles.actionButtonHalf]} onPress={isProgressVisible ? closeProgressScreen : openProgressScreen} activeOpacity={0.82} accessibilityRole="button" accessibilityLabel="View mission progress">
+              <View style={fieldExperienceStyles.expandPointsIcon}><MaterialCommunityIcons name="chart-box-outline" size={18} color="#FFFFFF" /></View>
+              <Text style={fieldExperienceStyles.expandPointsText}>Progress</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[fieldExperienceStyles.expandPointsButton, fieldExperienceStyles.actionButtonHalf]} onPress={openPointsPanel} activeOpacity={0.82} accessibilityRole="button" accessibilityLabel="Expand mission points">
+              <View style={fieldExperienceStyles.expandPointsIcon}><MaterialCommunityIcons name="arrow-expand-horizontal" size={18} color="#FFFFFF" /></View>
+              <Text style={fieldExperienceStyles.expandPointsText}>Expand</Text>
+              <MaterialCommunityIcons name="chevron-left" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
+      </Animated.View>
+
+      {isProgressVisible && (
+        <Animated.View style={[fieldExperienceStyles.activityScreen, { opacity: progressScreenAnim }]} pointerEvents="box-none">
+          <Animated.View style={[fieldExperienceStyles.activityTopbar, { transform: [{ translateY: progressScreenAnim.interpolate({ inputRange: [0, 1], outputRange: [-100, 0] }) }] }]}>
+            <View style={fieldExperienceStyles.activityTitleGroup}>
+              <View style={fieldExperienceStyles.activityIcon}><MaterialCommunityIcons name="flag-checkered" size={24} color="#FFF" /></View>
+              <View>
+                <Text style={fieldExperienceStyles.activityTitle}>Mission Progress</Text>
+                <Text style={fieldExperienceStyles.activitySubtitle}>Real-time tracking</Text>
+              </View>
+            </View>
+            <View style={fieldExperienceStyles.topActions}>
+              <TouchableOpacity style={fieldExperienceStyles.closeActivity} onPress={closeProgressScreen}>
+                <MaterialCommunityIcons name="close" size={24} color="#1C3156" />
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+
+          <Animated.View style={[fieldExperienceStyles.activityFooter, { transform: [{ translateY: progressScreenAnim.interpolate({ inputRange: [0, 1], outputRange: [200, 0] }) }] }]}>
+            <View style={fieldExperienceStyles.footerMission}>
+              <View style={fieldExperienceStyles.footerIcon}><MaterialCommunityIcons name="map-marker-path" size={22} color="#1475EE" /></View>
+              <View>
+                <Text style={fieldExperienceStyles.footerTitle}>Active Route</Text>
+                <Text style={fieldExperienceStyles.footerSub}>{waypoints.length} total points</Text>
+              </View>
+            </View>
+            <View style={fieldExperienceStyles.timelineArea}>
+              <View style={fieldExperienceStyles.timelineHeading}>
+                <Text style={fieldExperienceStyles.timelineTitle}>PROGRESS</Text>
+                <Text style={fieldExperienceStyles.timelinePercent}>{Math.round(((currentPoint + 1) / Math.max(waypoints.length, 1)) * 100)}%</Text>
+              </View>
+              <View style={fieldExperienceStyles.timelineTrack}>
+                <View style={[fieldExperienceStyles.timelineFill, { width: `${Math.round(((currentPoint + 1) / Math.max(waypoints.length, 1)) * 100)}%` }]} />
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={fieldExperienceStyles.stepsScroll} style={fieldExperienceStyles.stepsScroller}>
+                {waypoints.length > 0 ? waypoints.map((waypoint, index) => { 
+                  const state = index < currentPoint ? "complete" : index === currentPoint ? "active" : "pending"; 
+                  return (
+                    <View key={`prog-${waypoint.sn}-${index}`} style={fieldExperienceStyles.step}>
+                      <View style={[fieldExperienceStyles.stepDot, state === "complete" && fieldExperienceStyles.stepDone, state === "active" && fieldExperienceStyles.stepActive]}>
+                        <Text style={[fieldExperienceStyles.stepText, state !== "pending" && fieldExperienceStyles.stepTextBright]}>
+                          {state === "complete" ? "✓" : index + 1}
+                        </Text>
+                      </View>
+                      <Text style={[fieldExperienceStyles.stepLabel, state === "active" && fieldExperienceStyles.stepLabelActive]}>WP {index + 1}</Text>
+                    </View>
+                  ); 
+                }) : <Text style={fieldExperienceStyles.emptyRoute}>Upload a plan to see live route points.</Text>}
+              </ScrollView>
+              {waypoints.length > 5 && <Text style={fieldExperienceStyles.swipeHint}>Swipe to view all {waypoints.length} points →</Text>}
+            </View>
+            <View style={fieldExperienceStyles.footerActions}>
+              <TouchableOpacity style={[fieldExperienceStyles.largeStart, (!canStart || isPreparing) && fieldExperienceStyles.disabled]} onPress={onStart} disabled={!canStart || isPreparing}><MaterialCommunityIcons name="play" size={23} color="#fff" /><Text style={fieldExperienceStyles.largeStartText}>{isPreparing ? "Preparing" : "Start"}</Text></TouchableOpacity>
+              <TouchableOpacity style={[fieldExperienceStyles.largePause, !isMissionActive && fieldExperienceStyles.disabled]} onPress={isMissionPaused ? onResume : onPause} disabled={!isMissionActive}><MaterialCommunityIcons name={isMissionPaused ? "play" : "pause"} size={23} color="#fff" /><Text style={fieldExperienceStyles.largePauseText}>{isMissionPaused ? "Resume" : "Pause"}</Text></TouchableOpacity>
+              <TouchableOpacity style={fieldExperienceStyles.largeStop} onPress={onStop}><MaterialCommunityIcons name="stop" size={22} color="#fff" /></TouchableOpacity>
+            </View>
+          </Animated.View>
+        </Animated.View>
+      )}
 
       {isPointsExpanded && <Animated.View style={[fieldExperienceStyles.pointsPanel, { width: pointsPanelAnimatedWidth, height: activityCardHeight || 320 }]}>
         <View style={fieldExperienceStyles.pointsPanelHeader}><View style={fieldExperienceStyles.expandedActivityTitle}><View style={fieldExperienceStyles.expandedActivityIcon}><MaterialCommunityIcons name="map-marker-path" size={21} color="#FFFFFF" /></View><Text style={fieldExperienceStyles.pointsPanelTitle}>Mission activity</Text></View><View style={fieldExperienceStyles.pointsPanelHeaderActions}><TouchableOpacity style={[fieldExperienceStyles.editAllButton, isEditingPoints && fieldExperienceStyles.editAllButtonActive]} onPress={() => setIsEditingPoints((value) => !value)} accessibilityRole="button" accessibilityLabel={isEditingPoints ? "Finish editing mission points" : "Enable editing for all mission points"}><MaterialCommunityIcons name={isEditingPoints ? "check" : "pencil-outline"} size={15} color={isEditingPoints ? "#FFFFFF" : "#1475EE"} /><Text style={[fieldExperienceStyles.editAllText, isEditingPoints && fieldExperienceStyles.editAllTextActive]}>{isEditingPoints ? "Done" : "Edit"}</Text></TouchableOpacity><TouchableOpacity style={fieldExperienceStyles.pointsPanelClose} onPress={closePointsPanel} accessibilityRole="button" accessibilityLabel="Close mission activity"><MaterialCommunityIcons name="chevron-right" size={23} color="#173563" /></TouchableOpacity></View></View>
@@ -5834,10 +5957,12 @@ const fieldExperienceStyles = StyleSheet.create({
   activityListHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10, marginBottom: 6, paddingHorizontal: 2 }, activityListTitle: { color: "#48678F", fontSize: 9, fontWeight: "900", letterSpacing: 0.95 },
   activityPointList: { flex: 1, minHeight: 104, borderRadius: 14, borderWidth: 1, borderColor: "#E1E9F3", backgroundColor: "#F7F9FC" }, activityPointListContent: { padding: 6, gap: 5 }, activityPointRow: { minHeight: 86, flexDirection: "row", alignItems: "stretch", gap: 7, padding: 8, borderRadius: 12, borderWidth: 1, borderColor: "#E5EBF2", backgroundColor: "#FFFFFF" }, activityPointRail: { width: 27, alignItems: "center" }, activityPointIndex: { width: 27, height: 27, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F6FD", borderWidth: 1, borderColor: "#BFD7F5" }, activityPointIndexText: { color: "#1475EE", fontSize: 8, fontWeight: "900" }, activityPointConnector: { width: 1, flex: 1, minHeight: 32, marginTop: 4, backgroundColor: "#D6E2F0" }, activityPointDetails: { flex: 1, minWidth: 0 }, activityPointTopline: { minHeight: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 }, activityPointTitle: { color: "#203B62", fontSize: 10, fontWeight: "900" }, activityDistanceBadge: { maxWidth: 76, minHeight: 19, paddingHorizontal: 6, borderRadius: 7, flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#F1F5FA" }, activityPointDistanceText: { color: "#60799D", fontSize: 7, fontWeight: "800", flexShrink: 1 }, activityCoordinates: { flexDirection: "row", alignItems: "center", marginTop: 5, paddingVertical: 4 }, activityCoordinateBlock: { flex: 1, minWidth: 0 }, activityCoordinateLabel: { color: "#94A2B5", fontSize: 6, fontWeight: "900", letterSpacing: 0.45 }, activityCoordinateValue: { color: "#456184", fontSize: 9, fontWeight: "800", marginTop: 2 }, activityCoordinateDivider: { width: 1, height: 20, marginHorizontal: 5, backgroundColor: "#E1E7EF" }, activityPointActions: { width: 44, gap: 4 }, activityPointAction: { flex: 1, minHeight: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", gap: 1, backgroundColor: "#F2F7FD", borderWidth: 1, borderColor: "#DDE9F8" }, activityPointDelete: { backgroundColor: "#FFF8F7", borderColor: "#F7DFDB" }, activityPointActionText: { color: "#2878D8", fontSize: 7, fontWeight: "900" }, activityPointDeleteText: { color: "#CA554D", fontSize: 7, fontWeight: "900" },
   activityPointIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", alignSelf: "center", backgroundColor: "#1475EE" }, activityPointIconText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" }, activityPointSequence: { color: "#203B62", fontSize: 11, fontWeight: "900" }, activityCoordinateLine: { color: "#60799D", fontSize: 8, fontWeight: "800", lineHeight: 16 }, activityCoordinatePair: { flexDirection: "row", alignItems: "center" }, activityCoordinateItem: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 4 }, activityPointDistanceBottom: { alignSelf: "flex-start", marginTop: 5 },
-  expandPointsButton: { minHeight: 52, marginTop: 9, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#1475EE", flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#1475EE", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 6 }, expandPointsIcon: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)", borderWidth: 1, borderColor: "rgba(255,255,255,0.24)" }, expandPointsText: { flex: 1, color: "#FFFFFF", fontSize: 12, fontWeight: "900", letterSpacing: 0.2 }, disabled: { opacity: 0.45 },
+  expandPointsButton: { minHeight: 52, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#1475EE", flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#1475EE", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 6 }, expandPointsIcon: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)", borderWidth: 1, borderColor: "rgba(255,255,255,0.24)" }, expandPointsText: { flex: 1, color: "#FFFFFF", fontSize: 12, fontWeight: "900", letterSpacing: 0.2 }, disabled: { opacity: 0.45 },
+  actionRow: { flexDirection: "row", gap: 8, marginTop: 9 }, actionButtonHalf: { flex: 1, marginTop: 0 },
   pointsPanel: { position: "absolute", right: 16, bottom: 16, zIndex: 26, borderRadius: 20, overflow: "hidden", backgroundColor: "rgba(250,252,255,0.99)", borderWidth: 1, borderColor: "#D8E5F5", shadowColor: "#10244B", shadowOffset: { width: -7, height: 5 }, shadowOpacity: 0.22, shadowRadius: 22, elevation: 14 }, pointsPanelHeader: { minHeight: 66, paddingHorizontal: 14, paddingVertical: 11, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#E0EAF6", backgroundColor: "#F6FAFF" }, expandedActivityTitle: { flexDirection: "row", alignItems: "center", gap: 9 }, expandedActivityIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#1475EE" }, pointsPanelHeaderActions: { flexDirection: "row", alignItems: "center", gap: 7 }, pointsPanelTitle: { color: "#142B54", fontSize: 15, fontWeight: "900" }, pointsPanelSub: { color: "#7084A2", fontSize: 9, fontWeight: "700", marginTop: 3 }, pointsPanelClose: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#E8F1FF" }, pointsPanelList: { padding: 9, gap: 7, flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start" }, pointRow: { minHeight: 98, flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 9, borderRadius: 12, borderWidth: 1, borderColor: "#E5EBF2", backgroundColor: "#FFFFFF" }, pointIndex: { width: 29, height: 29, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F6FD", borderWidth: 1, borderColor: "#BFD7F5" }, pointIndexText: { color: "#1475EE", fontSize: 9, fontWeight: "900" }, pointDetails: { flex: 1, minWidth: 0 }, pointTitle: { color: "#203B62", fontSize: 11, fontWeight: "900", marginBottom: 3 }, pointCoordinate: { color: "#60799D", fontSize: 8, fontWeight: "800", lineHeight: 15 }, pointCoordinatePair: { flexDirection: "row", alignItems: "center" }, pointCoordinateItem: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 4 }, pointCoordinateLabel: { color: "#94A2B5", fontSize: 7, fontWeight: "900" }, pointCoordinateValue: { color: "#456184", fontSize: 9, fontWeight: "800", marginTop: 0 }, pointCoordinateDivider: { width: 1, height: 18, marginHorizontal: 6, backgroundColor: "#E1E7EF" }, pointDistance: { alignSelf: "flex-start", minHeight: 20, paddingHorizontal: 6, borderRadius: 7, flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5, backgroundColor: "#F1F5FA" }, pointDistanceText: { color: "#60799D", fontSize: 7, fontWeight: "800", flexShrink: 1 }, pointActions: { width: 48, gap: 5 }, pointAction: { minHeight: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", gap: 1, backgroundColor: "#F2F7FD", borderWidth: 1, borderColor: "#DDE9F8" }, pointActionText: { color: "#2878D8", fontSize: 6, fontWeight: "900" }, pointDeleteAction: { backgroundColor: "#FFF8F7", borderColor: "#F7DFDB" }, pointDeleteText: { color: "#CA554D", fontSize: 6, fontWeight: "900" }, previewAction: { backgroundColor: "#F4F6F9", borderColor: "#E1E6ED" }, previewActionText: { color: "#8EA0B8" },
   pointIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", alignSelf: "center", backgroundColor: "#1475EE" }, pointIconText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" }, pointTopline: { minHeight: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 5 }, pointSequence: { color: "#203B62", fontSize: 12, fontWeight: "900" }, pointDistanceTop: { marginTop: 0 },
   readableHomePointRow: { minHeight: 62, paddingVertical: 6, alignItems: "center" }, readableHomePointIcon: { width: 32, height: 32, borderRadius: 16 }, readableExpandedPointRow: { minHeight: 96, paddingVertical: 9, alignItems: "center" }, readableExpandedPointIcon: { width: 36, height: 36, borderRadius: 18 }, readablePointNumber: { fontSize: 10 }, readableCoordinateLabel: { fontSize: 7, letterSpacing: 0.45 }, readableCoordinateValue: { fontSize: 9, marginTop: 0 }, readableDistanceText: { fontSize: 8 }, readableActionText: { fontSize: 8 }, pointDataCentered: { justifyContent: "center" },
   activityScreen: { ...StyleSheet.absoluteFillObject, backgroundColor: "transparent", zIndex: 24 }, activityTopbar: { position: "absolute", top: 22, left: 22, right: 22, height: 66, borderRadius: 18, backgroundColor: "rgba(250,252,255,0.97)", paddingHorizontal: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 10 }, activityTitleGroup: { flexDirection: "row", alignItems: "center", gap: 11 }, activityIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#123267" }, activityTitle: { color: "#122750", fontSize: 17, fontWeight: "800" }, activitySubtitle: { color: "#6A7D9C", fontSize: 11, fontWeight: "600", marginTop: 2 }, topSignals: { flex: 1, flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 18, marginHorizontal: 18 }, topSignal: { flexDirection: "row", alignItems: "center", gap: 6 }, topSignalText: { color: "#1C3156", fontSize: 11, fontWeight: "800" }, topActions: { flexDirection: "row", alignItems: "center", gap: 8 }, planButton: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#E7F1FF", alignItems: "center", justifyContent: "center" }, closeActivity: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#E7EEF8", alignItems: "center", justifyContent: "center" }, mapCallout: { position: "absolute", top: 122, left: "47%", backgroundColor: "rgba(255,255,255,0.96)", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, borderLeftWidth: 4, borderLeftColor: "#1475EE", shadowColor: "#10244B", shadowOpacity: 0.18, shadowRadius: 10, elevation: 8 }, mapCalloutLabel: { color: "#1475EE", fontSize: 9, fontWeight: "900", letterSpacing: 0.8 }, mapCalloutValue: { color: "#132850", fontSize: 17, fontWeight: "900", marginTop: 1 }, mapCalloutSub: { color: "#6C7E9C", fontSize: 10, fontWeight: "600", marginTop: 2 },
   activityFooter: { position: "absolute", left: 22, right: 22, bottom: 22, minHeight: 118, borderRadius: 20, padding: 15, backgroundColor: "rgba(250,252,255,0.98)", flexDirection: "row", alignItems: "center", gap: 16, shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 13 }, footerMission: { width: 172, flexDirection: "row", alignItems: "center", gap: 9 }, footerIcon: { width: 42, height: 42, borderRadius: 11, backgroundColor: "#E8F1FF", alignItems: "center", justifyContent: "center" }, footerTitle: { color: "#142850", fontSize: 15, fontWeight: "800" }, footerSub: { color: "#7182A0", fontSize: 10, fontWeight: "700", marginTop: 3 }, timelineArea: { flex: 1, minWidth: 250 }, timelineHeading: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }, timelineTitle: { color: "#536D97", fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 }, timelinePercent: { color: "#1475EE", fontSize: 12, fontWeight: "900" }, timelineTrack: { height: 4, borderRadius: 3, backgroundColor: "#DCE5F1", overflow: "hidden" }, timelineFill: { height: "100%", borderRadius: 3, backgroundColor: "#1475EE" }, stepsScroller: { maxHeight: 49 }, stepsScroll: { alignItems: "flex-start", gap: 7, paddingVertical: 8 }, step: { width: 66, alignItems: "center" }, stepDot: { width: 27, height: 27, borderRadius: 14, backgroundColor: "#E8EDF4", borderWidth: 2, borderColor: "#CCD7E5", alignItems: "center", justifyContent: "center" }, stepDone: { borderColor: "#12B981", backgroundColor: "#12B981" }, stepActive: { borderColor: "#1475EE", backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.55, shadowRadius: 7, elevation: 5 }, stepText: { color: "#7182A0", fontSize: 11, fontWeight: "900" }, stepTextBright: { color: "#fff" }, stepLabel: { color: "#788AA5", fontSize: 8, fontWeight: "700", marginTop: 3 }, stepLabelActive: { color: "#1475EE" }, emptyRoute: { color: "#7182A0", fontWeight: "600", fontSize: 11 }, swipeHint: { color: "#6E85A6", fontSize: 9, fontWeight: "700", textAlign: "right", marginTop: -3 },
+  footerActions: { flexDirection: "row", alignItems: "center", gap: 9 }, largeStart: { height: 57, paddingHorizontal: 18, borderRadius: 14, backgroundColor: "#10B981", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" }, largeStartText: { color: "#fff", fontSize: 15, fontWeight: "800" }, largePause: { height: 57, paddingHorizontal: 16, borderRadius: 14, backgroundColor: "#152A50", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" }, largePauseText: { color: "#fff", fontSize: 15, fontWeight: "800" }, largeStop: { width: 57, height: 57, borderRadius: 29, backgroundColor: "#DD2443", alignItems: "center", justifyContent: "center" },
 });
