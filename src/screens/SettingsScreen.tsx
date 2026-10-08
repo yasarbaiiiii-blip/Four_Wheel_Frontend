@@ -19,8 +19,6 @@ import { useRover } from "../context/RoverContext";
 import { ServoConfigModal } from "../components/settings/ServoConfigModal";
 import { ParamBrowserModal } from "../components/settings/ParamBrowserModal";
 import { RTKInjectionScreen } from "../components/missionreport/RTKInjectionScreen";
-import { getRtkStatus, stopRtk } from "../services/rtkService";
-import { toRtkControlView } from "../adapters/rtkControlAdapter";
 import { useAuth } from "../hooks/useAuth";
 import { getSprayConfig, enableSpray, disableSpray, testSpray, setSprayDuration } from "../services/sprayConfigService";
 import { Toast } from "../components/shared/Toast";
@@ -48,28 +46,6 @@ interface SettingsScreenProps {
   visible: boolean;
   onClose: () => void;
 }
-
-const getRtkFailureMessage = (err: unknown, fallback: string) => {
-  if (err instanceof Error) {
-    const responseBody =
-      "responseBody" in err
-        ? String((err as { responseBody?: unknown }).responseBody ?? "")
-        : "";
-    if (responseBody) {
-      try {
-        const parsed = JSON.parse(responseBody);
-        const detail = parsed?.detail;
-        if (typeof detail === "string") {
-          return `${err.message}: ${detail}`;
-        }
-      } catch {
-        return `${err.message}: ${responseBody}`;
-      }
-    }
-    return err.message;
-  }
-  return fallback;
-};
 
 export type SettingsCategory =
   | "rtk"
@@ -151,12 +127,6 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
   const [lastLedUpdate, setLastLedUpdate] = useState<string>("");
 
   // RTK Injection State — backend-owned profiles; no local runtime authority.
-  const [showRTKModal, setShowRTKModal] = useState(false);
-  const [rtkHeadline, setRtkHeadline] = useState("Off");
-  const [rtkStatusMessage, setRtkStatusMessage] = useState("Idle");
-  const [isRTKSubmitting, setIsRTKSubmitting] = useState(false);
-  const [canStopRtk, setCanStopRtk] = useState(false);
-
   // Mission mode defaults are rover-owned. Settings is the single place to
   // choose the marking actuator and persist it for the next mission.
   const [missionMarkingTool, setMissionMarkingTool] =
@@ -169,75 +139,6 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
   // Toast/Success Message State
   const [successMessage, setSuccessMessage] = useState<string>("");
-
-  const refreshSettingsRtkStatus = useCallback(async () => {
-    if (connectionState !== "connected") {
-      const offlineView = toRtkControlView(null, { connected: false });
-      setRtkHeadline(offlineView.headlineLabel);
-      setCanStopRtk(offlineView.canStop);
-      setRtkStatusMessage("Rover not connected");
-      return;
-    }
-
-    try {
-      const rtkStatus = await getRtkStatus();
-      const view = toRtkControlView(rtkStatus, {
-        connected: true,
-      });
-      setRtkHeadline(view.headlineLabel);
-      setCanStopRtk(view.canStop);
-      setRtkStatusMessage(
-        `${view.desiredState ?? "—"} · ${view.managerState ?? "—"} · ${
-          view.correctionState ?? "no stream"
-        }`,
-      );
-    } catch {
-      setRtkHeadline("Rover Offline");
-      setCanStopRtk(false);
-      setRtkStatusMessage("Unable to read backend RTK status");
-    }
-  }, [connectionState]);
-
-  useEffect(() => {
-    if (!visible || showRTKModal) {
-      return undefined;
-    }
-    void refreshSettingsRtkStatus();
-
-    if (connectionState !== "connected") {
-      return undefined;
-    }
-
-    const timer = setInterval(() => {
-      void refreshSettingsRtkStatus();
-    }, 3000);
-
-    return () => clearInterval(timer);
-  }, [
-    visible,
-    showRTKModal,
-    connectionState,
-    refreshSettingsRtkStatus,
-  ]);
-
-  const handleOpenRTKModal = () => {
-    setShowRTKModal(true);
-  };
-
-  const handleStopRTKStream = async () => {
-    setIsRTKSubmitting(true);
-    try {
-      await stopRtk();
-      await refreshSettingsRtkStatus();
-    } catch (err) {
-      Alert.alert(
-        "RTK Stop Failed",
-        getRtkFailureMessage(err, "Failed to stop RTK."),
-      );
-    } finally {
-      setIsRTKSubmitting(false);
-    }
-  };
 
   // GPS failsafe mode is now persisted by backend, no need for AsyncStorage
 
@@ -963,92 +864,22 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
           {/* Right Detail Panel */}
           <View style={styles.detailContainer}>
-            <ScrollView
-              style={styles.detailScroll}
-              contentContainerStyle={styles.detailScrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {/* 1. RTK Injection Category */}
-              {selectedCategory === "rtk" && (
-                <View style={styles.detailCard}>
-                  <View style={styles.cardHeader}>
-                    <View style={styles.cardHeaderLeft}>
-                      <View style={styles.cardHeaderIconBadge}>
-                        <Text style={styles.cardHeaderIcon}>📡</Text>
-                      </View>
-                      <View>
-                        <Text style={styles.cardEyebrow}>POSITIONING & DGPS</Text>
-                        <Text style={styles.cardTitle}>RTK Injection</Text>
-                      </View>
-                    </View>
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        canStopRtk ? styles.statusBadgeOn : styles.statusBadgeOff,
-                      ]}
-                    >
-                      <Text style={styles.statusBadgeText}>
-                        {rtkHeadline.toUpperCase()}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.settingRow}>
-                    <View style={styles.settingInfo}>
-                      <Text style={styles.settingLabel}>{rtkHeadline}</Text>
-                      <Text style={styles.settingDescription}>
-                        {rtkStatusMessage}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.divider} />
-
-                  <TouchableOpacity
-                    style={[
-                      styles.configureTile,
-                      isRTKSubmitting && { opacity: 0.6 },
-                    ]}
-                    onPress={handleOpenRTKModal}
-                    disabled={isRTKSubmitting}
-                  >
-                    <View style={styles.configureTileIconWrap}>
-                      <Text style={styles.configureTileIcon}>
-                        {isRTKSubmitting ? "⏳" : "⚙️"}
-                      </Text>
-                    </View>
-                    <View style={styles.configureTileContent}>
-                      <Text style={styles.configureTileTitle}>
-                        Configure RTK Injection
-                      </Text>
-                      <Text style={styles.configureTileDescription}>
-                        Backend RTK profiles, activate, start, and stop
-                      </Text>
-                    </View>
-                    <View style={styles.chevronCircle}>
-                      <Text style={styles.chevronText}>›</Text>
-                    </View>
-                  </TouchableOpacity>
-
-                  {canStopRtk && (
-                    <TouchableOpacity
-                      style={[styles.stopRtkButton, { marginTop: 12 }]}
-                      onPress={handleStopRTKStream}
-                      disabled={isRTKSubmitting}
-                    >
-                      <Text style={styles.stopRtkButtonIcon}>⏹️</Text>
-                      <View style={styles.configureTileContent}>
-                        <Text style={styles.stopRtkButtonTitle}>
-                          Stop RTK Stream
-                        </Text>
-                        <Text style={styles.stopRtkButtonDescription}>
-                          Persist STOPPED state on the rover
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
+            {selectedCategory === "rtk" ? (
+              <View style={styles.rtkDetailContainer}>
+                <RTKInjectionScreen
+                  visible={visible && selectedCategory === "rtk"}
+                  embedded={true}
+                  onClose={() => {}}
+                  isConnected={connectionState === "connected"}
+                  services={services}
+                />
+              </View>
+            ) : (
+              <ScrollView
+                style={styles.detailScroll}
+                contentContainerStyle={styles.detailScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
 
               {/* 2. Spray Actuator Category */}
               {selectedCategory === "spray" && (
@@ -1490,57 +1321,47 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                 </View>
               )}
             </ScrollView>
-          </View>
+          )}
         </View>
+      </View>
 
-        {/* Bottom Footer */}
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={styles.logoutButton}
-            onPress={handleLogout}
-            accessibilityRole="button"
-            accessibilityLabel="Logout from rover"
-          >
-            <Text style={styles.logoutButtonText}>Logout</Text>
-          </TouchableOpacity>
+      {/* Bottom Footer */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={handleLogout}
+          accessibilityRole="button"
+          accessibilityLabel="Logout from rover"
+        >
+          <Text style={styles.logoutButtonText}>Logout</Text>
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.doneButton}
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close settings"
-          >
-            <Text style={styles.doneButtonText}>Done</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.doneButton}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close settings"
+        >
+          <Text style={styles.doneButtonText}>Done</Text>
+        </TouchableOpacity>
+      </View>
 
-        {/* Servo Configuration Modal */}
-        <ServoConfigModal
-          visible={showServoConfigModal}
-          currentConfig={servoConfig}
-          onClose={() => setShowServoConfigModal(false)}
-          onSave={handleSaveDuration}
-          onTest={handleServoTest}
-          maxDurationSec={manualOverrideTimeoutSec}
-        />
+      {/* Servo Configuration Modal */}
+      <ServoConfigModal
+        visible={showServoConfigModal}
+        currentConfig={servoConfig}
+        onClose={() => setShowServoConfigModal(false)}
+        onSave={handleSaveDuration}
+        onTest={handleServoTest}
+        maxDurationSec={manualOverrideTimeoutSec}
+      />
 
-        {/* MAVLink Param Browser Modal */}
-        <ParamBrowserModal
-          visible={showParamBrowser}
-          onClose={() => setShowParamBrowser(false)}
-        />
-
-        <RTKInjectionScreen
-          visible={showRTKModal}
-          asModal={false}
-          onClose={() => {
-            setShowRTKModal(false);
-            void refreshSettingsRtkStatus();
-          }}
-          services={services}
-          isConnected={connectionState === "connected"}
-        />
-      </SafeAreaView>
+      {/* MAVLink Param Browser Modal */}
+      <ParamBrowserModal
+        visible={showParamBrowser}
+        onClose={() => setShowParamBrowser(false)}
+      />
+    </SafeAreaView>
     </Modal>
   );
 };
@@ -1731,6 +1552,10 @@ const styles = StyleSheet.create({
   detailContainer: {
     flex: 1,
     backgroundColor: "#F8FAFC",
+  },
+  rtkDetailContainer: {
+    flex: 1,
+    padding: 16,
   },
   detailScroll: {
     flex: 1,

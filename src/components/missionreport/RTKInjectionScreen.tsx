@@ -36,6 +36,8 @@ interface Props {
    * Settings is already a Modal; stacking another crashes Android.
    */
   asModal?: boolean;
+  /** When true, renders directly inline without Modal or dark overlay */
+  embedded?: boolean;
 }
 
 export const RTKInjectionScreen: React.FC<Props> = ({
@@ -43,6 +45,7 @@ export const RTKInjectionScreen: React.FC<Props> = ({
   onClose,
   isConnected,
   asModal = true,
+  embedded = false,
 }) => {
   const { socket } = useConnection();
   const control = useRtkControl({
@@ -182,170 +185,184 @@ export const RTKInjectionScreen: React.FC<Props> = ({
 
   const controlsBusy = control.mutationBusy || importing;
 
-  const body = (
-      <View style={[styles.overlay, !asModal && styles.embeddedOverlay]}>
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <Pressable onPress={onClose} hitSlop={10} style={styles.close}>
-              <Text style={styles.closeText}>Close</Text>
-            </Pressable>
-            <Text style={styles.title}>Configure RTK Injection</Text>
-            <View style={styles.headerSpacer} />
-          </View>
-
-          <RtkStatusStrip view={control.view} />
-
-          {localProfiles.length > 0 ? (
-            <View style={styles.migration}>
-              <View style={styles.migrationCopy}>
-                <Text style={styles.migrationTitle}>
-                  Local RTK profiles found — Import to rover
-                </Text>
-                <Text style={styles.migrationBody}>
-                  {localProfiles.length} tablet profile
-                  {localProfiles.length === 1 ? "" : "s"} will not run RTK until
-                  imported. TLS defaults to REQUIRED.
-                </Text>
-              </View>
-              <Pressable
-                onPress={handleImport}
-                disabled={controlsBusy || !isConnected}
-                style={[
-                  styles.importButton,
-                  (controlsBusy || !isConnected) && styles.disabled,
-                ]}
-              >
-                {importing ? (
-                  <ActivityIndicator color="#041018" />
-                ) : (
-                  <Text style={styles.importText}>Import</Text>
-                )}
-              </Pressable>
-            </View>
-          ) : null}
-
-          {control.initialLoading ? (
-            <View style={styles.loading}>
-              <ActivityIndicator color={colors.accent} />
-              <Text style={styles.loadingText}>Loading backend RTK state…</Text>
-            </View>
-          ) : (
-            <>
-            <RtkSourceSelector
-              viewing={viewingSource}
-              savedSource={savedSource}
-              disabled={controlsBusy}
-              onView={handleViewSource}
-            />
-            {viewingSource === "LORA" ? (
-              <View style={styles.body}>
-                <RtkLoraSettings
-                  settings={control.view.sourceSettings}
-                  savedSource={savedSource}
-                  desiredState={control.view.desiredState}
-                  ports={control.serialPorts}
-                  portsLoading={control.serialPortsLoading}
-                  portsError={control.serialPortsError}
-                  suggestedOutputDevice={
-                    control.activeProfile?.direct_inject
-                      ? control.activeProfile.direct_serial_device ?? null
-                      : null
-                  }
-                  busy={controlsBusy}
-                  disabled={!isConnected}
-                  disabledReason={
-                    savedSource === "LORA" ? control.disabledReason : null
-                  }
-                  canStart={savedSource === "LORA" && control.canStart}
-                  canStop={savedSource === "LORA" && control.canStop}
-                  onRefreshPorts={loadSerialPorts}
-                  onSave={(dto) => control.updateCorrectionSource(dto)}
-                  onStart={() => control.start()}
-                  onStop={() => control.stop()}
-                />
-              </View>
-            ) : (
-            <>
-            {savedSource === "LORA" ? (
-              <View style={styles.sourceBanner}>
-                <Text style={styles.sourceBannerText}>
-                  LoRa is the correction source in use. NTRIP profiles can be
-                  edited here but are not used until you switch back.
-                </Text>
-                <Pressable
-                  onPress={handleUseNtrip}
-                  disabled={controlsBusy || !isConnected || control.view.activeProfileId == null}
-                  style={[
-                    styles.useNtripButton,
-                    (controlsBusy || !isConnected || control.view.activeProfileId == null) &&
-                      styles.disabled,
-                  ]}
-                >
-                  <Text style={styles.useNtripText}>Use NTRIP</Text>
-                </Pressable>
-              </View>
-            ) : null}
-            <View style={styles.body}>
-              <RtkProfileList
-                profiles={control.profiles}
-                selectedProfileId={creating ? null : control.selectedProfileId}
-                activeProfileId={control.view.activeProfileId}
-                disabled={controlsBusy || !isConnected}
-                onSelect={handleSelect}
-                onCreate={handleCreate}
-              />
-              <RtkProfileEditor
-                mode={editorMode}
-                profile={creating ? null : control.selectedProfile}
-                activeProfileId={control.view.activeProfileId}
-                desiredState={control.view.desiredState}
-                busy={controlsBusy}
-                disabled={!isConnected || importing}
-                disabledReason={
-                  importing ? "Legacy RTK profile import in progress" : control.disabledReason
-                }
-                // While LoRa is in use these buttons would drive LoRa, not the
-                // profile on screen, so NTRIP Start/Stop are disabled.
-                canStart={savedSource !== "LORA" && control.canStart}
-                canStop={savedSource !== "LORA" && control.canStop}
-                canDelete={control.canDelete}
-                onCreate={async (dto) => {
-                  const result = await control.createProfile(dto);
-                  if (result.ok) {
-                    setCreating(false);
-                    control.selectProfile(result.value.id);
-                  }
-                }}
-                onUpdate={async (id, dto) => {
-                  await control.updateProfile(id, dto);
-                }}
-                onDelete={async (id) => {
-                  await control.removeProfile(id);
-                }}
-                onActivate={async (id) => {
-                  await control.activateProfile(id);
-                }}
-                onClearActive={async () => {
-                  await control.clearActive();
-                }}
-                onStart={async () => {
-                  await control.start();
-                }}
-                onStop={async () => {
-                  await control.stop();
-                }}
-              />
-            </View>
-            </>
-            )}
-            </>
-          )}
-
-          {control.error ? (
-            <Text style={styles.error}>{control.error.message}</Text>
-          ) : null}
+  const content = (
+    <View style={embedded ? styles.embeddedContainer : styles.container}>
+      {!embedded && (
+        <View style={styles.header}>
+          <Pressable onPress={onClose} hitSlop={10} style={styles.close}>
+            <Text style={styles.closeText}>Close</Text>
+          </Pressable>
+          <Text style={styles.title}>Configure RTK Injection</Text>
+          <View style={styles.headerSpacer} />
         </View>
-      </View>
+      )}
+
+      <RtkStatusStrip view={control.view} />
+
+      {localProfiles.length > 0 ? (
+        <View style={styles.migration}>
+          <View style={styles.migrationCopy}>
+            <Text style={styles.migrationTitle}>
+              Local RTK profiles found — Import to rover
+            </Text>
+            <Text style={styles.migrationBody}>
+              {localProfiles.length} tablet profile
+              {localProfiles.length === 1 ? "" : "s"} will not run RTK until
+              imported. TLS defaults to REQUIRED.
+            </Text>
+          </View>
+          <Pressable
+            onPress={handleImport}
+            disabled={controlsBusy || !isConnected}
+            style={[
+              styles.importButton,
+              (controlsBusy || !isConnected) && styles.disabled,
+            ]}
+          >
+            {importing ? (
+              <ActivityIndicator color="#041018" />
+            ) : (
+              <Text style={styles.importText}>Import</Text>
+            )}
+          </Pressable>
+        </View>
+      ) : null}
+
+      {control.initialLoading ? (
+        <View style={styles.loading}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={styles.loadingText}>Loading backend RTK state…</Text>
+        </View>
+      ) : (
+        <>
+        <RtkSourceSelector
+          viewing={viewingSource}
+          savedSource={savedSource}
+          disabled={controlsBusy}
+          onView={handleViewSource}
+        />
+        {viewingSource === "LORA" ? (
+          <View style={styles.body}>
+            <RtkLoraSettings
+              settings={control.view.sourceSettings}
+              savedSource={savedSource}
+              desiredState={control.view.desiredState}
+              ports={control.serialPorts}
+              portsLoading={control.serialPortsLoading}
+              portsError={control.serialPortsError}
+              suggestedOutputDevice={
+                control.activeProfile?.direct_inject
+                  ? control.activeProfile.direct_serial_device ?? null
+                  : null
+              }
+              busy={controlsBusy}
+              disabled={!isConnected}
+              disabledReason={
+                savedSource === "LORA" ? control.disabledReason : null
+              }
+              canStart={savedSource === "LORA" && control.canStart}
+              canStop={savedSource === "LORA" && control.canStop}
+              onRefreshPorts={loadSerialPorts}
+              onSave={(dto) => control.updateCorrectionSource(dto)}
+              onStart={() => control.start()}
+              onStop={() => control.stop()}
+            />
+          </View>
+        ) : (
+        <>
+        {savedSource === "LORA" ? (
+          <View style={styles.sourceBanner}>
+            <Text style={styles.sourceBannerText}>
+              LoRa is the correction source in use. NTRIP profiles can be
+              edited here but are not used until you switch back.
+            </Text>
+            <Pressable
+              onPress={handleUseNtrip}
+              disabled={controlsBusy || !isConnected || control.view.activeProfileId == null}
+              style={[
+                styles.useNtripButton,
+                (controlsBusy || !isConnected || control.view.activeProfileId == null) &&
+                  styles.disabled,
+              ]}
+            >
+              <Text style={styles.useNtripText}>Use NTRIP</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        <View style={styles.body}>
+          <RtkProfileList
+            profiles={control.profiles}
+            selectedProfileId={creating ? null : control.selectedProfileId}
+            activeProfileId={control.view.activeProfileId}
+            disabled={controlsBusy || !isConnected}
+            onSelect={handleSelect}
+            onCreate={handleCreate}
+            onSetDefault={(id) => void control.activateProfile(id)}
+          />
+          <RtkProfileEditor
+            mode={editorMode}
+            profile={creating ? null : control.selectedProfile}
+            activeProfileId={control.view.activeProfileId}
+            desiredState={control.view.desiredState}
+            busy={controlsBusy}
+            disabled={!isConnected || importing}
+            disabledReason={
+              importing ? "Legacy RTK profile import in progress" : control.disabledReason
+            }
+            // While LoRa is in use these buttons would drive LoRa, not the
+            // profile on screen, so NTRIP Start/Stop are disabled.
+            canStart={savedSource !== "LORA" && control.canStart}
+            canStop={savedSource !== "LORA" && control.canStop}
+            canDelete={control.canDelete}
+            onCreate={async (dto) => {
+              const result = await control.createProfile(dto);
+              if (result.ok) {
+                setCreating(false);
+                control.selectProfile(result.value.id);
+              }
+            }}
+            onUpdate={async (id, dto) => {
+              await control.updateProfile(id, dto);
+            }}
+            onDelete={async (id) => {
+              await control.removeProfile(id);
+            }}
+            onActivate={async (id) => {
+              await control.activateProfile(id);
+            }}
+            onClearActive={async () => {
+              await control.clearActive();
+            }}
+            onStart={async () => {
+              await control.start();
+            }}
+            onStop={async () => {
+              await control.stop();
+            }}
+          />
+        </View>
+        </>
+        )}
+        </>
+      )}
+
+      {control.error ? (
+        <Text style={styles.error}>{control.error.message}</Text>
+      ) : null}
+    </View>
+  );
+
+  if (embedded) {
+    if (!visible) {
+      return null;
+    }
+    return content;
+  }
+
+  const body = (
+    <View style={[styles.overlay, !asModal && styles.embeddedOverlay]}>
+      {content}
+    </View>
   );
 
   if (!asModal) {
@@ -383,37 +400,50 @@ const styles = StyleSheet.create({
   container: {
     width: "96%",
     height: "94%",
-    backgroundColor: colors.primary,
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#DDE8F7",
     overflow: "hidden",
+  },
+  embeddedContainer: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#DDE8F7",
+    overflow: "hidden",
+    shadowColor: "#173563",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   header: {
     minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.secondary,
+    borderBottomColor: "#DDE8F7",
+    backgroundColor: "#FFFFFF",
   },
   close: {
-    minHeight: 48,
+    minHeight: 40,
     minWidth: 72,
     justifyContent: "center",
   },
   closeText: {
-    color: colors.cyan,
+    color: "#1475EE",
     fontWeight: "800",
   },
   title: {
     flex: 1,
     textAlign: "center",
-    color: colors.text,
+    color: "#10244B",
     fontSize: 18,
     fontWeight: "800",
-    letterSpacing: 0.6,
+    letterSpacing: -0.2,
   },
   headerSpacer: {
     width: 72,
@@ -424,33 +454,33 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: "#1f2937",
+    backgroundColor: "#FEF3C7",
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: "#FDE68A",
   },
   migrationCopy: {
     flex: 1,
   },
   migrationTitle: {
-    color: colors.warning,
+    color: "#B45309",
     fontWeight: "800",
   },
   migrationBody: {
-    color: colors.textSecondary,
+    color: "#92400E",
     fontSize: 12,
     marginTop: 2,
   },
   importButton: {
-    minHeight: 48,
-    minWidth: 96,
-    borderRadius: 10,
-    backgroundColor: colors.warning,
+    minHeight: 40,
+    minWidth: 84,
+    borderRadius: 8,
+    backgroundColor: "#F59E0B",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
   },
   importText: {
-    color: "#041018",
+    color: "#FFFFFF",
     fontWeight: "800",
   },
   loading: {
@@ -460,45 +490,48 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   loadingText: {
-    color: colors.textSecondary,
+    color: "#64748B",
   },
   body: {
     flex: 1,
     flexDirection: "row",
+    backgroundColor: "#FFFFFF",
   },
   sourceBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: "#1f2937",
+    paddingVertical: 10,
+    backgroundColor: "#EFF6FF",
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: "#BFDBFE",
   },
   sourceBannerText: {
     flex: 1,
-    color: colors.warning,
+    color: "#1E40AF",
     fontSize: 12,
     lineHeight: 18,
+    fontWeight: "500",
   },
   useNtripButton: {
-    minHeight: 48,
-    minWidth: 112,
-    borderRadius: 10,
-    backgroundColor: colors.accent,
+    minHeight: 38,
+    minWidth: 100,
+    borderRadius: 8,
+    backgroundColor: "#1475EE",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 14,
   },
   useNtripText: {
-    color: "#fff",
+    color: "#FFFFFF",
     fontWeight: "800",
   },
   error: {
-    color: colors.danger,
+    color: "#EF4444",
     paddingHorizontal: 16,
     paddingVertical: 8,
+    fontWeight: "600",
   },
   disabled: {
     opacity: 0.5,

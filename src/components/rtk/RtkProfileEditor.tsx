@@ -182,6 +182,21 @@ export const RtkProfileEditor: React.FC<Props> = ({
     <View style={styles.wrap}>
       <Text style={styles.title}>{title}</Text>
       {disabledReason ? <Text style={styles.reason}>{disabledReason}</Text> : null}
+      {profile && profile.id === activeProfileId ? (
+        <View style={styles.activeBannerContainer}>
+          <View style={styles.activeBanner}>
+            <View style={styles.activeDot} />
+            <Text style={styles.activeBannerText}>
+              ACTIVE PROFILE — Currently streaming RTK corrections
+            </Text>
+          </View>
+          <View style={styles.defaultBanner}>
+            <Text style={styles.defaultBannerText}>
+              ★ DEFAULT PROFILE — Automatically used on rover boot
+            </Text>
+          </View>
+        </View>
+      ) : null}
 
       <ScrollView style={styles.form} contentContainerStyle={styles.formContent}>
         <Field
@@ -377,19 +392,35 @@ export const RtkProfileEditor: React.FC<Props> = ({
         {profile ? (
           <Pressable
             onPress={() => void onActivate(profile.id)}
-            disabled={controlsDisabled}
-            style={[styles.action, styles.secondary, controlsDisabled && styles.disabled]}
+            disabled={controlsDisabled || profile.id === activeProfileId}
+            style={[
+              styles.action,
+              profile.id === activeProfileId ? styles.defaultActive : styles.secondary,
+              (controlsDisabled || profile.id === activeProfileId) && styles.disabled,
+            ]}
           >
-            <Text style={styles.actionText}>Activate</Text>
+            <View style={styles.buttonContent}>
+              {profile.id === activeProfileId ? (
+                <View style={styles.buttonActiveDot} />
+              ) : null}
+              <Text
+                style={[
+                  styles.actionText,
+                  profile.id !== activeProfileId && styles.secondaryText,
+                ]}
+              >
+                {profile.id === activeProfileId ? "★ Default (Active)" : "Set as Default"}
+              </Text>
+            </View>
           </Pressable>
         ) : null}
         {profile && profile.id === activeProfileId ? (
           <Pressable
             onPress={() => void onClearActive()}
             disabled={controlsDisabled}
-            style={[styles.action, styles.secondary, controlsDisabled && styles.disabled]}
+            style={[styles.action, styles.clearBtn, controlsDisabled && styles.disabled]}
           >
-            <Text style={styles.actionText}>Clear active</Text>
+            <Text style={styles.clearBtnText}>Clear Default</Text>
           </Pressable>
         ) : null}
         <Pressable
@@ -462,7 +493,7 @@ const Field: React.FC<{
       keyboardType={keyboardType}
       secureTextEntry={secureTextEntry}
       style={styles.input}
-      placeholderTextColor={colors.textMuted}
+      placeholderTextColor="#94A3B8"
     />
     {error ? <Text style={styles.error}>{error}</Text> : null}
   </View>
@@ -472,35 +503,80 @@ const styles = StyleSheet.create({
   wrap: {
     flex: 1,
     minWidth: 320,
+    backgroundColor: "#FFFFFF",
   },
   idle: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
+    backgroundColor: "#FFFFFF",
   },
   idleTitle: {
-    color: colors.text,
+    color: "#10244B",
     fontSize: 18,
     fontWeight: "800",
     marginBottom: 8,
   },
   idleBody: {
-    color: colors.textSecondary,
+    color: "#526B93",
     textAlign: "center",
     lineHeight: 20,
+    fontSize: 13,
   },
   title: {
-    color: colors.text,
+    color: "#10244B",
     fontSize: 16,
     fontWeight: "800",
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 14,
+    paddingBottom: 6,
   },
   reason: {
-    color: colors.warning,
+    color: "#D97706",
     paddingHorizontal: 16,
-    paddingTop: 6,
+    paddingTop: 4,
+    fontSize: 12,
+  },
+  activeBannerContainer: {
+    marginHorizontal: 14,
+    marginBottom: 10,
+    gap: 6,
+  },
+  activeBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#E6F8F1",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  activeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#16B980",
+  },
+  activeBannerText: {
+    color: "#059669",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  defaultBanner: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+  },
+  defaultBannerText: {
+    color: "#1D4ED8",
+    fontSize: 12,
+    fontWeight: "700",
   },
   form: {
     flex: 1,
@@ -508,27 +584,28 @@ const styles = StyleSheet.create({
   formContent: {
     padding: 16,
     paddingBottom: 28,
-    gap: 8,
+    gap: 10,
   },
   field: {
     gap: 4,
   },
   label: {
-    color: colors.textSecondary,
+    color: "#526B93",
     fontSize: 12,
     fontWeight: "700",
   },
   input: {
-    minHeight: 48,
+    minHeight: 46,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBg,
-    color: colors.text,
+    borderColor: "#DDE8F7",
+    backgroundColor: "#F8FAFC",
+    color: "#10244B",
     paddingHorizontal: 12,
+    fontSize: 14,
   },
   error: {
-    color: colors.danger,
+    color: "#EF4444",
     fontSize: 12,
   },
   tlsRow: {
@@ -536,76 +613,109 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   tlsButton: {
-    minHeight: 48,
+    minHeight: 46,
     flex: 1,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 1.5,
+    borderColor: "#DDE8F7",
+    backgroundColor: "#F8FAFC",
     alignItems: "center",
     justifyContent: "center",
   },
   tlsSelected: {
-    borderColor: colors.success,
-    backgroundColor: "#0d2a22",
+    borderColor: "#16B980",
+    backgroundColor: "#E6F8F1",
   },
   tlsDanger: {
-    borderColor: colors.danger,
-    backgroundColor: "#2a1010",
+    borderColor: "#EF4444",
+    backgroundColor: "#FEE2E2",
   },
   tlsText: {
-    color: colors.text,
+    color: "#10244B",
     fontWeight: "800",
   },
   warn: {
-    color: colors.warning,
+    color: "#D97706",
     fontSize: 12,
     lineHeight: 18,
   },
   switchRow: {
-    minHeight: 48,
+    minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   advancedToggle: {
-    minHeight: 48,
+    minHeight: 40,
     justifyContent: "center",
   },
   advancedText: {
-    color: colors.cyan,
+    color: "#1475EE",
     fontWeight: "700",
+    fontSize: 13,
   },
   advanced: {
-    gap: 8,
+    gap: 10,
   },
   actions: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
     padding: 12,
+    backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: "#DDE8F7",
   },
   action: {
-    minHeight: 48,
+    minHeight: 42,
     minWidth: 96,
     paddingHorizontal: 14,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
+  buttonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  buttonActiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#FFFFFF",
+  },
   save: {
-    backgroundColor: colors.accent,
+    backgroundColor: "#1475EE",
   },
   secondary: {
-    backgroundColor: "#1e3a54",
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+  },
+  secondaryText: {
+    color: "#1E293B",
+  },
+  clearBtn: {
+    backgroundColor: "#FFF1F2",
+    borderWidth: 1,
+    borderColor: "#FECDD3",
+  },
+  clearBtnText: {
+    color: "#E11D48",
+    fontWeight: "800",
+    fontSize: 13,
   },
   stop: {
-    backgroundColor: colors.danger,
+    backgroundColor: "#EF4444",
   },
   actionText: {
-    color: "#fff",
+    color: "#FFFFFF",
     fontWeight: "800",
+    fontSize: 13,
+  },
+  defaultActive: {
+    backgroundColor: "#16B980",
   },
   disabled: {
     opacity: 0.45,

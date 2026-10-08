@@ -11,14 +11,14 @@ interface Props {
 function toneColor(tone: RtkControlViewModel["tone"]): string {
   switch (tone) {
     case "healthy":
-      return colors.success;
+      return "#16B980";
     case "transitional":
     case "degraded":
-      return colors.warning;
+      return "#F59E0B";
     case "terminal":
-      return colors.danger;
+      return "#EF4444";
     default:
-      return colors.textSecondary;
+      return "#64748B";
   }
 }
 
@@ -124,37 +124,38 @@ const Metric: React.FC<{ label: string; value: string }> = ({
 
 const styles = StyleSheet.create({
   wrap: {
-    backgroundColor: colors.secondary,
+    backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: "#DDE8F7",
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 10,
   },
   headline: {
-    minHeight: 48,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
+    minHeight: 46,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: colors.primary,
+    backgroundColor: "#F8FAFC",
   },
   dot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
   headlineText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
   },
   desired: {
     marginLeft: "auto",
-    color: colors.textSecondary,
+    color: "#64748B",
     fontSize: 12,
+    fontWeight: "600",
   },
   grid: {
     flexDirection: "row",
@@ -166,15 +167,16 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   metricLabel: {
-    color: colors.textSecondary,
+    color: "#64748B",
     fontSize: 11,
+    fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   metricValue: {
-    color: colors.text,
+    color: "#10244B",
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "800",
     marginTop: 2,
   },
 });
