@@ -14,6 +14,7 @@ This file is the **mandatory living handover register** for all AI agents, engin
 | :--- | :--- | :--- | :--- | :--- |
 | **001** | 2026-10-09 | GNSS/RTK White Theme Refactor & Inline Spray Actuator (Mission Defaults) with Tap Testing | COMPLETED | Antigravity AI Agent |
 | **002** | 2026-10-09 | Classic Production-Grade Vector Icons Refactor (SettingsScreen & SprayActuatorCard) | COMPLETED | Antigravity AI Agent |
+| **003** | 2026-10-09 | Field Build Gating of MAVLink Params in System Settings | COMPLETED | Antigravity AI Agent |
 
 ---
 
@@ -241,4 +242,69 @@ When recording a completed section/task, copy and fill out the template below:
   - Untracked files: `src/constants/icons.ts`, `src/components/shared/AppIcon.tsx`, `src/components/settings/__tests__/SettingsScreenIcons.test.tsx`, `src/screens/__tests__/SettingsScreenIconsRegression.test.ts`.
 - **Recommended Next Steps for Next Agent:**
   - If the operator wishes to refactor casual emojis in other screens (e.g. `MainGCSControlScreen.tsx`, `ManualControlScreen.tsx`, `PathPlanScreen.tsx`), utilize the centralized `src/constants/icons.ts` and `<AppIcon>` component created here.
+
+---
+
+## Entry 003 — Field Build Gating of MAVLink Params in System Settings
+- **Date & Time:** 2026-10-09 15:25 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Antigravity AI Agent
+
+### 1. Objective & Scope
+1. **Disable MAVLink Parameters in Field Build**:
+   - Hide and disable the `"MAVLink Params"` category from the System Settings screen (`SettingsScreen.tsx`).
+   - Retain [`ParamBrowserModal.tsx`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/components/settings/ParamBrowserModal.tsx) and [`types/params.ts`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/types/params.ts) on disk fully compilable for future re-enablement.
+   - Guard against stale or invalid category selection so `selectedCategory` falls back safely to `"rtk"`.
+2. **Re-Enablement Mechanism**:
+   - Introduce an explicit `export const ENABLE_MAVLINK_PARAMS = false;` toggle at the top of `SettingsScreen.tsx`.
+   - To re-enable in the future: toggle `ENABLE_MAVLINK_PARAMS = true;`.
+
+### 2. Changes Implemented
+- **Files Modified:**
+  - [`src/screens/SettingsScreen.tsx`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/screens/SettingsScreen.tsx):
+    - Added `export const ENABLE_MAVLINK_PARAMS = false;` with explanatory comment.
+    - Preserved `"mavlink"` in `SettingsCategory` type union and created `ALL_SETTINGS_CATEGORIES`.
+    - Filtered visible `SETTINGS_CATEGORIES` to exclude `"mavlink"` when `ENABLE_MAVLINK_PARAMS === false` (yielding exactly 5 items: `rtk`, `mission`, `obstacle`, `voice`, `led`).
+    - Added reactive fallback guard in `useEffect` and `handleSelectCategory` ensuring unlisted categories automatically fall back to `SETTINGS_CATEGORIES[0].id`.
+    - Gated the MAVLink detail card (`ENABLE_MAVLINK_PARAMS && selectedCategory === "mavlink" && (...)`) and modal instance (`ENABLE_MAVLINK_PARAMS && <ParamBrowserModal ... />`) directly in JSX without block comments.
+- **Files Created:**
+  - [`src/screens/__tests__/SettingsScreenCategories.test.ts`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/screens/__tests__/SettingsScreenCategories.test.ts):
+    - 3 unit tests verifying `ENABLE_MAVLINK_PARAMS` is `false`, visible `SETTINGS_CATEGORIES` contains exactly 5 categories without `"mavlink"`, and `ALL_SETTINGS_CATEGORIES` retains `"mavlink"` for future re-enablement.
+
+### 3. Key Architecture & Design Decisions
+1. **Decision 1 — Feature Flag vs Code Deletion:**
+   - Kept `ParamBrowserModal.tsx` and `types/params.ts` intact and compilable.
+   - Setting `ENABLE_MAVLINK_PARAMS = true` instantly restores the category to the sidebar, renders the detail card, and wires the modal without any merge or rewrite.
+2. **Decision 2 — Clean JSX Gating:**
+   - Evaluated dynamically in JSX rather than wrapping large JSX blocks in multiline comments, preserving syntax validity and IDE type checking.
+3. **Decision 3 — Fallback Selection Guard:**
+   - If an unexpected action or restored state sets `selectedCategory = "mavlink"`, the `useEffect` fallback hook immediately resets it to the first visible category (`"rtk"`).
+
+### 4. Hardware Safety & Safety Interlocks
+- Disabling the low-level MAVLink parameter browser prevents operators from attempting parameter modifications over stubbed NRP_ROS endpoints while the rover is in ROS 2 / PX4 OFFBOARD operation under `4WD_SERVER`.
+- Zero changes to Spray Actuator, RTK/GNSS, LiDAR obstacle detection, or E-Stop logic.
+
+### 5. Verification & Testing
+- **Unit Tests:**
+  - Command: `npm test -- --testPathPattern="SettingsScreen|SprayActuatorCard|useSprayActuator" --silent`
+  - Result: **37 passed, 37 total (5 test suites)**.
+    - `SettingsScreenIconsRegression.test.ts` (PASS)
+    - `SettingsScreenCategories.test.ts` (PASS)
+    - `SettingsScreenIcons.test.tsx` (PASS)
+    - `SprayActuatorCard.test.tsx` (PASS)
+    - `useSprayActuator.test.ts` (PASS)
+- **Type Checking:**
+  - Command: `npx tsc --noEmit`
+  - Result: **0 compilation errors** in touched files.
+- **Metro Bundler Check:**
+  - Command: `curl.exe -s -o NUL -w "%{http_code}" "http://127.0.0.1:8081/src/screens/SettingsScreen.bundle?platform=android&dev=true"`
+  - Result: **HTTP 200 OK**.
+- **Emoji Cleanliness:**
+  - Verified zero emojis in code or comments via `SettingsScreenIconsRegression.test.ts`.
+
+### 6. Current Repository State & Next Steps
+- **Branch:** `client_`
+- **How to Re-Enable MAVLink Params:**
+  - In `src/screens/SettingsScreen.tsx`, change `export const ENABLE_MAVLINK_PARAMS = false;` to `export const ENABLE_MAVLINK_PARAMS = true;`.
+
 

@@ -52,6 +52,9 @@ interface SettingsScreenProps {
   onClose: () => void;
 }
 
+// MAVLink param browser disabled in the field build; re-enable when the 4WD_SERVER backend exposes parameter services.
+export const ENABLE_MAVLINK_PARAMS = false;
+
 export type SettingsCategory =
   | "rtk"
   | "mission"
@@ -60,14 +63,14 @@ export type SettingsCategory =
   | "led"
   | "mavlink";
 
-interface SettingsCategoryItem {
+export interface SettingsCategoryItem {
   id: SettingsCategory;
   title: string;
   subtitle: string;
   iconKey: AppIconKey;
 }
 
-const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
+export const ALL_SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: "rtk", title: "GNSS & RTK", subtitle: "Differential fix & NTRIP", iconKey: "categoryRtk" },
   { id: "mission", title: "Mission Defaults", subtitle: "Marking tool & defaults", iconKey: "categoryMission" },
   { id: "obstacle", title: "Obstacle Safety", subtitle: "Front LiDAR & auto-stop", iconKey: "categoryObstacle" },
@@ -76,12 +79,26 @@ const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: "mavlink", title: "MAVLink Params", subtitle: "ArduRover autopilot", iconKey: "categoryMavlink" },
 ];
 
+export const SETTINGS_CATEGORIES: SettingsCategoryItem[] = ENABLE_MAVLINK_PARAMS
+  ? ALL_SETTINGS_CATEGORIES
+  : ALL_SETTINGS_CATEGORIES.filter((cat) => cat.id !== "mavlink");
+
 const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
   visible,
   onClose,
 }) => {
   const { logout, session } = useAuth();
-  const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>("rtk");
+  const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>(
+    SETTINGS_CATEGORIES[0]?.id ?? "rtk",
+  );
+
+  // Fallback guard: ensure selectedCategory is always in the visible categories list
+  useEffect(() => {
+    const isVisible = SETTINGS_CATEGORIES.some((cat) => cat.id === selectedCategory);
+    if (!isVisible && SETTINGS_CATEGORIES.length > 0) {
+      setSelectedCategory(SETTINGS_CATEGORIES[0].id);
+    }
+  }, [selectedCategory]);
 
   const {
     gpsFailsafeMode,
@@ -243,6 +260,9 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
   const handleSelectCategory = useCallback(
     (cat: SettingsCategory) => {
+      if (!SETTINGS_CATEGORIES.some((c) => c.id === cat)) {
+        return;
+      }
       if (selectedCategory === "mission" && cat !== "mission" && sprayActuator.isDirty) {
         Alert.alert(
           "Unsaved Spray Changes",
@@ -1128,7 +1148,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
               )}
 
               {/* 7. MAVLink Parameters Category */}
-              {selectedCategory === "mavlink" && (
+              {ENABLE_MAVLINK_PARAMS && selectedCategory === "mavlink" && (
                 <View style={styles.detailCard}>
                   <View style={styles.cardHeader}>
                     <View style={styles.cardHeaderLeft}>
@@ -1205,10 +1225,12 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       </View>
 
       {/* MAVLink Param Browser Modal */}
-      <ParamBrowserModal
-        visible={showParamBrowser}
-        onClose={() => setShowParamBrowser(false)}
-      />
+      {ENABLE_MAVLINK_PARAMS && (
+        <ParamBrowserModal
+          visible={showParamBrowser}
+          onClose={() => setShowParamBrowser(false)}
+        />
+      )}
     </SafeAreaView>
     </Modal>
   );
