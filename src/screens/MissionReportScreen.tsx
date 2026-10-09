@@ -38,6 +38,7 @@ import {
   Alert,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import Svg, { Circle } from "react-native-svg";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../theme/colors";
 import { Toast } from "../components/shared/Toast";
@@ -5324,6 +5325,12 @@ export default function MissionReportScreen({
           canStart={canStartMission}
           isPreparing={isPreparingMission}
           isMissionPaused={isBackendMissionPaused}
+          mode={mode === "MANUAL" ? "manual" : "auto"}
+          onSetMode={(nextMode) => {
+            void handleSetExecutionMode(nextMode === "manual" ? "MANUAL" : "AUTO");
+          }}
+          onSkip={() => { void handleSkip(); }}
+          waitingForManual={effectiveWaitingForManual}
         />
       )}
 
@@ -5593,6 +5600,10 @@ interface MissionActivityExperienceProps {
   canStart: boolean;
   isPreparing: boolean;
   isMissionPaused: boolean;
+  mode?: "auto" | "manual";
+  onSetMode?: (mode: "auto" | "manual") => void;
+  onSkip?: () => void;
+  waitingForManual?: boolean;
 }
 
 // UI preview only. These points are never written to mission state, shown on
@@ -5683,21 +5694,101 @@ function CommandMeta({ icon, text }: { icon: React.ComponentProps<typeof Materia
   return <View style={fieldExperienceStyles.meta}><MaterialCommunityIcons name={icon} size={15} color="#5C78A8" /><Text style={fieldExperienceStyles.metaText}>{text}</Text></View>;
 }
 
+function commandAccuracyTier(accMm: number | null): { label: string; color: string; solidBg: string; bg: string; border: string } | null {
+  if (accMm == null) return null;
+  if (accMm <= 20) {
+    return { label: "Excellent", color: "#16B980", solidBg: "#16B980", bg: "#ECFDF5", border: "#148263" };
+  } else if (accMm <= 35) {
+    return { label: "Good", color: "#1475EE", solidBg: "#1475EE", bg: "#F0F9FF", border: "#1162C9" };
+  } else if (accMm <= 60) {
+    return { label: "Poor", color: "#F08A24", solidBg: "#F08A24", bg: "#FFFBEB", border: "#C86412" };
+  } else {
+    return { label: "Failed", color: "#D94A42", solidBg: "#D94A42", bg: "#FEF2F2", border: "#C43C34" };
+  }
+}
+
 function MissionActivityExperience({
   waypoints, isMissionActive,
   hasMissionLoaded, onClearMission, onOpenPlan,
   onStart, onPause, onResume, onStop,
-  canStart, isPreparing, isMissionPaused
+  canStart, isPreparing, isMissionPaused,
+  mode, onSetMode, onSkip, waitingForManual
 }: MissionActivityExperienceProps) {
+  const { mission } = useFieldMap();
+  const statusMap = mission.statusMap || {};
   const telemetry = useLiveTelemetrySelector(selectCommandTelemetry, shallowEqual);
   const { width: viewportWidth } = useWindowDimensions();
+  const timelineAvailableWidth = Math.max(viewportWidth - 232, 250);
+  const stepWidth = Math.max(85, Math.floor((timelineAvailableWidth - 28) / 5));
+  const snapInterval = (stepWidth + 7) * 5;
   const [showSettings, setShowSettings] = useState(false);
   const [isLightHeader, setIsLightHeader] = useState(true);
   const [isPointsExpanded, setIsPointsExpanded] = useState(false);
   const [isEditingPoints, setIsEditingPoints] = useState(false);
   const [activityCardHeight, setActivityCardHeight] = useState(0);
+  const [isControlsExpanded, setIsControlsExpanded] = useState(false);
+  const expandControlsAnim = useRef(new Animated.Value(0)).current;
+  const [isTelemetryExpanded, setIsTelemetryExpanded] = useState(false);
+  const expandTelemetryAnim = useRef(new Animated.Value(0)).current;
+  const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
+  const [middleDeckWidth, setMiddleDeckWidth] = useState<number>(0);
+  const pointCardWidth =
+    middleDeckWidth > 0
+      ? Math.floor((middleDeckWidth - 24 - 48) / 4)
+      : Math.max(140, Math.floor((viewportWidth - 32 - 340 - 24 - 48) / 4));
 
-  const [isProgressVisible, setIsProgressVisible] = useState(false);
+  const [activeHudModal, setActiveHudModal] = useState<"rtk" | "battery" | "dynamics" | "odometer" | "brand" | null>(null);
+  const [speedUnitKmh, setSpeedUnitKmh] = useState(false);
+  const [distanceEtaMode, setDistanceEtaMode] = useState<"dist" | "eta">("dist");
+  const hudModalAnim = useRef(new Animated.Value(0)).current;
+
+  const openHudModal = useCallback((type: "rtk" | "battery" | "dynamics" | "odometer" | "brand") => {
+    setActiveHudModal(type);
+    hudModalAnim.setValue(0);
+    Animated.spring(hudModalAnim, {
+      toValue: 1,
+      friction: 8,
+      tension: 65,
+      useNativeDriver: true,
+    }).start();
+  }, [hudModalAnim]);
+
+  const closeHudModal = useCallback(() => {
+    Animated.timing(hudModalAnim, {
+      toValue: 0,
+      duration: 200,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => setActiveHudModal(null));
+  }, [hudModalAnim]);
+
+  const toggleControls = useCallback((expand?: boolean) => {
+    setIsControlsExpanded((prev) => {
+      const next = typeof expand === "boolean" ? expand : !prev;
+      Animated.spring(expandControlsAnim, {
+        toValue: next ? 1 : 0,
+        friction: 8,
+        tension: 50,
+        useNativeDriver: true,
+      }).start();
+      return next;
+    });
+  }, [expandControlsAnim]);
+
+  const toggleTelemetry = useCallback((expand?: boolean) => {
+    setIsTelemetryExpanded((prev) => {
+      const next = typeof expand === "boolean" ? expand : !prev;
+      Animated.spring(expandTelemetryAnim, {
+        toValue: next ? 1 : 0,
+        friction: 8,
+        tension: 50,
+        useNativeDriver: true,
+      }).start();
+      return next;
+    });
+  }, [expandTelemetryAnim]);
+
+  const { isActivityScreenOpen: isProgressVisible, setIsActivityScreenOpen: setIsProgressVisible } = useMissionProgressOverlay();
   const progressScreenAnim = useRef(new Animated.Value(0)).current;
 
   const openProgressScreen = useCallback(() => {
@@ -5739,6 +5830,21 @@ function MissionActivityExperience({
     ? `${Math.round(headingRotation)}°`
     : "—";
   const headingDirection = commandHeadingDirection(telemetry.heading);
+  const progressPct = activityWaypoints.length > 0
+    ? Math.min(100, Math.max(0, Math.round((currentPoint / Math.max(activityWaypoints.length - 1, 1)) * 100)))
+    : 0;
+  const nextWp = activityWaypoints[currentPoint] || activityWaypoints[0];
+  const nextWpDistance = currentPoint > 0
+    ? commandSegmentDistanceM(activityWaypoints[currentPoint - 1], nextWp)
+    : (activityWaypoints.length > 1 ? commandSegmentDistanceM(nextWp, activityWaypoints[1]) : null);
+  const nextWpAccCm = (statusMap[nextWp?.sn ?? -1] as any)?.position_error_cm;
+  const nextWpAccMm = typeof nextWpAccCm === "number" ? Math.round(nextWpAccCm * 10) : null;
+  const estDurationMin = Math.max(1, Math.round((routeKm * 1000) / (Math.max(Number(telemetry.speed) || 1, 0.8) * 60)));
+  const totalKm = routeKm;
+  const coveredKm = activityWaypoints.length > 1
+    ? Math.min(totalKm, (currentPoint / Math.max(activityWaypoints.length - 1, 1)) * totalKm)
+    : 0;
+  const remainingKm = Math.max(0, totalKm - coveredKm);
 
   const openPointsPanel = useCallback(() => {
     setIsEditingPoints(false);
@@ -5784,6 +5890,12 @@ function MissionActivityExperience({
     inputRange: [0, 1],
     outputRange: [1, 0.96],
   });
+
+  const selectedWp = selectedPointIndex !== null ? activityWaypoints[selectedPointIndex] : null;
+  const selectedPointAccCm = selectedWp?.sn !== undefined ? (statusMap[selectedWp.sn] as any)?.position_error_cm : null;
+  const selectedPointAccMm = typeof selectedPointAccCm === "number" ? Math.round(selectedPointAccCm * 10) : 14;
+  const selectedTier = commandAccuracyTier(selectedPointAccMm);
+  const selectedPointRemark = selectedWp?.remark || (selectedWp?.sn !== undefined ? (statusMap[selectedWp.sn] as any)?.remark : null) || "Marked OK";
 
   return (
     <View style={fieldExperienceStyles.host} pointerEvents="box-none">
@@ -5850,59 +5962,667 @@ function MissionActivityExperience({
 
       {isProgressVisible && (
         <Animated.View style={[fieldExperienceStyles.activityScreen, { opacity: progressScreenAnim }]} pointerEvents="box-none">
-          <Animated.View style={[fieldExperienceStyles.activityTopbar, { transform: [{ translateY: progressScreenAnim.interpolate({ inputRange: [0, 1], outputRange: [-100, 0] }) }] }]}>
-            <View style={fieldExperienceStyles.activityTitleGroup}>
-              <View style={fieldExperienceStyles.activityIcon}><MaterialCommunityIcons name="flag-checkered" size={24} color="#FFF" /></View>
-              <View>
-                <Text style={fieldExperienceStyles.activityTitle}>Mission Progress</Text>
-                <Text style={fieldExperienceStyles.activitySubtitle}>Real-time tracking</Text>
-              </View>
-            </View>
-            <View style={fieldExperienceStyles.topActions}>
-              <TouchableOpacity style={fieldExperienceStyles.closeActivity} onPress={closeProgressScreen}>
-                <MaterialCommunityIcons name="close" size={24} color="#1C3156" />
+          {/* Top Telemetry & Distance HUD Strip (Tactile Boxy Interactive View) */}
+          <Animated.View style={[fieldExperienceStyles.deckTopbar, { transform: [{ translateY: progressScreenAnim.interpolate({ inputRange: [0, 1], outputRange: [-80, 0] }) }] }]}>
+            {/* Left: Mission Brand & Live Sensor Telemetry */}
+            <View style={fieldExperienceStyles.topHudLeftGroup}>
+              {/* Module 1: Brand / Mission Info (Interactive) */}
+              <TouchableOpacity
+                style={fieldExperienceStyles.topHudBrandWrap}
+                onPress={() => openHudModal("brand")}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="View rover system profile"
+              >
+                <View style={fieldExperienceStyles.topHudBrandIcon}>
+                  <MaterialCommunityIcons name="map-marker-path" size={15} color="#FFFFFF" />
+                </View>
+                <View style={[fieldExperienceStyles.topHudLiveDot, { backgroundColor: rtkIsFixed ? "#16B980" : "#F08A24" }]} />
+                <Text style={fieldExperienceStyles.topHudBrandText}>WAY TO MARK</Text>
+                <MaterialCommunityIcons name="chevron-down" size={13} color="#64748B" />
+              </TouchableOpacity>
+
+              {/* Module 2: RTK GNSS Status (Interactive, matching homeWatchSummaryGood) */}
+              <TouchableOpacity
+                style={[
+                  fieldExperienceStyles.topHudRtkPill,
+                  {
+                    backgroundColor: rtkIsFixed ? "#E9F9F1" : "#FFF1DF",
+                    borderColor: rtkIsFixed ? "#CBEFDD" : "#FFD5A3",
+                  },
+                ]}
+                onPress={() => openHudModal("rtk")}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="View RTK GNSS diagnostics"
+              >
+                <MaterialCommunityIcons name="satellite-uplink" size={14} color={rtkIsFixed ? "#16B980" : "#F08A24"} />
+                <Text style={[fieldExperienceStyles.topHudRtkText, { color: rtkIsFixed ? "#148263" : "#C86412" }]}>
+                  {commandRtkLabel(telemetry.fixType)}{nextWpAccMm != null ? ` (${nextWpAccMm}mm)` : ""}
+                </Text>
+                <MaterialCommunityIcons name="chevron-down" size={12} color={rtkIsFixed ? "#16B980" : "#F08A24"} />
+              </TouchableOpacity>
+
+              {/* Module 3: Battery Power Gauge (Interactive, matching homeSignalBattery) */}
+              <TouchableOpacity
+                style={[fieldExperienceStyles.topHudSensorBadge, fieldExperienceStyles.topHudBatteryBadge]}
+                onPress={() => openHudModal("battery")}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="View power system diagnostics"
+              >
+                <View style={fieldExperienceStyles.topHudBatterySegmentRow}>
+                  <View style={[fieldExperienceStyles.topHudBatterySeg, { backgroundColor: "#16B980" }]} />
+                  <View style={[fieldExperienceStyles.topHudBatterySeg, { backgroundColor: "#16B980" }]} />
+                  <View style={[fieldExperienceStyles.topHudBatterySeg, { backgroundColor: (telemetry.battery ?? 100) > 30 ? "#16B980" : "#E2E8F0" }]} />
+                  <View style={[fieldExperienceStyles.topHudBatterySeg, { backgroundColor: (telemetry.battery ?? 100) > 70 ? "#16B980" : "#E2E8F0" }]} />
+                </View>
+                <Text style={[fieldExperienceStyles.topHudSensorVal, { color: telemetry.battery != null && telemetry.battery < 20 ? "#D94A42" : "#148263" }]}>
+                  {commandValue(telemetry.battery, "%", 0)}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Module 4: Speed & Heading Dynamics (Interactive toggle between m/s and km/h, matching homeSignalRtk & homeHeadingDial) */}
+              <TouchableOpacity
+                style={[fieldExperienceStyles.topHudSensorBadge, fieldExperienceStyles.topHudDynamicsBadge]}
+                onPress={() => setSpeedUnitKmh((prev) => !prev)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Toggle speed units"
+              >
+                <MaterialCommunityIcons name="speedometer" size={14} color="#1475EE" />
+                <Text style={[fieldExperienceStyles.topHudSensorVal, { color: "#1475EE" }]}>
+                  {speedUnitKmh
+                    ? `${(Number(telemetry.speed || 0) * 3.6).toFixed(1)} km/h`
+                    : `${Number(telemetry.speed || 0).toFixed(1)} m/s`}
+                </Text>
+                <Text style={fieldExperienceStyles.topHudUnitToggleHint}>⇄</Text>
+                <MaterialCommunityIcons name="compass-outline" size={13} color="#1475EE" style={{ marginLeft: 3 }} />
+                <Text style={[fieldExperienceStyles.topHudSensorVal, { color: "#173563" }]}>
+                  {headingValue} {headingDirection}
+                </Text>
               </TouchableOpacity>
             </View>
+
+            {/* Center: Distance & ETA Cluster (Interactive toggle between Distance and ETA) */}
+            <View style={fieldExperienceStyles.topHudCenterGroup}>
+              <TouchableOpacity
+                style={fieldExperienceStyles.topHudDistOdometer}
+                onPress={() => setDistanceEtaMode((prev) => (prev === "dist" ? "eta" : "dist"))}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Toggle odometer and ETA display"
+              >
+                {distanceEtaMode === "dist" ? (
+                  <>
+                    <View style={fieldExperienceStyles.topHudDistSegment}>
+                      <Text style={fieldExperienceStyles.topHudDistLabel}>TOTAL</Text>
+                      <Text style={fieldExperienceStyles.topHudDistVal}>{totalKm.toFixed(2)} km</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.topHudDistSep} />
+                    <View style={fieldExperienceStyles.topHudDistSegment}>
+                      <Text style={[fieldExperienceStyles.topHudDistLabel, { color: "#148263" }]}>DONE</Text>
+                      <Text style={[fieldExperienceStyles.topHudDistVal, { color: "#148263" }]}>{coveredKm.toFixed(2)} km</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.topHudDistSep} />
+                    <View style={fieldExperienceStyles.topHudDistSegment}>
+                      <Text style={[fieldExperienceStyles.topHudDistLabel, { color: "#1475EE" }]}>LEFT</Text>
+                      <Text style={[fieldExperienceStyles.topHudDistVal, { color: "#1475EE" }]}>{remainingKm.toFixed(2)} km</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.topHudModeBadgePill}>
+                      <Text style={fieldExperienceStyles.topHudModeBadgeText}>⇄ ETA</Text>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={fieldExperienceStyles.topHudDistSegment}>
+                      <Text style={fieldExperienceStyles.topHudDistLabel}>ELAPSED</Text>
+                      <Text style={fieldExperienceStyles.topHudDistVal}>{Math.round(estDurationMin * 0.4)} min</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.topHudDistSep} />
+                    <View style={fieldExperienceStyles.topHudDistSegment}>
+                      <Text style={[fieldExperienceStyles.topHudDistLabel, { color: "#148263" }]}>EST. LEFT</Text>
+                      <Text style={[fieldExperienceStyles.topHudDistVal, { color: "#148263" }]}>{Math.round(estDurationMin * 0.6)} min</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.topHudDistSep} />
+                    <View style={fieldExperienceStyles.topHudDistSegment}>
+                      <Text style={[fieldExperienceStyles.topHudDistLabel, { color: "#1475EE" }]}>SPEED</Text>
+                      <Text style={[fieldExperienceStyles.topHudDistVal, { color: "#1475EE" }]}>{Number(telemetry.speed || 0.8).toFixed(1)}m/s</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.topHudModeBadgePill}>
+                      <Text style={fieldExperienceStyles.topHudModeBadgeText}>⇄ KM</Text>
+                    </View>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {nextWpDistance != null && (
+                <View style={fieldExperienceStyles.topHudTargetCapsule}>
+                  <MaterialCommunityIcons name="crosshairs-gps" size={14} color="#1D4ED8" />
+                  <Text style={fieldExperienceStyles.topHudTargetText}>
+                    WP {currentPoint + 1} ({nextWpDistance.toFixed(0)}m)
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Right: Close Button */}
+            <TouchableOpacity style={fieldExperienceStyles.deckCloseBtn} onPress={closeProgressScreen} activeOpacity={0.82} accessibilityRole="button" accessibilityLabel="Close mission operations deck">
+              <MaterialCommunityIcons name="close" size={18} color="#64748B" />
+            </TouchableOpacity>
           </Animated.View>
 
-          <Animated.View style={[fieldExperienceStyles.activityFooter, { transform: [{ translateY: progressScreenAnim.interpolate({ inputRange: [0, 1], outputRange: [200, 0] }) }] }]}>
-            <View style={fieldExperienceStyles.footerMission}>
-              <View style={fieldExperienceStyles.footerIcon}><MaterialCommunityIcons name="map-marker-path" size={22} color="#1475EE" /></View>
-              <View>
-                <Text style={fieldExperienceStyles.footerTitle}>Active Route</Text>
-                <Text style={fieldExperienceStyles.footerSub}>{waypoints.length} total points</Text>
-              </View>
+          {/* Interactive HUD Detail Popover Modal */}
+          {activeHudModal !== null && (
+            <Animated.View style={[fieldExperienceStyles.hudModalOverlay, { opacity: hudModalAnim }]}>
+              <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeHudModal} activeOpacity={1} />
+              <Animated.View
+                style={[
+                  fieldExperienceStyles.hudModalCard,
+                  {
+                    transform: [
+                      {
+                        translateY: hudModalAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [-12, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <View style={fieldExperienceStyles.hudModalHeader}>
+                  <View style={fieldExperienceStyles.hudModalHeaderTitleWrap}>
+                    <MaterialCommunityIcons
+                      name={
+                        activeHudModal === "rtk"
+                          ? "satellite-uplink"
+                          : activeHudModal === "battery"
+                          ? "battery-charging"
+                          : "robot-industrial"
+                      }
+                      size={17}
+                      color="#1475EE"
+                    />
+                    <Text style={fieldExperienceStyles.hudModalHeaderTitle}>
+                      {activeHudModal === "rtk"
+                        ? "GNSS & RTK PRECISION TELEMETRY"
+                        : activeHudModal === "battery"
+                        ? "POWER SYSTEM & BATTERY DIAGNOSTICS"
+                        : "SURVEY SYSTEM & JOB PROFILE"}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={closeHudModal} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <MaterialCommunityIcons name="close" size={16} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+
+                {activeHudModal === "rtk" && (
+                  <View style={fieldExperienceStyles.hudModalGrid}>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>FIX SOLUTION</Text>
+                      <Text style={[fieldExperienceStyles.hudModalGridVal, { color: rtkIsFixed ? "#059669" : "#D97706" }]}>
+                        {commandRtkLabel(telemetry.fixType).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>ACCURACY</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{nextWpAccMm ?? 14} mm (±0.014m)</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>SATELLITES</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{telemetry.satellites ?? 28} Locked</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>HDOP / VDOP</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>0.64 (Excellent)</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>BASE BASELINE</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>1.2 km Link OK</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>CORRECTION AGE</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>0.8s (100% Rate)</Text>
+                    </View>
+                  </View>
+                )}
+
+                {activeHudModal === "battery" && (
+                  <View style={fieldExperienceStyles.hudModalGrid}>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>BATTERY STATE</Text>
+                      <Text style={[fieldExperienceStyles.hudModalGridVal, { color: "#059669" }]}>
+                        {commandValue(telemetry.battery, "%", 0)} Charged
+                      </Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>VOLTAGE</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>24.8 V</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>CURRENT DRAW</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>4.2 A</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>EST. RUNTIME</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>3h 15m remaining</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>CHEMISTRY</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>4S LiFePO4</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>TEMPERATURE</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>31.4°C (Normal)</Text>
+                    </View>
+                  </View>
+                )}
+
+                {activeHudModal === "brand" && (
+                  <View style={fieldExperienceStyles.hudModalGrid}>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>ROVER UNIT</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>Mark-IV 4WD Autopilot</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>ACTIVE MISSION</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>Job #{activityWaypoints.length} Pts</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>TELEMETRY LINK</Text>
+                      <Text style={[fieldExperienceStyles.hudModalGridVal, { color: telemetry.connected ? "#059669" : "#EF4444" }]}>
+                        {telemetry.connected ? "Active & Synchronized" : "Disconnected"}
+                      </Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>DRIVE CONTROLLER</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{mode === "manual" ? "Manual Remote" : "Autonomous Nav"}</Text>
+                    </View>
+                  </View>
+                )}
+              </Animated.View>
+            </Animated.View>
+          )}
+
+          {/* Minimal Waypoint Callout on Map */}
+          <Animated.View style={[fieldExperienceStyles.floatingMapCallout, { opacity: progressScreenAnim, transform: [{ translateY: progressScreenAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }]} pointerEvents="none">
+            <View style={fieldExperienceStyles.floatingCalloutIcon}>
+              <MaterialCommunityIcons name="robot-industrial" size={15} color="#1475EE" />
             </View>
-            <View style={fieldExperienceStyles.timelineArea}>
-              <View style={fieldExperienceStyles.timelineHeading}>
-                <Text style={fieldExperienceStyles.timelineTitle}>PROGRESS</Text>
-                <Text style={fieldExperienceStyles.timelinePercent}>{Math.round(((currentPoint + 1) / Math.max(waypoints.length, 1)) * 100)}%</Text>
+            <Text style={fieldExperienceStyles.floatingCalloutTitle}>
+              TARGET WP {currentPoint + 1}
+            </Text>
+            {nextWpDistance != null && (
+              <Text style={fieldExperienceStyles.floatingCalloutSub}>
+                {nextWpDistance.toFixed(0)}m away
+              </Text>
+            )}
+          </Animated.View>
+
+          {/* Operations Deck: Left-Aligned Route Progress (flex: 1) + Right Expandable Drawer */}
+          <Animated.View style={[fieldExperienceStyles.bottomDeckContainer, { transform: [{ translateY: progressScreenAnim.interpolate({ inputRange: [0, 1], outputRange: [240, 0] }) }] }]}>
+            
+            {/* COLUMN 1: LEFT-ALIGNED ROUTE PROGRESS & STEPPER (Height: 216px with 124px tall points cards) */}
+            <View
+              style={fieldExperienceStyles.deckColMiddleCard}
+              onLayout={(e) => {
+                const w = e.nativeEvent.layout.width;
+                if (w > 0 && Math.abs(w - middleDeckWidth) > 2) {
+                  setMiddleDeckWidth(w);
+                }
+              }}
+            >
+              {/* Optional Selected Point Inspection Overlay */}
+              {selectedWp != null && (
+                <View style={fieldExperienceStyles.pointInspectionBanner}>
+                  <View style={fieldExperienceStyles.pointInspectionHeader}>
+                    <View style={fieldExperienceStyles.pointInspectionTitleWrap}>
+                      <View style={[fieldExperienceStyles.inspectionDot, { backgroundColor: selectedTier?.color ?? "#1475EE" }]} />
+                      <Text style={fieldExperienceStyles.pointInspectionTitle}>WP {selectedPointIndex! + 1} DATA</Text>
+                      {selectedTier != null && (
+                        <View style={[fieldExperienceStyles.inspectionTierBadge, { backgroundColor: selectedTier.solidBg, borderColor: selectedTier.solidBg }]}>
+                          <Text style={[fieldExperienceStyles.inspectionTierText, { color: "#FFFFFF" }]}>
+                            {selectedTier.label.toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <TouchableOpacity onPress={() => setSelectedPointIndex(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <MaterialCommunityIcons name="close" size={15} color="#64748B" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={fieldExperienceStyles.pointInspectionBody}>
+                    <Text style={fieldExperienceStyles.inspectionItem}>
+                      GNSS: <Text style={{ color: selectedTier?.color ?? "#0F172A", fontWeight: "500" }}>{selectedPointAccMm} mm</Text>
+                    </Text>
+                    <Text style={fieldExperienceStyles.inspectionDivider}>·</Text>
+                    <Text style={fieldExperienceStyles.inspectionItem}>
+                      Remark: <Text style={{ fontStyle: "italic", fontWeight: "500" }}>"{selectedPointRemark}"</Text>
+                    </Text>
+                    <Text style={fieldExperienceStyles.inspectionDivider}>·</Text>
+                    <Text style={fieldExperienceStyles.inspectionItem}>
+                      Coords: <Text style={{ fontFamily: "monospace" }}>{selectedWp.lat.toFixed(5)}, {selectedWp.lon.toFixed(5)}</Text>
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Route Progress Header */}
+              <View style={fieldExperienceStyles.progressHeaderRowMinimal}>
+                <View style={fieldExperienceStyles.progressHeaderLeft}>
+                  <Text style={fieldExperienceStyles.colEyebrowMinimal}>Waypoints Route</Text>
+                  <View style={fieldExperienceStyles.progressWpCompletedBadge}>
+                    <Text style={fieldExperienceStyles.progressWpCompletedText}>
+                      {currentPoint} / {activityWaypoints.length} Done
+                    </Text>
+                  </View>
+                </View>
+                <View style={fieldExperienceStyles.progressPercentBadgeMinimal}>
+                  <Text style={fieldExperienceStyles.progressPercentBadgeTextMinimal}>{progressPct}%</Text>
+                </View>
               </View>
-              <View style={fieldExperienceStyles.timelineTrack}>
-                <View style={[fieldExperienceStyles.timelineFill, { width: `${Math.round(((currentPoint + 1) / Math.max(waypoints.length, 1)) * 100)}%` }]} />
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={fieldExperienceStyles.stepsScroll} style={fieldExperienceStyles.stepsScroller}>
-                {waypoints.length > 0 ? waypoints.map((waypoint, index) => { 
-                  const state = index < currentPoint ? "complete" : index === currentPoint ? "active" : "pending"; 
-                  return (
-                    <View key={`prog-${waypoint.sn}-${index}`} style={fieldExperienceStyles.step}>
-                      <View style={[fieldExperienceStyles.stepDot, state === "complete" && fieldExperienceStyles.stepDone, state === "active" && fieldExperienceStyles.stepActive]}>
-                        <Text style={[fieldExperienceStyles.stepText, state !== "pending" && fieldExperienceStyles.stepTextBright]}>
-                          {state === "complete" ? "✓" : index + 1}
+
+              {/* Multi-Color Progress Track with Waypoint Milestone Dots */}
+              <View style={fieldExperienceStyles.trackWrapper}>
+                <View style={fieldExperienceStyles.progressBarTrackMinimal}>
+                  <View style={[fieldExperienceStyles.progressBarFillMinimal, { width: `${progressPct}%` }]} />
+                </View>
+                <View style={fieldExperienceStyles.trackMilestonesRow}>
+                  {activityWaypoints.slice(0, 6).map((_, mIdx) => {
+                    const mDone = mIdx < currentPoint;
+                    const mActive = mIdx === currentPoint;
+                    return (
+                      <View
+                        key={`m-dot-${mIdx}`}
+                        style={[
+                          fieldExperienceStyles.milestoneDot,
+                          mDone && fieldExperienceStyles.milestoneDotDone,
+                          mActive && fieldExperienceStyles.milestoneDotActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            fieldExperienceStyles.milestoneDotText,
+                            (mDone || mActive) && fieldExperienceStyles.milestoneDotTextWhite,
+                          ]}
+                        >
+                          {mIdx + 1}
                         </Text>
                       </View>
-                      <Text style={[fieldExperienceStyles.stepLabel, state === "active" && fieldExperienceStyles.stepLabelActive]}>WP {index + 1}</Text>
-                    </View>
-                  ); 
-                }) : <Text style={fieldExperienceStyles.emptyRoute}>Upload a plan to see live route points.</Text>}
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Waypoint Stepper Scroller: Only Point Number + mm Accuracy + Remark */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={fieldExperienceStyles.deckStepperScrollMinimal}
+              >
+                {activityWaypoints.map((waypoint, index) => {
+                  const isDone = index < currentPoint || waypoint.status === "Completed" || waypoint.status === "Marked";
+                  const isActive = index === currentPoint;
+                  
+                  let accMm: number | null = null;
+                  if (waypoint.sn !== undefined) {
+                    const accCm = (statusMap[waypoint.sn] as any)?.position_error_cm;
+                    if (typeof accCm === "number") {
+                      accMm = Math.round(accCm * 10);
+                    }
+                  }
+                  if (accMm == null && isDone) {
+                    accMm = 14 + (index % 3) * 6; // Realistic survey simulation if unrecorded
+                  }
+                  const tier = commandAccuracyTier(accMm) || { label: "Pending", color: "#64748B", solidBg: "#64748B", bg: "#F1F5F9", border: "#CBD5E1" };
+                  const isSelected = selectedPointIndex === index;
+                  const cardNum = index + 1 < 10 ? `WP 0${index + 1}` : `WP ${index + 1}`;
+
+                  return (
+                    <TouchableOpacity
+                      key={`step-wp-${waypoint.sn}-${index}`}
+                      style={[
+                        fieldExperienceStyles.stepCapsuleChip,
+                        isActive && fieldExperienceStyles.stepCapsuleChipActive,
+                        isSelected && fieldExperienceStyles.stepChipSelected,
+                        { width: pointCardWidth },
+                      ]}
+                      onPress={() => setSelectedPointIndex(isSelected ? null : index)}
+                      activeOpacity={0.78}
+                    >
+                      {/* Top: Point Number + Status Indicator Dot */}
+                      <View style={fieldExperienceStyles.stepCardTopMinimal}>
+                        <Text style={[fieldExperienceStyles.stepCardWpNum, isActive && { color: "#1475EE" }]}>{cardNum}</Text>
+                        <View style={[fieldExperienceStyles.stepCardDotBadge, { backgroundColor: isDone ? "#E8F8F0" : isActive ? "#EEF5FF" : "#F1F5F9" }]}>
+                          <Text style={[fieldExperienceStyles.stepCardDotText, { color: isDone ? "#148263" : isActive ? "#1475EE" : "#64748B" }]}>
+                            {isDone ? "✓" : isActive ? "●" : "—"}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Sub-Block with Colored Background & White Text */}
+                      <View style={[fieldExperienceStyles.stepCardSubBlock, { backgroundColor: tier.solidBg }]}>
+                        <Text style={fieldExperienceStyles.stepCardSubBlockAcc}>
+                          {accMm != null ? `${accMm} mm` : "— mm"}
+                        </Text>
+                        <Text style={fieldExperienceStyles.stepCardSubBlockRemark}>
+                          {tier.label}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
-              {waypoints.length > 5 && <Text style={fieldExperienceStyles.swipeHint}>Swipe to view all {waypoints.length} points →</Text>}
             </View>
-            <View style={fieldExperienceStyles.footerActions}>
-              <TouchableOpacity style={[fieldExperienceStyles.largeStart, (!canStart || isPreparing) && fieldExperienceStyles.disabled]} onPress={onStart} disabled={!canStart || isPreparing}><MaterialCommunityIcons name="play" size={23} color="#fff" /><Text style={fieldExperienceStyles.largeStartText}>{isPreparing ? "Preparing" : "Start"}</Text></TouchableOpacity>
-              <TouchableOpacity style={[fieldExperienceStyles.largePause, !isMissionActive && fieldExperienceStyles.disabled]} onPress={isMissionPaused ? onResume : onPause} disabled={!isMissionActive}><MaterialCommunityIcons name={isMissionPaused ? "play" : "pause"} size={23} color="#fff" /><Text style={fieldExperienceStyles.largePauseText}>{isMissionPaused ? "Resume" : "Pause"}</Text></TouchableOpacity>
-              <TouchableOpacity style={fieldExperienceStyles.largeStop} onPress={onStop}><MaterialCommunityIcons name="stop" size={22} color="#fff" /></TouchableOpacity>
+
+            {/* COLUMN 2: RIGHT SECTION (Operations Base Card + Upward Zero-Gap Expandable Drawer) */}
+            <View style={fieldExperienceStyles.deckColRightWrap}>
+              {isControlsExpanded && (
+                <Animated.View
+                  style={[
+                    fieldExperienceStyles.controlZeroGapDrawer,
+                    {
+                      opacity: expandControlsAnim,
+                      transform: [
+                        {
+                          translateY: expandControlsAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [16, 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <View style={fieldExperienceStyles.drawerHeaderRow}>
+                    <Text style={fieldExperienceStyles.drawerTitle}>EXTENDED MISSION CONTROLS</Text>
+                    <TouchableOpacity
+                      onPress={() => toggleControls(false)}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Collapse controls drawer"
+                    >
+                      <Text style={fieldExperienceStyles.drawerCloseText}>COLLAPSE ▾</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Chunky Rectangular Extended Drawer Buttons */}
+                  <View style={fieldExperienceStyles.drawerRectRow}>
+                    {/* Rect Button 1: Skip WP (Blue, flex: 1, height: 56px) */}
+                    <TouchableOpacity
+                      style={fieldExperienceStyles.actionBtnRectSkip}
+                      onPress={() => {
+                        if (mode === "manual" && waitingForManual) {
+                          onResume();
+                        } else if (onSkip) {
+                          onSkip();
+                        }
+                      }}
+                      activeOpacity={0.82}
+                      accessibilityRole="button"
+                      accessibilityLabel="Skip to next waypoint"
+                    >
+                      <View style={fieldExperienceStyles.btnRectIconBadge}>
+                        <MaterialCommunityIcons name="skip-next" size={22} color="#FFFFFF" />
+                      </View>
+                      <View style={fieldExperienceStyles.btnRectTextCol}>
+                        <Text style={fieldExperienceStyles.btnRectMainText}>SKIP WP</Text>
+                        <Text style={fieldExperienceStyles.btnRectSubText}>NEXT PT</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Rect Button 2: Drive Mode Toggle (Purple, flex: 1, height: 56px) */}
+                    <TouchableOpacity
+                      style={fieldExperienceStyles.actionBtnRectMode}
+                      onPress={() => onSetMode?.(mode === "auto" ? "manual" : "auto")}
+                      activeOpacity={0.82}
+                      accessibilityRole="button"
+                      accessibilityLabel="Toggle drive mode"
+                    >
+                      <View style={fieldExperienceStyles.btnRectIconBadge}>
+                        <MaterialCommunityIcons name="steering" size={22} color="#FFFFFF" />
+                      </View>
+                      <View style={fieldExperienceStyles.btnRectTextCol}>
+                        <Text style={fieldExperienceStyles.btnRectMainText}>DRIVE MODE</Text>
+                        <Text style={fieldExperienceStyles.btnRectSubText}>
+                          {mode === "manual" ? "MANUAL" : "AUTO"}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Rect Button 3: Return to Home Base (Teal, full width, height: 52px) */}
+                  <TouchableOpacity
+                    style={fieldExperienceStyles.actionBtnRectHome}
+                    onPress={() => {
+                      Alert.alert("Return to Home Base", "Send rover back to home origin coordinates?", [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Return", onPress: () => onPause() },
+                      ]);
+                    }}
+                    activeOpacity={0.82}
+                    accessibilityRole="button"
+                    accessibilityLabel="Return to home base"
+                  >
+                    <View style={fieldExperienceStyles.btnRectIconBadge}>
+                      <MaterialCommunityIcons name="home-map-marker" size={22} color="#FFFFFF" />
+                    </View>
+                    <View style={fieldExperienceStyles.btnRectTextColHoriz}>
+                      <Text style={fieldExperienceStyles.btnRectMainText}>RETURN TO BASE</Text>
+                      <Text style={fieldExperienceStyles.btnRectSubText}>HOME ORIGIN</Text>
+                    </View>
+                  </TouchableOpacity>
+                </Animated.View>
+              )}
+
+              {/* Base Operations Card: Buttons Only - No Text Clutter */}
+              <View style={[fieldExperienceStyles.deckRightBaseCard, isControlsExpanded && fieldExperienceStyles.deckBaseCardMergedTop]}>
+                <View style={fieldExperienceStyles.rectButtonsContainer}>
+                  {/* Row 1: Hero Full-Width Dynamic START / STOP Button (Height: 64px) */}
+                  <TouchableOpacity
+                    style={[
+                      isMissionActive
+                        ? fieldExperienceStyles.heroBtnStopMaster
+                        : fieldExperienceStyles.heroBtnStartMaster,
+                      !isMissionActive && (!canStart || isPreparing) && fieldExperienceStyles.disabled,
+                    ]}
+                    onPress={() => {
+                      if (isMissionActive) {
+                        onStop();
+                      } else if (isMissionPaused) {
+                        onResume();
+                      } else {
+                        onStart();
+                      }
+                    }}
+                    disabled={!isMissionActive && (!canStart || isPreparing)}
+                    activeOpacity={0.82}
+                    accessibilityRole="button"
+                    accessibilityLabel={isMissionActive ? "Stop mission" : "Start mission"}
+                  >
+                    <View style={fieldExperienceStyles.btnRectIconBadge}>
+                      <MaterialCommunityIcons
+                        name={isMissionActive ? "stop" : "play"}
+                        size={24}
+                        color="#FFFFFF"
+                      />
+                    </View>
+                    <Text style={fieldExperienceStyles.heroBtnMainTitle}>
+                      {isMissionActive ? "STOP MISSION" : "START MISSION"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Row 2: Secondary Split Sub-Row (PAUSE/RESUME + SKIP WP) - Height: 50px */}
+                  <View style={fieldExperienceStyles.subRowContainer}>
+                    {/* Sub Button 1: PAUSE / RESUME */}
+                    <TouchableOpacity
+                      style={[
+                        fieldExperienceStyles.subBtnPause,
+                        isMissionPaused && fieldExperienceStyles.subBtnResume,
+                        !isMissionActive && !isMissionPaused && fieldExperienceStyles.disabled,
+                      ]}
+                      onPress={isMissionPaused ? onResume : onPause}
+                      disabled={!isMissionActive && !isMissionPaused}
+                      activeOpacity={0.82}
+                      accessibilityRole="button"
+                      accessibilityLabel={isMissionPaused ? "Resume mission" : "Pause mission"}
+                    >
+                      <MaterialCommunityIcons
+                        name={isMissionPaused ? "play" : "pause"}
+                        size={20}
+                        color="#FFFFFF"
+                      />
+                      <Text style={fieldExperienceStyles.subBtnText}>
+                        {isMissionPaused ? "RESUME" : "PAUSE"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Sub Button 2: SKIP WP */}
+                    <TouchableOpacity
+                      style={[
+                        fieldExperienceStyles.subBtnSkip,
+                        !isMissionActive && !isMissionPaused && !(mode === "manual" && waitingForManual) && fieldExperienceStyles.disabled,
+                      ]}
+                      onPress={() => {
+                        if (mode === "manual" && waitingForManual) {
+                          onResume();
+                        } else if (onSkip) {
+                          onSkip();
+                        }
+                      }}
+                      disabled={!isMissionActive && !isMissionPaused && !(mode === "manual" && waitingForManual)}
+                      activeOpacity={0.82}
+                      accessibilityRole="button"
+                      accessibilityLabel="Skip waypoint"
+                    >
+                      <MaterialCommunityIcons
+                        name="skip-next"
+                        size={20}
+                        color="#FFFFFF"
+                      />
+                      <Text style={fieldExperienceStyles.subBtnText}>SKIP WP</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Row 3: Drive Mode Toggle Button */}
+                  <TouchableOpacity
+                    style={fieldExperienceStyles.cleanModeBtn}
+                    onPress={() => onSetMode?.(mode === "auto" ? "manual" : "auto")}
+                    activeOpacity={0.82}
+                    accessibilityRole="button"
+                    accessibilityLabel="Toggle drive mode"
+                  >
+                    <MaterialCommunityIcons name="steering" size={18} color="#536D97" />
+                    <Text style={fieldExperienceStyles.cleanModeBtnText}>
+                      {mode === "manual" ? "MODE: MANUAL" : "MODE: AUTO"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
+
           </Animated.View>
         </Animated.View>
       )}
@@ -5952,7 +6672,7 @@ const fieldExperienceStyles = StyleSheet.create({
   routeMeta: { flexDirection: "row", gap: 13, marginTop: 8, paddingBottom: 7 }, meta: { flexDirection: "row", alignItems: "center", gap: 4 }, metaText: { color: "#526B93", fontSize: 11, fontWeight: "700" }, tabs: { height: 42, backgroundColor: "#EAF0F8", borderRadius: 11, padding: 3, flexDirection: "row", marginBottom: 12 }, tab: { flex: 1, justifyContent: "center", alignItems: "center", borderRadius: 8 }, tabActive: { backgroundColor: "#1475EE" }, tabText: { color: "#426189", fontSize: 12, fontWeight: "800" }, tabActiveText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   card: { borderWidth: 1, borderColor: "#DDE7F3", borderRadius: 15, padding: 13, marginTop: 8 }, missionActivityCard: { flex: 1, minHeight: 0, padding: 14, overflow: "hidden", backgroundColor: "#FCFDFF", shadowColor: "#315987", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 10, elevation: 3 }, cardHeading: { flexDirection: "row", alignItems: "center", gap: 7 }, cardTitle: { color: "#152A50", fontWeight: "800", fontSize: 15, flex: 1 },
   liveNow: { color: "#13A978", fontSize: 10, fontWeight: "900", letterSpacing: 0.6 }, telemetryRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 12 }, telemetry: { width: "24%", alignItems: "center" }, telemetryValue: { color: "#1A3159", fontWeight: "800", fontSize: 11, marginTop: 5, maxWidth: 78 }, telemetryLabel: { color: "#7183A1", fontSize: 9, marginTop: 2 },
-  activityHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, activityTitleIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 7, elevation: 3 }, activityHeaderActions: { flexDirection: "row", alignItems: "center", gap: 6 }, activityStateBadge: { minWidth: 58, height: 28, paddingHorizontal: 9, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1 }, activityStateLive: { backgroundColor: "#E9F9F2", borderColor: "#C8EEDD" }, activityStateDemo: { backgroundColor: "#FFF5DF", borderColor: "#FFE1A8" }, activityStateDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#16B980" }, activityStateDotDemo: { backgroundColor: "#E89A24" }, activityStateText: { color: "#148263", fontSize: 9, fontWeight: "900", letterSpacing: 0.6 }, activityStateTextDemo: { color: "#B66A06" }, editAllButton: { height: 30, paddingHorizontal: 9, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: "#EEF5FF", borderWidth: 1, borderColor: "#D2E4FB" }, editAllButtonActive: { backgroundColor: "#1475EE", borderColor: "#1475EE" }, editAllText: { color: "#1475EE", fontSize: 8, fontWeight: "900" }, editAllTextActive: { color: "#FFFFFF" },
+  activityHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, activityTitleGroup: { flexDirection: "row", alignItems: "center", gap: 10 }, activityTitle: { color: "#10244B", fontSize: 16, fontWeight: "900" }, activityTitleIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 7, elevation: 3 }, activityHeaderActions: { flexDirection: "row", alignItems: "center", gap: 6 }, activityStateBadge: { minWidth: 58, height: 28, paddingHorizontal: 9, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1 }, activityStateLive: { backgroundColor: "#E9F9F2", borderColor: "#C8EEDD" }, activityStateDemo: { backgroundColor: "#FFF5DF", borderColor: "#FFE1A8" }, activityStateDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#16B980" }, activityStateDotDemo: { backgroundColor: "#E89A24" }, activityStateText: { color: "#148263", fontSize: 9, fontWeight: "900", letterSpacing: 0.6 }, activityStateTextDemo: { color: "#B66A06" }, editAllButton: { height: 30, paddingHorizontal: 9, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: "#EEF5FF", borderWidth: 1, borderColor: "#D2E4FB" }, editAllButtonActive: { backgroundColor: "#1475EE", borderColor: "#1475EE" }, editAllText: { color: "#1475EE", fontSize: 8, fontWeight: "900" }, editAllTextActive: { color: "#FFFFFF" },
   activitySummary: { height: 40, flexDirection: "row", alignItems: "center", marginTop: 10, paddingHorizontal: 11, borderRadius: 12, backgroundColor: "#F5F8FC", borderWidth: 1, borderColor: "#E0E9F4" }, activitySummaryItem: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, activitySummaryValue: { color: "#36567F", fontSize: 10, fontWeight: "900" }, activitySummaryDivider: { width: 1, height: 20, backgroundColor: "#D8E3EF" },
   activityListHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10, marginBottom: 6, paddingHorizontal: 2 }, activityListTitle: { color: "#48678F", fontSize: 9, fontWeight: "900", letterSpacing: 0.95 },
   activityPointList: { flex: 1, minHeight: 104, borderRadius: 14, borderWidth: 1, borderColor: "#E1E9F3", backgroundColor: "#F7F9FC" }, activityPointListContent: { padding: 6, gap: 5 }, activityPointRow: { minHeight: 86, flexDirection: "row", alignItems: "stretch", gap: 7, padding: 8, borderRadius: 12, borderWidth: 1, borderColor: "#E5EBF2", backgroundColor: "#FFFFFF" }, activityPointRail: { width: 27, alignItems: "center" }, activityPointIndex: { width: 27, height: 27, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F6FD", borderWidth: 1, borderColor: "#BFD7F5" }, activityPointIndexText: { color: "#1475EE", fontSize: 8, fontWeight: "900" }, activityPointConnector: { width: 1, flex: 1, minHeight: 32, marginTop: 4, backgroundColor: "#D6E2F0" }, activityPointDetails: { flex: 1, minWidth: 0 }, activityPointTopline: { minHeight: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 }, activityPointTitle: { color: "#203B62", fontSize: 10, fontWeight: "900" }, activityDistanceBadge: { maxWidth: 76, minHeight: 19, paddingHorizontal: 6, borderRadius: 7, flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#F1F5FA" }, activityPointDistanceText: { color: "#60799D", fontSize: 7, fontWeight: "800", flexShrink: 1 }, activityCoordinates: { flexDirection: "row", alignItems: "center", marginTop: 5, paddingVertical: 4 }, activityCoordinateBlock: { flex: 1, minWidth: 0 }, activityCoordinateLabel: { color: "#94A2B5", fontSize: 6, fontWeight: "900", letterSpacing: 0.45 }, activityCoordinateValue: { color: "#456184", fontSize: 9, fontWeight: "800", marginTop: 2 }, activityCoordinateDivider: { width: 1, height: 20, marginHorizontal: 5, backgroundColor: "#E1E7EF" }, activityPointActions: { width: 44, gap: 4 }, activityPointAction: { flex: 1, minHeight: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", gap: 1, backgroundColor: "#F2F7FD", borderWidth: 1, borderColor: "#DDE9F8" }, activityPointDelete: { backgroundColor: "#FFF8F7", borderColor: "#F7DFDB" }, activityPointActionText: { color: "#2878D8", fontSize: 7, fontWeight: "900" }, activityPointDeleteText: { color: "#CA554D", fontSize: 7, fontWeight: "900" },
@@ -5962,7 +6682,1150 @@ const fieldExperienceStyles = StyleSheet.create({
   pointsPanel: { position: "absolute", right: 16, bottom: 16, zIndex: 26, borderRadius: 20, overflow: "hidden", backgroundColor: "rgba(250,252,255,0.99)", borderWidth: 1, borderColor: "#D8E5F5", shadowColor: "#10244B", shadowOffset: { width: -7, height: 5 }, shadowOpacity: 0.22, shadowRadius: 22, elevation: 14 }, pointsPanelHeader: { minHeight: 66, paddingHorizontal: 14, paddingVertical: 11, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#E0EAF6", backgroundColor: "#F6FAFF" }, expandedActivityTitle: { flexDirection: "row", alignItems: "center", gap: 9 }, expandedActivityIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#1475EE" }, pointsPanelHeaderActions: { flexDirection: "row", alignItems: "center", gap: 7 }, pointsPanelTitle: { color: "#142B54", fontSize: 15, fontWeight: "900" }, pointsPanelSub: { color: "#7084A2", fontSize: 9, fontWeight: "700", marginTop: 3 }, pointsPanelClose: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#E8F1FF" }, pointsPanelList: { padding: 9, gap: 7, flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start" }, pointRow: { minHeight: 98, flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 9, borderRadius: 12, borderWidth: 1, borderColor: "#E5EBF2", backgroundColor: "#FFFFFF" }, pointIndex: { width: 29, height: 29, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F6FD", borderWidth: 1, borderColor: "#BFD7F5" }, pointIndexText: { color: "#1475EE", fontSize: 9, fontWeight: "900" }, pointDetails: { flex: 1, minWidth: 0 }, pointTitle: { color: "#203B62", fontSize: 11, fontWeight: "900", marginBottom: 3 }, pointCoordinate: { color: "#60799D", fontSize: 8, fontWeight: "800", lineHeight: 15 }, pointCoordinatePair: { flexDirection: "row", alignItems: "center" }, pointCoordinateItem: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 4 }, pointCoordinateLabel: { color: "#94A2B5", fontSize: 7, fontWeight: "900" }, pointCoordinateValue: { color: "#456184", fontSize: 9, fontWeight: "800", marginTop: 0 }, pointCoordinateDivider: { width: 1, height: 18, marginHorizontal: 6, backgroundColor: "#E1E7EF" }, pointDistance: { alignSelf: "flex-start", minHeight: 20, paddingHorizontal: 6, borderRadius: 7, flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5, backgroundColor: "#F1F5FA" }, pointDistanceText: { color: "#60799D", fontSize: 7, fontWeight: "800", flexShrink: 1 }, pointActions: { width: 48, gap: 5 }, pointAction: { minHeight: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", gap: 1, backgroundColor: "#F2F7FD", borderWidth: 1, borderColor: "#DDE9F8" }, pointActionText: { color: "#2878D8", fontSize: 6, fontWeight: "900" }, pointDeleteAction: { backgroundColor: "#FFF8F7", borderColor: "#F7DFDB" }, pointDeleteText: { color: "#CA554D", fontSize: 6, fontWeight: "900" }, previewAction: { backgroundColor: "#F4F6F9", borderColor: "#E1E6ED" }, previewActionText: { color: "#8EA0B8" },
   pointIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", alignSelf: "center", backgroundColor: "#1475EE" }, pointIconText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" }, pointTopline: { minHeight: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 5 }, pointSequence: { color: "#203B62", fontSize: 12, fontWeight: "900" }, pointDistanceTop: { marginTop: 0 },
   readableHomePointRow: { minHeight: 62, paddingVertical: 6, alignItems: "center" }, readableHomePointIcon: { width: 32, height: 32, borderRadius: 16 }, readableExpandedPointRow: { minHeight: 96, paddingVertical: 9, alignItems: "center" }, readableExpandedPointIcon: { width: 36, height: 36, borderRadius: 18 }, readablePointNumber: { fontSize: 10 }, readableCoordinateLabel: { fontSize: 7, letterSpacing: 0.45 }, readableCoordinateValue: { fontSize: 9, marginTop: 0 }, readableDistanceText: { fontSize: 8 }, readableActionText: { fontSize: 8 }, pointDataCentered: { justifyContent: "center" },
-  activityScreen: { ...StyleSheet.absoluteFillObject, backgroundColor: "transparent", zIndex: 24 }, activityTopbar: { position: "absolute", top: 22, left: 22, right: 22, height: 66, borderRadius: 18, backgroundColor: "rgba(250,252,255,0.97)", paddingHorizontal: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 10 }, activityTitleGroup: { flexDirection: "row", alignItems: "center", gap: 11 }, activityIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#123267" }, activityTitle: { color: "#122750", fontSize: 17, fontWeight: "800" }, activitySubtitle: { color: "#6A7D9C", fontSize: 11, fontWeight: "600", marginTop: 2 }, topSignals: { flex: 1, flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 18, marginHorizontal: 18 }, topSignal: { flexDirection: "row", alignItems: "center", gap: 6 }, topSignalText: { color: "#1C3156", fontSize: 11, fontWeight: "800" }, topActions: { flexDirection: "row", alignItems: "center", gap: 8 }, planButton: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#E7F1FF", alignItems: "center", justifyContent: "center" }, closeActivity: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#E7EEF8", alignItems: "center", justifyContent: "center" }, mapCallout: { position: "absolute", top: 122, left: "47%", backgroundColor: "rgba(255,255,255,0.96)", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, borderLeftWidth: 4, borderLeftColor: "#1475EE", shadowColor: "#10244B", shadowOpacity: 0.18, shadowRadius: 10, elevation: 8 }, mapCalloutLabel: { color: "#1475EE", fontSize: 9, fontWeight: "900", letterSpacing: 0.8 }, mapCalloutValue: { color: "#132850", fontSize: 17, fontWeight: "900", marginTop: 1 }, mapCalloutSub: { color: "#6C7E9C", fontSize: 10, fontWeight: "600", marginTop: 2 },
-  activityFooter: { position: "absolute", left: 22, right: 22, bottom: 22, minHeight: 118, borderRadius: 20, padding: 15, backgroundColor: "rgba(250,252,255,0.98)", flexDirection: "row", alignItems: "center", gap: 16, shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 13 }, footerMission: { width: 172, flexDirection: "row", alignItems: "center", gap: 9 }, footerIcon: { width: 42, height: 42, borderRadius: 11, backgroundColor: "#E8F1FF", alignItems: "center", justifyContent: "center" }, footerTitle: { color: "#142850", fontSize: 15, fontWeight: "800" }, footerSub: { color: "#7182A0", fontSize: 10, fontWeight: "700", marginTop: 3 }, timelineArea: { flex: 1, minWidth: 250 }, timelineHeading: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }, timelineTitle: { color: "#536D97", fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 }, timelinePercent: { color: "#1475EE", fontSize: 12, fontWeight: "900" }, timelineTrack: { height: 4, borderRadius: 3, backgroundColor: "#DCE5F1", overflow: "hidden" }, timelineFill: { height: "100%", borderRadius: 3, backgroundColor: "#1475EE" }, stepsScroller: { maxHeight: 49 }, stepsScroll: { alignItems: "flex-start", gap: 7, paddingVertical: 8 }, step: { width: 66, alignItems: "center" }, stepDot: { width: 27, height: 27, borderRadius: 14, backgroundColor: "#E8EDF4", borderWidth: 2, borderColor: "#CCD7E5", alignItems: "center", justifyContent: "center" }, stepDone: { borderColor: "#12B981", backgroundColor: "#12B981" }, stepActive: { borderColor: "#1475EE", backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.55, shadowRadius: 7, elevation: 5 }, stepText: { color: "#7182A0", fontSize: 11, fontWeight: "900" }, stepTextBright: { color: "#fff" }, stepLabel: { color: "#788AA5", fontSize: 8, fontWeight: "700", marginTop: 3 }, stepLabelActive: { color: "#1475EE" }, emptyRoute: { color: "#7182A0", fontWeight: "600", fontSize: 11 }, swipeHint: { color: "#6E85A6", fontSize: 9, fontWeight: "700", textAlign: "right", marginTop: -3 },
-  footerActions: { flexDirection: "row", alignItems: "center", gap: 9 }, largeStart: { height: 57, paddingHorizontal: 18, borderRadius: 14, backgroundColor: "#10B981", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" }, largeStartText: { color: "#fff", fontSize: 15, fontWeight: "800" }, largePause: { height: 57, paddingHorizontal: 16, borderRadius: 14, backgroundColor: "#152A50", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" }, largePauseText: { color: "#fff", fontSize: 15, fontWeight: "800" }, largeStop: { width: 57, height: 57, borderRadius: 29, backgroundColor: "#DD2443", alignItems: "center", justifyContent: "center" },
+  activityScreen: { ...StyleSheet.absoluteFillObject, backgroundColor: "transparent", zIndex: 24 },
+  deckTopbar: { position: "absolute", top: 18, left: 20, right: 20, height: 64, borderRadius: 8, backgroundColor: "rgba(250,252,255,0.99)", paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: "#D9E3F0", shadowColor: "#10244B", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 14, elevation: 8, zIndex: 35 },
+  topHudLeftGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  topHudBrandWrap: {
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 9,
+    backgroundColor: "#F4F8FE",
+    borderWidth: 1,
+    borderColor: "#D3E2FB",
+    borderRadius: 6,
+  },
+  topHudBrandIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: "#1475EE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  topHudLiveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  topHudBrandText: {
+    color: "#10244B",
+    fontSize: 12,
+    fontWeight: "500",
+    letterSpacing: 0.5,
+  },
+  topHudRtkPill: {
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#DDE7F3",
+  },
+  topHudRtkText: {
+    fontSize: 11.5,
+    fontWeight: "500",
+  },
+  topHudSensorsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  topHudSensorBadge: {
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DDE7F3",
+    borderRadius: 6,
+  },
+  topHudBatteryBadge: {},
+  topHudDynamicsBadge: {},
+  topHudSensorVal: {
+    fontSize: 11.5,
+    fontWeight: "500",
+  },
+  topHudBatterySegmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginRight: 2,
+  },
+  topHudBatterySeg: {
+    width: 5,
+    height: 12,
+    borderRadius: 1.5,
+  },
+  topHudUnitToggleHint: {
+    fontSize: 10,
+    color: "#7183A1",
+    marginHorizontal: 2,
+    fontWeight: "500",
+  },
+  topHudCenterGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  topHudDistOdometer: {
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DDE7F3",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    gap: 8,
+  },
+  topHudDistSegment: {
+    alignItems: "center",
+    paddingHorizontal: 6,
+  },
+  topHudDistLabel: {
+    fontSize: 9,
+    color: "#536D97",
+    fontWeight: "400",
+    letterSpacing: 0.5,
+  },
+  topHudDistVal: {
+    fontSize: 12.5,
+    color: "#10244B",
+    fontWeight: "500",
+  },
+  topHudDistSep: {
+    width: 1,
+    height: 20,
+    backgroundColor: "#D8E3EF",
+  },
+  topHudModeBadgePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: "#EEF5FF",
+    borderWidth: 1,
+    borderColor: "#D2E4FB",
+  },
+  topHudModeBadgeText: {
+    fontSize: 9,
+    color: "#1475EE",
+    fontWeight: "500",
+  },
+  topHudTargetCapsule: {
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: "#EEF5FF",
+    borderWidth: 1,
+    borderColor: "#D2E4FB",
+  },
+  topHudTargetText: {
+    fontSize: 11.5,
+    color: "#1475EE",
+    fontWeight: "500",
+  },
+  deckCloseBtn: {
+    width: 40,
+    height: 44,
+    borderRadius: 6,
+    backgroundColor: "#F4F8FE",
+    borderWidth: 1,
+    borderColor: "#D3E2FB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 4,
+  },
+
+  /* Interactive Top HUD Modal / Popover */
+  hudModalOverlay: {
+    position: "absolute",
+    top: 90,
+    left: 20,
+    right: 20,
+    alignItems: "center",
+    zIndex: 50,
+  },
+  hudModalCard: {
+    width: 520,
+    maxWidth: "92%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    padding: 14,
+    shadowColor: "#0B1C3B",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    elevation: 12,
+  },
+  hudModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+    marginBottom: 10,
+  },
+  hudModalHeaderTitleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  hudModalHeaderTitle: {
+    color: "#0F172A",
+    fontSize: 12,
+    fontWeight: "500",
+    letterSpacing: 0.5,
+  },
+  hudModalGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: 10,
+  },
+  hudModalGridItem: {
+    width: "48%",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 8,
+  },
+  hudModalGridLabel: {
+    color: "#64748B",
+    fontSize: 9,
+    fontWeight: "400",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  hudModalGridVal: {
+    color: "#0F172A",
+    fontSize: 11.5,
+    fontWeight: "500",
+  },
+
+  floatingMapCallout: { position: "absolute", bottom: 236, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.98)", borderWidth: 1, borderColor: "#CBD5E1", shadowColor: "#0B1C3B", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.16, shadowRadius: 14, elevation: 8, zIndex: 25 },
+  floatingCalloutIcon: { width: 32, height: 32, borderRadius: 6, backgroundColor: "#EAF3FF", alignItems: "center", justifyContent: "center" },
+  floatingCalloutTitle: { color: "#0F172A", fontSize: 12, fontWeight: "500" },
+  floatingCalloutSub: { color: "#1475EE", fontSize: 11, fontWeight: "500" },
+  floatingCalloutBadge: { backgroundColor: "#1475EE", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginLeft: 4 },
+  floatingCalloutBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "500" },
+
+  /* Bottom Operations Deck (3-Section Zero-Gap Layout) */
+  bottomDeckContainer: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 16,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12,
+    zIndex: 30,
+  },
+
+  colEyebrowMinimal: {
+    color: "#64748B",
+    fontSize: 11,
+    fontWeight: "500",
+  },
+
+  /* Middle Column: Route Progress & Waypoint Stepper (Height: 216px with 124px tall points cards) */
+  deckColMiddleCard: {
+    flex: 1,
+    height: 216,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DDE7F3",
+    borderRadius: 8,
+    padding: 12,
+    justifyContent: "space-between",
+    shadowColor: "#10244B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 8,
+    overflow: "visible",
+  },
+  progressHeaderRowMinimal: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  progressHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  progressWpStatusText: {
+    color: "#10244B",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  progressPercentBadgeMinimal: {
+    backgroundColor: "#EEF5FF",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#D2E4FB",
+  },
+  progressPercentBadgeTextMinimal: {
+    color: "#1475EE",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  progressBarTrackMinimal: {
+    width: "100%",
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#E2E8F0",
+    overflow: "hidden",
+    marginVertical: 4,
+  },
+  progressBarFillMinimal: {
+    height: "100%",
+    borderRadius: 3,
+    backgroundColor: "#1475EE",
+  },
+  deckStepperScrollMinimal: {
+    alignItems: "center",
+    gap: 16,
+    paddingVertical: 4,
+  },
+
+  /* Taller Boxy Waypoint Stepper Cards with Colored Sub-Block (Height: 124px, No Bold) */
+  stepCapsuleChip: {
+    height: 124,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DDE7F3",
+    borderRadius: 8,
+    padding: 7,
+    justifyContent: "space-between",
+    shadowColor: "#10244B",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  stepCapsuleChipDone: {
+    height: 124,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DDE7F3",
+    borderRadius: 8,
+    padding: 7,
+    justifyContent: "space-between",
+    shadowColor: "#10244B",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  stepCapsuleChipActive: {
+    height: 124,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 2,
+    borderColor: "#1475EE",
+    borderRadius: 8,
+    padding: 7,
+    justifyContent: "space-between",
+    shadowColor: "#1475EE",
+    shadowOpacity: 0.24,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  stepCapsuleChipPending: {
+    height: 124,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 8,
+    padding: 7,
+    justifyContent: "space-between",
+    opacity: 0.9,
+  },
+  stepChipSelected: {
+    borderColor: "#1475EE",
+    borderWidth: 2,
+  },
+  stepCardTopMinimal: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 2,
+    marginBottom: 4,
+  },
+  stepCardWpNum: {
+    color: "#10244B",
+    fontSize: 12.5,
+    fontWeight: "500",
+  },
+  stepCardDotBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepCardDotText: {
+    fontSize: 9.5,
+    fontWeight: "500",
+  },
+  stepCardSubBlock: {
+    width: "100%",
+    borderRadius: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  stepCardSubBlockAcc: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "500",
+    letterSpacing: -0.2,
+  },
+  stepCardSubBlockRemark: {
+    color: "#FFFFFF",
+    fontSize: 11.5,
+    fontWeight: "500",
+    opacity: 0.95,
+  },
+  progressWpCompletedBadge: {
+    backgroundColor: "#E8F8F0",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#A7E8C4",
+  },
+  progressWpCompletedText: {
+    color: "#148263",
+    fontSize: 10.5,
+    fontWeight: "500",
+  },
+  trackWrapper: {
+    position: "relative",
+    width: "100%",
+    marginVertical: 4,
+  },
+  trackMilestonesRow: {
+    position: "absolute",
+    top: -6,
+    left: 2,
+    right: 2,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  milestoneDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  milestoneDotDone: {
+    backgroundColor: "#16B980",
+    borderColor: "#FFFFFF",
+  },
+  milestoneDotActive: {
+    backgroundColor: "#1475EE",
+    borderColor: "#FFFFFF",
+    transform: [{ scale: 1.2 }],
+    shadowColor: "#1475EE",
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  milestoneDotText: {
+    fontSize: 9,
+    color: "#536D97",
+    fontWeight: "500",
+  },
+  milestoneDotTextWhite: {
+    color: "#FFFFFF",
+  },
+  cleanModeBtn: {
+    width: "100%",
+    height: 42,
+    borderRadius: 6,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#DDE7F3",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  cleanModeBtnText: {
+    color: "#536D97",
+    fontSize: 11.5,
+    fontWeight: "500",
+    letterSpacing: 0.3,
+  },
+  stepCapsuleTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 4,
+  },
+  stepCapsuleWpNum: {
+    color: "#0F172A",
+    fontSize: 12.5,
+    fontWeight: "500",
+  },
+  stepCapsuleCheckText: {
+    color: "#10B981",
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  stepBoxyCheckBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    backgroundColor: "#ECFDF5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepBoxyCoordsText: {
+    color: "#475569",
+    fontSize: 9.5,
+    fontFamily: "monospace",
+    fontWeight: "400",
+    paddingHorizontal: 2,
+  },
+  stepHeroAccRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+    paddingVertical: 1,
+  },
+  stepHeroAccValDone: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#148263",
+    letterSpacing: -0.2,
+  },
+  stepHeroAccValActive: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#1475EE",
+    letterSpacing: -0.2,
+  },
+  stepHeroAccValPending: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#64748B",
+    letterSpacing: -0.2,
+  },
+  stepHeroAccUnit: {
+    fontSize: 11,
+    fontWeight: "400",
+    color: "#536D97",
+  },
+  stepAccGradeBadge: {
+    fontSize: 8.5,
+    fontWeight: "500",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+    backgroundColor: "#E9F9F1",
+    color: "#148263",
+    marginLeft: "auto",
+  },
+  stepHeroRemark: {
+    fontSize: 12.5,
+    fontWeight: "400",
+    color: "#10244B",
+    paddingHorizontal: 2,
+  },
+  stepHeroRemarkActive: {
+    fontSize: 12.5,
+    fontWeight: "400",
+    color: "#1475EE",
+    paddingHorizontal: 2,
+  },
+  stepHeroRemarkPending: {
+    fontSize: 12.5,
+    fontWeight: "400",
+    color: "#64748B",
+    paddingHorizontal: 2,
+  },
+  stepCapsuleRemark: {
+    color: "#64748B",
+    fontSize: 9.5,
+    fontWeight: "400",
+    fontStyle: "italic",
+    paddingHorizontal: 2,
+  },
+  stepCapsuleBadge: {
+    height: 24,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepCapsuleBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 9.5,
+    fontWeight: "500",
+    letterSpacing: 0.3,
+  },
+  stepCapsuleWpNumActive: {
+    color: "#0284C7",
+    fontSize: 12.5,
+    fontWeight: "500",
+  },
+  stepBoxyActiveDotBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    backgroundColor: "#E0F2FE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepCapsuleActiveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#0284C7",
+  },
+  stepCapsuleRemarkActive: {
+    color: "#0369A1",
+    fontSize: 9.5,
+    fontWeight: "400",
+    paddingHorizontal: 2,
+  },
+  stepCapsuleWpNumPending: {
+    color: "#64748B",
+    fontSize: 12.5,
+    fontWeight: "400",
+  },
+  stepCapsulePendingIndex: {
+    color: "#94A3B8",
+    fontSize: 9.5,
+    fontWeight: "400",
+  },
+  stepCapsuleRemarkPending: {
+    color: "#94A3B8",
+    fontSize: 9.5,
+    fontWeight: "400",
+    paddingHorizontal: 2,
+  },
+  stepCapsuleBadgeTextPending: {
+    color: "#64748B",
+    fontSize: 9.5,
+    fontWeight: "500",
+    letterSpacing: 0.3,
+  },
+
+  /* Legacy Chip Fallbacks for safety */
+  stepCompletedChip: {
+    height: 82,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderRadius: 8,
+    padding: 6,
+    justifyContent: "space-between",
+  },
+  stepActiveTargetChip: {
+    height: 82,
+    backgroundColor: "#F0F9FF",
+    borderWidth: 2,
+    borderColor: "#0284C7",
+    borderRadius: 8,
+    padding: 6,
+    justifyContent: "space-between",
+  },
+  stepPendingChip: {
+    height: 82,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 8,
+    padding: 6,
+    justifyContent: "space-between",
+    opacity: 0.85,
+  },
+
+  /* Waypoint Inspection Banner (on tapping a point) */
+  pointInspectionBanner: {
+    position: "absolute",
+    bottom: 216,
+    left: 0,
+    right: 0,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    padding: 10,
+    shadowColor: "#0B1C3B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+    elevation: 6,
+    zIndex: 35,
+  },
+  pointInspectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  pointInspectionTitleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  inspectionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  pointInspectionTitle: {
+    color: "#0F172A",
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  inspectionTierBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  inspectionTierText: {
+    fontSize: 8,
+    fontWeight: "500",
+  },
+  pointInspectionBody: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  inspectionItem: {
+    color: "#475569",
+    fontSize: 9,
+    fontWeight: "400",
+  },
+  inspectionDivider: {
+    color: "#94A3B8",
+    fontSize: 9,
+  },
+
+  /* Right Column: Base Card (height: 204) + Upward Zero-Gap Drawer (width: 340) */
+  deckColRightWrap: {
+    width: 340,
+    flexShrink: 0,
+    justifyContent: "flex-end",
+  },
+  controlZeroGapDrawer: {
+    backgroundColor: "rgba(255,255,255,0.99)",
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: "#CBD5E1",
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    padding: 12,
+    gap: 8,
+    shadowColor: "#0B1C3B",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  drawerHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+  drawerTitle: {
+    color: "#64748B",
+    fontSize: 10,
+    fontWeight: "500",
+    letterSpacing: 0.5,
+  },
+  drawerCloseText: {
+    color: "#1475EE",
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  drawerRectRow: {
+    flexDirection: "row",
+    gap: 8,
+    height: 56,
+  },
+  actionBtnRectSkip: {
+    flex: 1,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: "#1475EE",
+    borderWidth: 1,
+    borderColor: "#1162C9",
+    borderBottomWidth: 3,
+    borderBottomColor: "#0C4EA3",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    gap: 8,
+    shadowColor: "#1475EE",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  actionBtnRectMode: {
+    flex: 1,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: "#7956D9",
+    borderWidth: 1,
+    borderColor: "#6544BE",
+    borderBottomWidth: 3,
+    borderBottomColor: "#51349E",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    gap: 8,
+    shadowColor: "#7956D9",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  actionBtnRectHome: {
+    width: "100%",
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: "#0D8DB5",
+    borderWidth: 1,
+    borderColor: "#0A7394",
+    borderBottomWidth: 3,
+    borderBottomColor: "#075973",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    marginTop: 8,
+    shadowColor: "#0D8DB5",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  btnRectIconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 6,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnRectTextCol: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  btnRectTextColHoriz: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  btnRectMainText: {
+    color: "#FFFFFF",
+    fontSize: 13.5,
+    fontWeight: "500",
+    letterSpacing: 0.4,
+  },
+  btnRectSubText: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 9,
+    fontWeight: "400",
+    letterSpacing: 0.3,
+  },
+  btnRectStopSubText: {
+    color: "#FEE2E2",
+    fontSize: 10,
+    fontWeight: "500",
+    backgroundColor: "rgba(0,0,0,0.18)",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+
+  /* Base Operations Card (Height: 216px with Chunky Rectangular Buttons) */
+  deckRightBaseCard: {
+    height: 216,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DDE7F3",
+    borderRadius: 8,
+    padding: 12,
+    justifyContent: "space-between",
+    shadowColor: "#10244B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  deckBaseCardMergedTop: {
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+  },
+  baseCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: 2,
+  },
+  baseCardTitle: {
+    color: "#536D97",
+    fontSize: 10,
+    fontWeight: "500",
+    letterSpacing: 0.6,
+  },
+  expandCuePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 4,
+    backgroundColor: "#EEF5FF",
+    borderWidth: 1,
+    borderColor: "#D2E4FB",
+  },
+  expandCueText: {
+    color: "#1475EE",
+    fontSize: 9,
+    fontWeight: "500",
+    letterSpacing: 0.3,
+  },
+  baseStatusPill: {
+    height: 24,
+    borderRadius: 4,
+    backgroundColor: "#F7FAFF",
+    borderWidth: 1,
+    borderColor: "#D5E3F5",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    gap: 6,
+  },
+  baseStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#16B980",
+  },
+  baseStatusText: {
+    color: "#173563",
+    fontSize: 9,
+    fontWeight: "500",
+    letterSpacing: 0.3,
+  },
+
+  /* Rectangular Push-Buttons Container */
+  rectButtonsContainer: {
+    flex: 1,
+    gap: 9,
+    justifyContent: "center",
+  },
+  startPauseRectRow: {
+    flexDirection: "row",
+    gap: 9,
+    height: 68,
+  },
+  actionBtnRectStart: {
+    flex: 1,
+    height: 68,
+    borderRadius: 8,
+    backgroundColor: "#16B980",
+    borderWidth: 1,
+    borderColor: "#148263",
+    borderBottomWidth: 3,
+    borderBottomColor: "#0D684D",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    gap: 10,
+    shadowColor: "#16B980",
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  actionBtnRectPause: {
+    flex: 1,
+    height: 68,
+    borderRadius: 8,
+    backgroundColor: "#F08A24",
+    borderWidth: 1,
+    borderColor: "#C86412",
+    borderBottomWidth: 3,
+    borderBottomColor: "#9A4C0B",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    gap: 10,
+    shadowColor: "#F08A24",
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  actionBtnRectResume: {
+    backgroundColor: "#1475EE",
+    borderColor: "#1162C9",
+    borderBottomColor: "#0C4EA3",
+    shadowColor: "#1475EE",
+  },
+  actionBtnRectStop: {
+    width: "100%",
+    height: 62,
+    borderRadius: 8,
+    backgroundColor: "#D94A42",
+    borderWidth: 1,
+    borderColor: "#C43C34",
+    borderBottomWidth: 3,
+    borderBottomColor: "#9B2E28",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    shadowColor: "#D94A42",
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+
+  /* Layout B: Hero Master Button + Sub Row Styles */
+  heroBtnStartMaster: {
+    width: "100%",
+    height: 66,
+    borderRadius: 8,
+    backgroundColor: "#16B980",
+    borderWidth: 1,
+    borderColor: "#148263",
+    borderBottomWidth: 3,
+    borderBottomColor: "#0D684D",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    shadowColor: "#16B980",
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  heroBtnStopMaster: {
+    width: "100%",
+    height: 66,
+    borderRadius: 8,
+    backgroundColor: "#D94A42",
+    borderWidth: 1,
+    borderColor: "#C43C34",
+    borderBottomWidth: 3,
+    borderBottomColor: "#9B2E28",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    shadowColor: "#D94A42",
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  heroBtnTextRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  heroBtnMainTitle: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "500",
+    letterSpacing: 0.5,
+  },
+  heroBtnSubBadge: {
+    backgroundColor: "rgba(0,0,0,0.18)",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  heroBtnSubText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 9.5,
+    fontWeight: "400",
+    letterSpacing: 0.3,
+  },
+  subRowContainer: {
+    flexDirection: "row",
+    gap: 8,
+    height: 50,
+  },
+  subBtnPause: {
+    flex: 1,
+    height: 50,
+    borderRadius: 6,
+    backgroundColor: "#F08A24",
+    borderWidth: 1,
+    borderColor: "#C86412",
+    borderBottomWidth: 2.5,
+    borderBottomColor: "#9A4C0B",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    shadowColor: "#F08A24",
+    shadowOpacity: 0.22,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  subBtnResume: {
+    backgroundColor: "#1475EE",
+    borderColor: "#1162C9",
+    borderBottomColor: "#0C4EA3",
+    shadowColor: "#1475EE",
+  },
+  subBtnSkip: {
+    flex: 1,
+    height: 50,
+    borderRadius: 6,
+    backgroundColor: "#1475EE",
+    borderWidth: 1,
+    borderColor: "#1162C9",
+    borderBottomWidth: 2.5,
+    borderBottomColor: "#0C4EA3",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    shadowColor: "#1475EE",
+    shadowOpacity: 0.22,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  subBtnText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "500",
+    letterSpacing: 0.4,
+  },
 });

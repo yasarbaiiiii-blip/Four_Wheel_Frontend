@@ -101,6 +101,7 @@ function OperationsWorkspace() {
                 openFilePickerOnMount
                 returnToMissionAfterImport
                 onMissionUploadSuccess={() => { setMissionUploadConfirmed(true); setMissionUploadCompletedToken((token) => token + 1); setPlanOpenIntent(null); setIsPlanningRoute(false); }}
+                onMissionUploadCancel={() => { setPlanOpenIntent(null); setIsPlanningRoute(false); }}
               />
             </View>
           )}

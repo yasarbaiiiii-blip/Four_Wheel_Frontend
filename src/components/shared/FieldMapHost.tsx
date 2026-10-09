@@ -19,6 +19,7 @@ import {
 } from "../../config/mapboxConfig";
 import { useBackendTrajectory } from "../../context/BackendTrajectoryContext";
 import { useFieldMap } from "../../context/FieldMapContext";
+import { useMissionProgressOverlayOptional } from "../../context/MissionProgressOverlayContext";
 import {
   shallowEqual,
   useLiveTelemetrySelector,
@@ -86,6 +87,8 @@ const FieldMapHostBase: React.FC = () => {
     sharedCamera,
     setSharedCamera,
   } = useFieldMap();
+  const overlayCtx = useMissionProgressOverlayOptional();
+  const isActivityScreenOpen = overlayCtx?.isActivityScreenOpen ?? false;
   const { preview, authoringChanged } = useBackendTrajectory();
   const mapTelemetry = useLiveTelemetrySelector(
     selectMapTelemetry,
@@ -482,20 +485,24 @@ const FieldMapHostBase: React.FC = () => {
 
       <OfflineMapStatusBadge />
 
-      <TrajectoryStatusBanner
-        preview={preview}
-        hasAuthoringPoints={fallbackSnapshot.waypoints.length >= 2}
-      />
+      {!isActivityScreenOpen && (
+        <TrajectoryStatusBanner
+          preview={preview}
+          hasAuthoringPoints={fallbackSnapshot.waypoints.length >= 2}
+        />
+      )}
 
-      <MapBottomControlsBar
-        mapStyle={mapStyle}
-        disabled={!mapReady}
-        onToggleMapStyle={handleToggleMapStyle}
-        onFitMission={handleFitMission}
-        onCenterRover={handleCenterRover}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-      />
+      {!isActivityScreenOpen && (
+        <MapBottomControlsBar
+          mapStyle={mapStyle}
+          disabled={!mapReady}
+          onToggleMapStyle={handleToggleMapStyle}
+          onFitMission={handleFitMission}
+          onCenterRover={handleCenterRover}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+        />
+      )}
     </View>
   );
 };

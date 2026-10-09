@@ -403,6 +403,8 @@ interface PathPlanScreenProps {
   onLoadMissionSuccess?: () => void;
   /** Returns to the modern mission home after a direct file upload. */
   onMissionUploadSuccess?: () => void;
+  /** Returns to the modern mission home if a direct file upload is canceled or fails. */
+  onMissionUploadCancel?: () => void;
 }
 
 type MissionControlResponseWithRestore = MissionControlResponse & {
@@ -451,6 +453,7 @@ export default function PathPlanScreen({
   setIsBottomTableVisible: propSetIsBottomTableVisible,
   onLoadMissionSuccess,
   onMissionUploadSuccess,
+  onMissionUploadCancel,
 }: PathPlanScreenProps) {
   const {
     missionWaypoints,
@@ -3015,6 +3018,7 @@ export default function PathPlanScreen({
       return;
     }
 
+    let didUploadSuccessfully = false;
     isUploadingRef.current = true;
     setIsImportingFile(true);
     try {
@@ -3274,7 +3278,10 @@ export default function PathPlanScreen({
           sanitized,
           missionExtensionRef.current,
         );
-        if (uploaded) onMissionUploadSuccess?.();
+        if (uploaded) {
+          didUploadSuccessfully = true;
+          onMissionUploadSuccess?.();
+        }
         return;
       }
 
@@ -3320,6 +3327,10 @@ export default function PathPlanScreen({
       // by a timer made a fast follow-up tap appear to do nothing.
       isUploadingRef.current = false;
       if (mountedRef.current) setIsImportingFile(false);
+      
+      if (returnToMissionAfterImport && !didUploadSuccessfully) {
+        onMissionUploadCancel?.();
+      }
     }
   };
 

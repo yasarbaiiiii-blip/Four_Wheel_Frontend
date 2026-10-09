@@ -42,6 +42,8 @@ interface MissionProgressOverlayContextValue {
   >;
   togglePanel: (key: MissionProgressPanelKey) => void;
   setPanelVisible: (key: MissionProgressPanelKey, visible: boolean) => void;
+  isActivityScreenOpen: boolean;
+  setIsActivityScreenOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const MissionProgressOverlayContext =
@@ -53,6 +55,7 @@ export function MissionProgressOverlayProvider({
   children: React.ReactNode;
 }) {
   const [isWidgetMenuOpen, setIsWidgetMenuOpen] = useState(false);
+  const [isActivityScreenOpen, setIsActivityScreenOpen] = useState(false);
   const [panelVisibility, setPanelVisibility] =
     useState<MissionProgressPanelVisibility>(DEFAULT_PANEL_VISIBILITY);
 
@@ -80,6 +83,8 @@ export function MissionProgressOverlayProvider({
       setPanelVisibility,
       togglePanel,
       setPanelVisible,
+      isActivityScreenOpen,
+      setIsActivityScreenOpen,
     }),
     [
       isWidgetMenuOpen,
@@ -87,6 +92,7 @@ export function MissionProgressOverlayProvider({
       togglePanel,
       setPanelVisible,
       toggleWidgetMenu,
+      isActivityScreenOpen,
     ],
   );
 
