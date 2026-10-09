@@ -2,6 +2,8 @@
 
 Expo React Native mobile application for DYX rover ground control.
 
+> ⚠️ **AI AGENTS & DEVELOPERS:** Before making changes, you **must** review [**`AGENTS.md`**](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/AGENTS.md) and check current tasks & history in [**`HANDOVER.md`**](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/HANDOVER.md). Every agent must record a handover entry in `HANDOVER.md` upon completing work.
+
 ## Technology
 
 - Expo SDK 54

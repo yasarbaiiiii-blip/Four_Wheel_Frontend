@@ -59,9 +59,12 @@ task/
 Tasks/
 
 # Loose markdown files (agent-generated docs, summaries, reports)
-# Keep README.md explicitly via negation
+# Keep README.md, AGENTS.md, AGENT_RULES.md, HANDOVER.md explicitly via negation
 *.md
 !README.md
+!AGENTS.md
+!AGENT_RULES.md
+!HANDOVER.md
 !Todos/*.md
 
 # Build logs and test scripts
