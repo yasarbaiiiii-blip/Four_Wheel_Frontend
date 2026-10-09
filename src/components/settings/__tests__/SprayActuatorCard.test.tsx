@@ -22,6 +22,16 @@ jest.mock("react-native", () => ({
   },
 }));
 
+jest.mock("@expo/vector-icons", () => {
+  const React = require("react");
+  return {
+    MaterialCommunityIcons: ({ name, testID, ...props }: any) => {
+      const { Text } = require("react-native");
+      return <Text testID={testID ?? `icon-${name}`} {...props}>{`[icon:${name}]`}</Text>;
+    },
+  };
+});
+
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 
 beforeAll(() => {

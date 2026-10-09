@@ -14,6 +14,7 @@ import {
   SPRAY_DURATION_STEP_MS,
   SprayTestStatus,
 } from "../../hooks/useSprayActuator";
+import { AppIcon } from "../shared/AppIcon";
 
 export interface SprayActuatorCardProps {
   draftServoEnabled: boolean;
@@ -118,14 +119,14 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
       <View style={styles.cardHeader}>
         <View style={styles.headerLeft}>
           <View style={styles.iconBadge}>
-            <Text style={styles.iconText}>⚡</Text>
+            <AppIcon name="actuatorSpray" size="sm" color="#1475EE" />
           </View>
           <View>
             <View style={styles.eyebrowRow}>
               <Text style={styles.eyebrow}>ACTUATOR HARDWARE</Text>
               {isDirty && (
                 <View style={styles.dirtyPill}>
-                  <Text style={styles.dirtyPillDot}>●</Text>
+                  <AppIcon name="circle" size={7} color="#D97706" />
                   <Text style={styles.dirtyPillText}>Unsaved Changes</Text>
                 </View>
               )}
@@ -175,7 +176,7 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
       {/* Validation Warning Banner: SPRAY with Controller OFF */}
       {!draftServoEnabled && (
         <View style={styles.warningBanner}>
-          <Text style={styles.warningBannerIcon}>⚠️</Text>
+          <AppIcon name="warning" size="sm" color="#D97706" />
           <View style={styles.warningBannerContent}>
             <Text style={styles.warningBannerTitle}>Spray Controller Power is OFF</Text>
             <Text style={styles.warningBannerText}>
@@ -203,9 +204,12 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
           </View>
         ) : !isOnline ? (
           <View style={styles.telemetryOfflineRow}>
-            <Text style={styles.telemetryOfflineText}>
-              ⚠️ Telemetry offline — Rover disconnected
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <AppIcon name="warning" size="xs" color="#DC2626" />
+              <Text style={styles.telemetryOfflineText}>
+                Telemetry offline — Rover disconnected
+              </Text>
+            </View>
           </View>
         ) : (
           <View style={styles.telemetryGrid}>
@@ -249,9 +253,11 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
             accessibilityRole="button"
             accessibilityLabel="Decrease spray pulse duration by 100 milliseconds"
           >
-            <Text style={[styles.stepperButtonText, isMinDuration && styles.disabledText]}>
-              −
-            </Text>
+            <AppIcon
+              name="stepperMinus"
+              size="sm"
+              color={isMinDuration ? "#94A3B8" : "#1E293B"}
+            />
           </TouchableOpacity>
 
           {/* Direct Tap-to-Type Display Box */}
@@ -295,9 +301,11 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
             accessibilityRole="button"
             accessibilityLabel="Increase spray pulse duration by 100 milliseconds"
           >
-            <Text style={[styles.stepperButtonText, isMaxDuration && styles.disabledText]}>
-              +
-            </Text>
+            <AppIcon
+              name="stepperPlus"
+              size="sm"
+              color={isMaxDuration ? "#94A3B8" : "#1E293B"}
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -306,24 +314,32 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
       <View style={styles.testPulseContainer}>
         <View style={styles.testPulseHeader}>
           <Text style={styles.testPulseEyebrow}>SAFETY HARDWARE TEST</Text>
-          <Text
-            style={[
-              styles.testStatusText,
-              testStatus === "success" && styles.textSuccess,
-              testStatus === "error" && styles.textError,
-              testStatus === "pulsing" && styles.textPulsing,
-            ]}
-          >
-            {testStatus === "pulsing"
-              ? "Firing AUX5 Pulse..."
-              : testStatus === "success"
-              ? "✓ Pulse Completed"
-              : testStatus === "error"
-              ? "⚠️ Test Failed"
-              : canTestSpray
-              ? "Ready to test"
-              : disabledTestReason ?? "Unavailable"}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            {testStatus === "success" && (
+              <AppIcon name="testSuccess" size="xs" color="#059669" />
+            )}
+            {testStatus === "error" && (
+              <AppIcon name="testError" size="xs" color="#DC2626" />
+            )}
+            <Text
+              style={[
+                styles.testStatusText,
+                testStatus === "success" && styles.textSuccess,
+                testStatus === "error" && styles.textError,
+                testStatus === "pulsing" && styles.textPulsing,
+              ]}
+            >
+              {testStatus === "pulsing"
+                ? "Firing AUX5 Pulse..."
+                : testStatus === "success"
+                ? "Pulse Completed"
+                : testStatus === "error"
+                ? "Test Failed"
+                : canTestSpray
+                ? "Ready to test"
+                : disabledTestReason ?? "Unavailable"}
+            </Text>
+          </View>
         </View>
 
         <TouchableOpacity
@@ -342,7 +358,11 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
             {isTesting ? (
               <ActivityIndicator color="#1475EE" size="small" />
             ) : (
-              <Text style={styles.testButtonIcon}>💧</Text>
+              <AppIcon
+                name="testPulse"
+                size="sm"
+                color={!canTestSpray ? "#94A3B8" : "#B45309"}
+              />
             )}
             <Text
               style={[

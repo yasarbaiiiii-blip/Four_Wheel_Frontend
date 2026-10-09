@@ -13,6 +13,7 @@ This file is the **mandatory living handover register** for all AI agents, engin
 | Entry # | Date | Topic / Section | Status | Primary Author / Agent |
 | :--- | :--- | :--- | :--- | :--- |
 | **001** | 2026-10-09 | GNSS/RTK White Theme Refactor & Inline Spray Actuator (Mission Defaults) with Tap Testing | COMPLETED | Antigravity AI Agent |
+| **002** | 2026-10-09 | Classic Production-Grade Vector Icons Refactor (SettingsScreen & SprayActuatorCard) | COMPLETED | Antigravity AI Agent |
 
 ---
 
@@ -155,3 +156,89 @@ When recording a completed section/task, copy and fill out the template below:
   - Review `HANDOVER.md` and `README.md` before initiating any new feature or refactor.
   - Coordinate with operator for physical bench testing of AUX5 solenoid pulse using the tap button on the Android tablet.
   - If working on path planning or mission execution screens, respect the PX4 OFFBOARD / ROS 2 4WD_SERVER contracts documented in `README.md`.
+
+---
+
+## Entry 002 — Classic Production-Grade Vector Icons Refactor (SettingsScreen & SprayActuatorCard)
+- **Date & Time:** 2026-10-09 13:15 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Antigravity AI Agent
+
+### 1. Objective & Scope
+1. **Replace Casual Emojis**:
+   - Replace casual, modern emojis (`⚙️`, `📡`, `🎯`, `🚫`, `🔊`, `💡`, `💧`, `⚡`, `💾`, `👨`, `👩`, `🎵`, `📋`, `›`, `✕`, etc.) across the System Settings menu (`SettingsScreen.tsx` and `SprayActuatorCard.tsx`) with classic professional production-grade vector icons from `@expo/vector-icons` (`MaterialCommunityIcons`).
+2. **Scope Boundary**:
+   - Strictly bounded to `SettingsScreen.tsx` and `SprayActuatorCard.tsx`. Created an automated AST/file regression guard test (`SettingsScreenIconsRegression.test.ts`) enforcing zero casual emojis with a mathematical symbol allow-list (`µ`, `°`, `±`, `·`, `—`, `≤`, `≥`).
+3. **Ergonomics & Outdoor Usability**:
+   - Adhere to the Crisp Field White theme (`#FFFFFF`, `#F8FAFC`, `#DDE8F7`, `#10244B`, `#1475EE`, `#16B980`, `#DC2626`).
+   - Use solid glyphs for primary navigation and controls for high optical density under direct sunlight on Android tablets.
+   - Enforce $\ge 48\,\text{dp}$ touch target sizing across all interactive buttons, steppers, and toggles.
+
+### 2. Changes Implemented
+- **Files Created:**
+  - [`src/constants/icons.ts`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/constants/icons.ts):
+    - Central typed source of truth mapping semantic keys (`settings`, `categoryMission`, `toolSpray`, `stepperMinus`, etc.) to verified `MaterialCommunityIcons` glyph names.
+    - Type-checked against `ComponentProps<typeof MaterialCommunityIcons>["name"]` using `satisfies Record<string, MaterialCommunityIconName>`.
+  - [`src/components/shared/AppIcon.tsx`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/components/shared/AppIcon.tsx):
+    - Reusable GCS icon wrapper supporting semantic keys and direct glyph names.
+    - Standardized size scale tokens: `xs` (14), `sm` (18), `md` (22), `lg` (26), `xl` (32), or numeric dp.
+    - Default `decorative=true` sets `accessibilityElementsHidden={true}` and `importantForAccessibility="no"`.
+  - [`src/screens/__tests__/SettingsScreenIconsRegression.test.ts`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/screens/__tests__/SettingsScreenIconsRegression.test.ts):
+    - Automated test scanning `SettingsScreen.tsx` and `SprayActuatorCard.tsx` for casual emojis.
+    - Strictly enforces zero emojis while allowing legitimate engineering symbols (`µ` in `µs`, `°`, `±`, etc.).
+  - [`src/components/settings/__tests__/SettingsScreenIcons.test.tsx`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/components/settings/__tests__/SettingsScreenIcons.test.tsx):
+    - Component unit tests verifying `AppIcon` rendering, size/color props, SprayActuatorCard icons, dirty state indicator, stepper minus/plus, test status icons, and accessibility properties.
+- **Files Modified:**
+  - [`src/screens/SettingsScreen.tsx`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/screens/SettingsScreen.tsx):
+    - Replaced header badge (`cog`), close button (`close`), sidebar items (`satellite-uplink`, `bullseye-arrow`, `radar`, `volume-high`, `led-on`, `tune-vertical`), chevrons (`chevron-right`), tool selectors (`spray`, `laser-pointer`), laser info banner (`crosshairs`), save button (`content-save` / `ActivityIndicator`), voice gender (`gender-male`, `gender-female`), and voice test (`volume-vibrate`).
+    - Cleaned emojis from all console log statements.
+    - Enforced $\ge 48\,\text{dp}$ touch target sizing on close button, tool selector cards, voice buttons, and save button.
+  - [`src/components/settings/SprayActuatorCard.tsx`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/components/settings/SprayActuatorCard.tsx):
+    - Replaced card header badge (`spray`), dirty indicator dot (`circle`), warning alert banners (`alert-circle-outline`), duration stepper buttons (`minus` / `plus`), status indicators (`check-circle-outline` / `alert-circle-outline`), and test button icon (`lightning-bolt`).
+  - [`src/components/settings/__tests__/SprayActuatorCard.test.tsx`](file:///c:/Users/DYX_D/4wdfrt/DYX_GCS_Frontend/src/components/settings/__tests__/SprayActuatorCard.test.tsx):
+    - Added `@expo/vector-icons` Jest mock.
+
+### 3. Key Architecture & Design Decisions
+1. **Decision 1 — Semantic Mapping & Glyph Selection:**
+   - **Mission Defaults:** `bullseye-arrow` (disambiguates from GPS location `crosshairs-gps`).
+   - **Obstacle Safety:** `radar` (accurately represents physical forward LiDAR scanning).
+   - **LED Controller:** `led-on` (reflects chassis status diode driven by `/api/led`, not headlights).
+   - **Tool Selectors:** Dual `spray` and `laser-pointer` paired with clear text labels.
+   - **Stepper:** `minus` and `plus` vector glyphs inside rounded $\ge 48\,\text{dp}$ touch targets.
+   - **In-flight Saving:** Dynamic `<ActivityIndicator size="small" color="#FFFFFF" />` replacing static hourglass emoji.
+2. **Decision 2 — Sunlight Readability:**
+   - Solid/filled glyphs prioritized for primary controls to ensure high optical contrast in bright outdoor sunlight on Android tablet screens.
+3. **Decision 3 — Strict Accessibility Annotation:**
+   - Icons adjacent to text labels are marked decorative (`accessibilityElementsHidden={true}`).
+   - Standalone icon buttons (`close`, `minus`, `plus`) receive `accessibilityRole="button"` and explicit `accessibilityLabel`.
+
+### 4. Hardware Safety & Safety Interlocks
+- Retained all existing spray actuator hardware safety interlocks: rover motion speed gate ($\ge 0.1\,\text{m/s}$), active mission block, offline block, debounced single-tap mutex lock, and guaranteed PWM release in `finally` and unmount/backgrounding.
+- Confirmed LED Controller endpoint `/api/led` controls status LEDs; verified no headlight or motor actuation conflicts.
+
+### 5. Verification & Testing
+- **Unit Tests:**
+  - Command: `npm test -- --testPathPattern="SettingsScreenIcons|SprayActuatorCard|useSprayActuator" --silent`
+  - Result: **34 passed, 34 total (4 test suites)**.
+    - `SettingsScreenIconsRegression.test.ts` (PASS)
+    - `SettingsScreenIcons.test.tsx` (PASS)
+    - `SprayActuatorCard.test.tsx` (PASS)
+    - `useSprayActuator.test.ts` (PASS)
+- **Type Checking:**
+  - Command: `npx tsc --noEmit --project tsconfig.json`
+  - Result: **0 errors** in touched files (`SettingsScreen.tsx`, `SprayActuatorCard.tsx`, `icons.ts`, `AppIcon.tsx`, and tests).
+- **Metro Bundler Check:**
+  - Command: `curl.exe -s -o NUL -w "%{http_code}" "http://127.0.0.1:8081/src/screens/SettingsScreen.bundle?platform=android&dev=true"`
+  - Result: **HTTP 200 OK**.
+- **Design Artifacts:**
+  - Plan: `production_icons_plan.md`
+  - HTML Preview: `settings_icons_preview.html`
+
+### 6. Current Repository State & Next Steps
+- **Branch:** `client_`
+- **Working Tree:**
+  - Modified files: `src/components/settings/SprayActuatorCard.tsx`, `src/components/settings/__tests__/SprayActuatorCard.test.tsx`, `src/screens/SettingsScreen.tsx`, `HANDOVER.md`.
+  - Untracked files: `src/constants/icons.ts`, `src/components/shared/AppIcon.tsx`, `src/components/settings/__tests__/SettingsScreenIcons.test.tsx`, `src/screens/__tests__/SettingsScreenIconsRegression.test.ts`.
+- **Recommended Next Steps for Next Agent:**
+  - If the operator wishes to refactor casual emojis in other screens (e.g. `MainGCSControlScreen.tsx`, `ManualControlScreen.tsx`, `PathPlanScreen.tsx`), utilize the centralized `src/constants/icons.ts` and `<AppIcon>` component created here.
+

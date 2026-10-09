@@ -25,6 +25,8 @@ import { ParamBrowserModal } from "../components/settings/ParamBrowserModal";
 import { RTKInjectionScreen } from "../components/missionreport/RTKInjectionScreen";
 import { useAuth } from "../hooks/useAuth";
 import { Toast } from "../components/shared/Toast";
+import { AppIcon } from "../components/shared/AppIcon";
+import type { AppIconKey } from "../constants/icons";
 import { getObstacleStatus, setObstacleConfig } from "../services/obstacleService";
 import {
   getMissionStatus,
@@ -62,16 +64,16 @@ interface SettingsCategoryItem {
   id: SettingsCategory;
   title: string;
   subtitle: string;
-  icon: string;
+  iconKey: AppIconKey;
 }
 
 const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
-  { id: "rtk", title: "GNSS & RTK", subtitle: "Differential fix & NTRIP", icon: "📡" },
-  { id: "mission", title: "Mission Defaults", subtitle: "Marking tool & defaults", icon: "🎯" },
-  { id: "obstacle", title: "Obstacle Safety", subtitle: "Front LiDAR & auto-stop", icon: "🚫" },
-  { id: "voice", title: "Voice Feedback", subtitle: "Language & audio updates", icon: "🔊" },
-  { id: "led", title: "LED Controller", subtitle: "Chassis indicator lights", icon: "💡" },
-  { id: "mavlink", title: "MAVLink Params", subtitle: "ArduRover autopilot", icon: "⚙️" },
+  { id: "rtk", title: "GNSS & RTK", subtitle: "Differential fix & NTRIP", iconKey: "categoryRtk" },
+  { id: "mission", title: "Mission Defaults", subtitle: "Marking tool & defaults", iconKey: "categoryMission" },
+  { id: "obstacle", title: "Obstacle Safety", subtitle: "Front LiDAR & auto-stop", iconKey: "categoryObstacle" },
+  { id: "voice", title: "Voice Feedback", subtitle: "Language & audio updates", iconKey: "categoryVoice" },
+  { id: "led", title: "LED Controller", subtitle: "Chassis indicator lights", iconKey: "categoryLed" },
+  { id: "mavlink", title: "MAVLink Params", subtitle: "ArduRover autopilot", iconKey: "categoryMavlink" },
 ];
 
 const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
@@ -184,7 +186,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
   const loadAllSettings = async () => {
     console.log("═══════════════════════════════════════");
-    console.log("⚙️ LOADING SETTINGS FROM BACKEND/STORAGE");
+    console.log("[Settings] LOADING SETTINGS FROM BACKEND/STORAGE");
     console.log("═══════════════════════════════════════");
 
     // Load TTS settings from backend
@@ -200,12 +202,12 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
     // GPS Failsafe mode is loaded from backend via RoverContext
     console.log(
-      "✅ GPS Failsafe Mode (from backend via context):",
+      "[Settings] GPS Failsafe Mode (from backend via context):",
       gpsFailsafeMode.toUpperCase(),
     );
 
     console.log("═══════════════════════════════════════");
-    console.log("✅ ALL SETTINGS LOADED");
+    console.log("[Settings] ALL SETTINGS LOADED");
     console.log("═══════════════════════════════════════");
   };
 
@@ -314,17 +316,17 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
         const isEnabled = savedLedState === "true";
         setLedEnabled(isEnabled);
         console.log(
-          "[Settings] ✅ LED status (from storage):",
+          "[Settings] LED status (from storage):",
           isEnabled ? "ENABLED" : "DISABLED",
         );
       } else {
         console.log(
-          "[Settings] ⚠️  No saved LED state found, defaulting to DISABLED",
+          "[Settings] No saved LED state found, defaulting to DISABLED",
         );
       }
     } catch (error) {
       console.error(
-        "[Settings] ❌ Failed to load LED state from storage:",
+        "[Settings] Failed to load LED state from storage:",
         error,
       );
     }
@@ -335,7 +337,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       if (response?.success && response.enabled !== undefined) {
         setLedEnabled(response.enabled);
         console.log(
-          "[Settings] ✅ LED status (from backend):",
+          "[Settings] LED status (from backend):",
           response.enabled ? "ENABLED" : "DISABLED",
         );
       }
@@ -374,10 +376,10 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
         event.data?.enabled !== undefined
       ) {
         const timestamp = new Date().toLocaleTimeString();
-        const status = event.data.enabled ? "ENABLED ✅" : "DISABLED ⛔";
+        const status = event.data.enabled ? "ENABLED" : "DISABLED";
 
         console.log("═══════════════════════════════════════");
-        console.log("🔔 BACKEND CONFIRMATION RECEIVED");
+        console.log("[Settings] BACKEND CONFIRMATION RECEIVED");
         console.log("═══════════════════════════════════════");
         console.log("Event Type:", event.type);
         console.log("LED Controller Status:", status);
@@ -410,7 +412,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
         setTimeout(() => setSuccessMessage(""), 3000);
       } else if (event.type === "led_error") {
         console.error("═══════════════════════════════════════");
-        console.error("❌ LED CONTROLLER ERROR");
+        console.error("[Settings] LED CONTROLLER ERROR");
         console.error("═══════════════════════════════════════");
         console.error("Error Message:", event.message || "Unknown error");
         console.error("Error Data:", event.data);
@@ -562,7 +564,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     const sendTime = new Date().toLocaleTimeString();
 
     console.log("═══════════════════════════════════════");
-    console.log("📤 SENDING TO BACKEND");
+    console.log("[Settings] SENDING TO BACKEND");
     console.log("═══════════════════════════════════════");
     console.log("Action: Set LED Controller");
     console.log("Requested State:", enabled ? "ENABLE" : "DISABLE");
@@ -572,7 +574,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     try {
       const response = await services.setLEDController(enabled);
 
-      console.log("📥 Initial Response:", response);
+      console.log("[Settings] Initial Response:", response);
 
       if (response.success) {
         // Treat the REST acknowledgement as the command result. Socket
@@ -588,11 +590,11 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
             console.error("[Settings] Failed to save LED state:", err),
           );
         console.log(
-          "✅ Command sent successfully. Waiting for backend confirmation...",
+          "[Settings] Command sent successfully. Waiting for backend confirmation...",
         );
       } else {
         setIsLoadingLed(false);
-        console.error("❌ Command failed:", response.message);
+        console.error("[Settings] Command failed:", response.message);
         Alert.alert(
           "Error",
           response.message || "Failed to toggle LED controller",
@@ -600,7 +602,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       }
     } catch (error) {
       console.error("═══════════════════════════════════════");
-      console.error("💥 EXCEPTION OCCURRED");
+      console.error("[Settings] EXCEPTION OCCURRED");
       console.error("═══════════════════════════════════════");
       console.error("Error:", error);
       console.error("═══════════════════════════════════════");
@@ -665,7 +667,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
         <Toast
           visible={Boolean(successMessage)}
           type="success"
-          message={successMessage ? `✅ ${successMessage}` : undefined}
+          message={successMessage || undefined}
           position="bottom"
           style={styles.successToast}
           onDismiss={() => setSuccessMessage("")}
@@ -675,7 +677,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <View style={styles.headerIconBadge}>
-              <Text style={styles.headerIconText}>⚙️</Text>
+              <AppIcon name="settings" size="lg" color="#1475EE" />
             </View>
             <View>
               <View style={styles.headerTitleRow}>
@@ -696,9 +698,9 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
             onPress={handleRequestClose}
             style={styles.closeButton}
             accessibilityRole="button"
-            accessibilityLabel="Close settings"
+            accessibilityLabel="Close system settings"
           >
-            <Text style={styles.closeButtonText}>✕</Text>
+            <AppIcon name="close" size="md" color="#64748B" decorative={false} accessibilityLabel="Close" />
           </TouchableOpacity>
         </View>
 
@@ -721,7 +723,11 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                     activeOpacity={0.7}
                   >
                     <View style={[styles.sidebarItemIconWrap, isActive && styles.sidebarItemIconWrapActive]}>
-                      <Text style={styles.sidebarItemIcon}>{cat.icon}</Text>
+                      <AppIcon
+                        name={cat.iconKey}
+                        size="sm"
+                        color={isActive ? "#FFFFFF" : "#173563"}
+                      />
                     </View>
                     <View style={styles.sidebarItemTextContainer}>
                       <Text style={[styles.sidebarItemTitle, isActive && styles.sidebarItemTitleActive]}>
@@ -734,7 +740,9 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                         {cat.subtitle}
                       </Text>
                     </View>
-                    {isActive && <Text style={styles.sidebarActiveArrow}>›</Text>}
+                    {isActive && (
+                      <AppIcon name="chevronRight" size="sm" color="#1D4ED8" />
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -766,7 +774,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                   <View style={styles.cardHeader}>
                     <View style={styles.cardHeaderLeft}>
                       <View style={styles.cardHeaderIconBadge}>
-                        <Text style={styles.cardHeaderIcon}>🎯</Text>
+                        <AppIcon name="categoryMission" size="lg" color="#4F46E5" />
                       </View>
                       <View>
                         <Text style={styles.cardEyebrow}>AUTONOMOUS MARKING</Text>
@@ -793,9 +801,12 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                           onPress={() => handleSelectTool(tool)}
                           disabled={isMissionActive || isSavingMissionMode}
                         >
-                          <Text style={styles.segmentedButtonIcon}>
-                            {tool === "SPRAY" ? "💧" : "🎯"}
-                          </Text>
+                          <AppIcon
+                            name={tool === "SPRAY" ? "toolSpray" : "toolLaser"}
+                            size="sm"
+                            color={isSelected ? "#FFFFFF" : "#475569"}
+                            style={{ marginRight: 6 }}
+                          />
                           <Text
                             style={[
                               styles.segmentedButtonText,
@@ -834,7 +845,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                   ) : (
                     <View style={styles.laserInfoCard}>
                       <View style={styles.laserInfoHeader}>
-                        <Text style={styles.laserInfoIcon}>🎯</Text>
+                        <AppIcon name="laserInfo" size="md" color="#4F46E5" style={{ marginRight: 6 }} />
                         <Text style={styles.laserInfoTitle}>Laser Marking Active (Option A)</Text>
                       </View>
                       <Text style={styles.laserInfoText}>
@@ -862,9 +873,11 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                       (missionMarkingTool === "SPRAY" && !sprayActuator.draftServoEnabled)
                     }
                   >
-                    <Text style={styles.primaryActionIcon}>
-                      {isSavingMissionMode ? "⏳" : "💾"}
-                    </Text>
+                    {isSavingMissionMode ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                    ) : (
+                      <AppIcon name="save" size="md" color="#FFFFFF" style={{ marginRight: 8 }} />
+                    )}
                     <Text style={styles.primaryActionText}>
                       {isSavingMissionMode
                         ? "Saving Mission Mode..."
@@ -874,9 +887,12 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
                   {isMissionActive && (
                     <View style={styles.warningBox}>
-                      <Text style={styles.warningText}>
-                        ⚠️ Stop the mission before changing its default mode
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <AppIcon name="warning" size="xs" color="#B45309" />
+                        <Text style={styles.warningText}>
+                          Stop the mission before changing its default mode
+                        </Text>
+                      </View>
                     </View>
                   )}
                 </View>
@@ -888,7 +904,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                   <View style={styles.cardHeader}>
                     <View style={styles.cardHeaderLeft}>
                       <View style={styles.cardHeaderIconBadge}>
-                        <Text style={styles.cardHeaderIcon}>🚫</Text>
+                        <AppIcon name="categoryObstacle" size="lg" color="#DC2626" />
                       </View>
                       <View>
                         <Text style={styles.cardEyebrow}>COLLISION AVOIDANCE</Text>
@@ -935,22 +951,28 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
                   {obstacleStatus && !obstacleStatus.healthy && (
                     <View style={styles.warningBox}>
-                      <Text style={styles.warningText}>
-                        ⚠ Sensor not reporting
-                        {obstacleStatus.serial_error ? `: ${obstacleStatus.serial_error}` : ""}.
-                        {obstacleStatus.enabled
-                          ? " Missions continue WITHOUT obstacle protection."
-                          : ""}
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <AppIcon name="warning" size="xs" color="#B45309" />
+                        <Text style={styles.warningText}>
+                          Sensor not reporting
+                          {obstacleStatus.serial_error ? `: ${obstacleStatus.serial_error}` : ""}.
+                          {obstacleStatus.enabled
+                            ? " Missions continue WITHOUT obstacle protection."
+                            : ""}
+                        </Text>
+                      </View>
                     </View>
                   )}
 
                   {obstacleStatus?.enabled && obstacleStatus.zone === "danger" && (
                     <View style={styles.dangerBox}>
-                      <Text style={styles.dangerText}>
-                        🚫 START, RESUME and NEXT are blocked while something is inside
-                        the stop distance. Clear the path first.
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <AppIcon name="danger" size="xs" color="#DC2626" />
+                        <Text style={styles.dangerText}>
+                          START, RESUME and NEXT are blocked while something is inside
+                          the stop distance. Clear the path first.
+                        </Text>
+                      </View>
                     </View>
                   )}
                 </View>
@@ -962,7 +984,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                   <View style={styles.cardHeader}>
                     <View style={styles.cardHeaderLeft}>
                       <View style={styles.cardHeaderIconBadge}>
-                        <Text style={styles.cardHeaderIcon}>🔊</Text>
+                        <AppIcon name="categoryVoice" size="lg" color="#1475EE" />
                       </View>
                       <View>
                         <Text style={styles.cardEyebrow}>AUDITORY TELEMETRY</Text>
@@ -1005,9 +1027,12 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                               onPress={() => handleGenderChange(g)}
                               disabled={isLoadingTTS}
                             >
-                              <Text style={styles.segmentedButtonIcon}>
-                                {g === "male" ? "👨" : "👩"}
-                              </Text>
+                              <AppIcon
+                                name={g === "male" ? "genderMale" : "genderFemale"}
+                                size="sm"
+                                color={isSelected ? "#FFFFFF" : "#475569"}
+                                style={{ marginRight: 6 }}
+                              />
                               <Text
                                 style={[
                                   styles.segmentedButtonText,
@@ -1053,7 +1078,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                         onPress={handleTestTTS}
                         disabled={isLoadingTTS}
                       >
-                        <Text style={styles.testVoiceButtonIcon}>🎵</Text>
+                        <AppIcon name="audioTest" size="sm" color="#1475EE" style={{ marginRight: 6 }} />
                         <Text style={styles.testVoiceButtonText}>Test Voice Output</Text>
                       </TouchableOpacity>
                     </>
@@ -1067,7 +1092,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                   <View style={styles.cardHeader}>
                     <View style={styles.cardHeaderLeft}>
                       <View style={styles.cardHeaderIconBadge}>
-                        <Text style={styles.cardHeaderIcon}>💡</Text>
+                        <AppIcon name="categoryLed" size="lg" color="#F59E0B" />
                       </View>
                       <View>
                         <Text style={styles.cardEyebrow}>CHASSIS LIGHTING</Text>
@@ -1108,7 +1133,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                   <View style={styles.cardHeader}>
                     <View style={styles.cardHeaderLeft}>
                       <View style={styles.cardHeaderIconBadge}>
-                        <Text style={styles.cardHeaderIcon}>⚙️</Text>
+                        <AppIcon name="categoryMavlink" size="lg" color="#1475EE" />
                       </View>
                       <View>
                         <Text style={styles.cardEyebrow}>AUTOPILOT CONFIGURATION</Text>
@@ -1127,7 +1152,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                     disabled={connectionState !== "connected"}
                   >
                     <View style={styles.configureTileIconWrap}>
-                      <Text style={styles.configureTileIcon}>📋</Text>
+                      <AppIcon name="paramBrowser" size="lg" color="#1475EE" />
                     </View>
                     <View style={styles.configureTileContent}>
                       <Text style={styles.configureTileTitle}>
@@ -1140,14 +1165,14 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                       </Text>
                     </View>
                     <View style={styles.chevronCircle}>
-                      <Text style={styles.chevronText}>›</Text>
+                      <AppIcon name="chevronRight" size="sm" color="#94A3B8" />
                     </View>
                   </TouchableOpacity>
 
                   {connectionState === "connected" && (
                     <View style={[styles.infoWell, { marginTop: 14 }]}>
                       <Text style={styles.infoWellText}>
-                        💡 Tip: Use group filters inside the browser to find params faster (NAVL1, ATC_STR, WP, etc.)
+                        Tip: Use group filters inside the browser to find params faster (NAVL1, ATC_STR, WP, etc.)
                       </Text>
                     </View>
                   )}
@@ -1277,9 +1302,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   closeButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    minWidth: 48,
+    minHeight: 48,
+    borderRadius: 14,
     backgroundColor: "#F1F5F9",
     borderWidth: 1,
     borderColor: "#D8E0EA",
@@ -1320,6 +1345,7 @@ const styles = StyleSheet.create({
   sidebarItem: {
     flexDirection: "row",
     alignItems: "center",
+    minHeight: 48,
     paddingVertical: 10,
     paddingHorizontal: 10,
     borderRadius: 12,
