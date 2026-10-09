@@ -4,6 +4,11 @@
     "strict": true,
     "skipLibCheck": true
   },
+  "include": [
+    "src/**/*",
+    "App.tsx",
+    "index.ts"
+  ],
   "exclude": [
     "reference_three_wheel",
     "node_modules",

@@ -10,17 +10,20 @@ import {
   Alert,
   ActivityIndicator,
   StatusBar,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "../theme/colors";
 import { useRover } from "../context/RoverContext";
 // import { FailsafeModeSelector } from "../components/pathplan/FailsafeModeSelector";
-import { ServoConfigModal } from "../components/settings/ServoConfigModal";
+import { SprayActuatorCard } from "../components/settings/SprayActuatorCard";
+import { useSprayActuator } from "../hooks/useSprayActuator";
 import { ParamBrowserModal } from "../components/settings/ParamBrowserModal";
 import { RTKInjectionScreen } from "../components/missionreport/RTKInjectionScreen";
 import { useAuth } from "../hooks/useAuth";
-import { getSprayConfig, enableSpray, disableSpray, testSpray, setSprayDuration } from "../services/sprayConfigService";
 import { Toast } from "../components/shared/Toast";
 import { getObstacleStatus, setObstacleConfig } from "../services/obstacleService";
 import {
@@ -49,7 +52,6 @@ interface SettingsScreenProps {
 
 export type SettingsCategory =
   | "rtk"
-  | "spray"
   | "mission"
   | "obstacle"
   | "voice"
@@ -65,7 +67,6 @@ interface SettingsCategoryItem {
 
 const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: "rtk", title: "GNSS & RTK", subtitle: "Differential fix & NTRIP", icon: "📡" },
-  { id: "spray", title: "Spray Actuator", subtitle: "AUX5 servo & duration", icon: "⚡" },
   { id: "mission", title: "Mission Defaults", subtitle: "Marking tool & defaults", icon: "🎯" },
   { id: "obstacle", title: "Obstacle Safety", subtitle: "Front LiDAR & auto-stop", icon: "🚫" },
   { id: "voice", title: "Voice Feedback", subtitle: "Language & audio updates", icon: "🔊" },
@@ -88,7 +89,37 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     connectionState,
     onMissionEvent,
   } = useRover();
-  // const [showFailsafeSelector, setShowFailsafeSelector] = useState(false);
+  // Check if mission is active (memoized to prevent recalculating on every render)
+  const isMissionActive = React.useMemo(() => {
+    const missionStatus = (telemetry.mission.status || "IDLE").toUpperCase();
+    const isMissionCompleted =
+      telemetry.mission.total_wp > 0 &&
+      telemetry.mission.current_wp >= telemetry.mission.total_wp &&
+      telemetry.mission.progress_pct >= 100;
+    return (
+      !["IDLE", "STANDBY", ""].includes(missionStatus) && !isMissionCompleted
+    );
+  }, [
+    telemetry.mission.status,
+    telemetry.mission.total_wp,
+    telemetry.mission.current_wp,
+    telemetry.mission.progress_pct,
+  ]);
+
+  // Spray Actuator Hook (State, stepper integer ms, test pulse safety interlocks, atomic save)
+  const isArmed = Boolean(telemetry?.state?.armed);
+  const groundSpeed = telemetry?.global?.vel ?? 0;
+
+  const sprayActuator = useSprayActuator({
+    connectionState,
+    isMissionActive,
+    isArmed,
+    groundSpeed,
+    onSuccessMessage: (msg) => {
+      setSuccessMessage(msg);
+      setTimeout(() => setSuccessMessage(""), 3000);
+    },
+  });
 
   // TTS State
   const [ttsEnabled, setTtsEnabled] = useState(false);
@@ -101,25 +132,6 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
   const [obstacleStatus, setObstacleStatus] = useState<ObstacleView | null>(null);
   const [obstacleStatusError, setObstacleStatusError] = useState<string | null>(null);
   const [isLoadingObstacle, setIsLoadingObstacle] = useState(false);
-
-  // Servo Configuration State
-  const [servoEnabled, setServoEnabled] = useState(false);
-  // PX4 contract is permanently AUX5.
-  const [servoChannel, setServoChannel] = useState(5);
-
-  // Dynamic backend-controlled servo positions.
-  const [servoPwmOn, setServoPwmOn] = useState(2000);
-  const [servoPwmOff, setServoPwmOff] = useState(1500);
-
-  // Current production spray logic.
-  const [servoDelayBefore, setServoDelayBefore] = useState(0.0);
-  const [servoSprayDuration, setServoSprayDuration] = useState(0.5);
-  const [servoDelayAfter, setServoDelayAfter] = useState(0.0);
-  const [manualOverrideTimeoutSec, setManualOverrideTimeoutSec] = useState(3);
-  const [isLoadingServo, setIsLoadingServo] = useState(false);
-  const [servoConfigLoaded, setServoConfigLoaded] = useState(false);
-  const [showServoConfigModal, setShowServoConfigModal] = useState(false);
-  const [isLoadingServoModal, setIsLoadingServoModal] = useState(false);
 
   // LED Controller State
   const [ledEnabled, setLedEnabled] = useState(false);
@@ -178,8 +190,8 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     // Load TTS settings from backend
     await loadTTSStatus();
 
-    // Load Servo Configuration from backend
-    await loadServoConfig();
+    // Load Spray Actuator Configuration from backend
+    await sprayActuator.refreshConfig();
 
     // Load LED controller status from backend and AsyncStorage
     await loadLedStatus();
@@ -197,23 +209,93 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     console.log("═══════════════════════════════════════");
   };
 
+  const handleSelectTool = (tool: "LASER" | "SPRAY") => {
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setMissionMarkingTool(tool);
+  };
+
+  const handleRequestClose = useCallback(() => {
+    if (sprayActuator.isDirty) {
+      Alert.alert(
+        "Unsaved Spray Changes",
+        "You have unsaved spray configuration changes. Discard changes or keep editing?",
+        [
+          { text: "Keep Editing", style: "cancel" },
+          {
+            text: "Discard & Close",
+            style: "destructive",
+            onPress: () => {
+              sprayActuator.discardDraft();
+              onClose();
+            },
+          },
+        ],
+      );
+    } else {
+      onClose();
+    }
+  }, [onClose, sprayActuator]);
+
+  const handleSelectCategory = useCallback(
+    (cat: SettingsCategory) => {
+      if (selectedCategory === "mission" && cat !== "mission" && sprayActuator.isDirty) {
+        Alert.alert(
+          "Unsaved Spray Changes",
+          "You have unsaved spray configuration changes. Discard changes or keep editing?",
+          [
+            { text: "Keep Editing", style: "cancel" },
+            {
+              text: "Discard & Switch",
+              style: "destructive",
+              onPress: () => {
+                sprayActuator.discardDraft();
+                setSelectedCategory(cat);
+              },
+            },
+          ],
+        );
+        return;
+      }
+      setSelectedCategory(cat);
+    },
+    [selectedCategory, sprayActuator],
+  );
+
   const handleSaveMissionMode = async () => {
     if (isMissionActive || isSavingMissionMode) return;
     setIsSavingMissionMode(true);
     try {
+      // 1. Commit spray actuator (Option B draft model + Option A laser power-off)
+      const sprayRes = await sprayActuator.commitSpraySettings(missionMarkingTool);
+      if (!sprayRes.success) {
+        throw new Error(sprayRes.message || "Failed to save spray settings");
+      }
+
+      // 2. Commit mission marking tool
       const toolResponse = await sendMissionMarkingTool(missionMarkingTool);
       if (!toolResponse.success) {
         throw new Error(toolResponse.message || "The rover rejected the mission tool.");
       }
+
+      // 3. Persist mission defaults
       const defaultsResponse = await saveMissionDefaults();
       if (!defaultsResponse.success) {
         throw new Error(defaultsResponse.message || "The rover rejected the mission default.");
       }
+
       const mission = defaultsResponse.mission;
       setMissionDefaultSummary(
         `Saved default: ${mission.default_execution_mode ?? "—"} · ${mission.default_marking_tool ?? missionMarkingTool}`,
       );
-      setSuccessMessage("Mission mode default saved on the rover");
+      setSuccessMessage(
+        missionMarkingTool === "LASER"
+          ? "Mission mode saved: LASER (Spray controller disabled)"
+          : "Mission mode default saved on the rover",
+      );
+      setTimeout(() => setSuccessMessage(""), 3000);
     } catch (error) {
       Alert.alert(
         "Mission Mode Not Saved",
@@ -221,82 +303,6 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
       );
     } finally {
       setIsSavingMissionMode(false);
-    }
-  };
-
-  const loadServoConfig = async () => {
-    try {
-      console.log("[Settings] Loading spray configuration...");
-
-      const response = await getSprayConfig();
-
-      if (!response.success) {
-        console.warn("[Settings] Spray config request rejected");
-        return;
-      }
-
-      const config = response.config;
-
-      // `enabled` is the controller's runtime master gate (POST /enable,
-      // /disable). Older backends omit it, so only an explicit false disables.
-      setServoEnabled(
-        config.available === true &&
-          config.fault_latched !== true &&
-          config.enabled !== false,
-      );
-
-      // Hardware mapping is fixed to AUX5.
-      setServoChannel(5);
-
-      if (
-        typeof config.press_pwm_us === "number" &&
-        Number.isFinite(config.press_pwm_us)
-      ) {
-        setServoPwmOn(config.press_pwm_us);
-      }
-
-      if (
-        typeof config.release_pwm_us === "number" &&
-        Number.isFinite(config.release_pwm_us)
-      ) {
-        setServoPwmOff(config.release_pwm_us);
-      }
-
-      setServoDelayBefore(0.0);
-      setServoDelayAfter(0.0);
-
-      if (
-        typeof config.spray_duration_sec === "number" &&
-        Number.isFinite(config.spray_duration_sec)
-      ) {
-        setServoSprayDuration(config.spray_duration_sec);
-      }
-
-      if (typeof config.manual_override_timeout_sec === "number" &&
-          Number.isFinite(config.manual_override_timeout_sec) &&
-          config.manual_override_timeout_sec > 0) {
-        setManualOverrideTimeoutSec(config.manual_override_timeout_sec);
-      }
-
-      setServoConfigLoaded(true);
-
-      console.log("[Settings] Spray config loaded:", {
-        available: config.available,
-
-        controllerState: config.controller_state,
-
-        pressPwm: config.press_pwm_us,
-
-        releasePwm: config.release_pwm_us,
-
-        duration: config.spray_duration_sec,
-
-        fault: config.fault_reason,
-      });
-    } catch (error) {
-      console.error("[Settings] Failed to load spray config:", error);
-
-      setServoConfigLoaded(false);
     }
   };
 
@@ -528,97 +534,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // Servo Configuration Handlers
-  const handleServoEnabledToggle = async (enabled: boolean) => {
-    setIsLoadingServo(true);
-    try {
-      const response = enabled ? await enableSpray() : await disableSpray();
-      if (response.success) {
-        setServoEnabled(enabled);
-        console.log("[Settings] Servo", enabled ? "enabled" : "disabled");
-        setSuccessMessage(
-          `Servo ${enabled ? "enabled" : "disabled"} successfully`,
-        );
-        setTimeout(() => setSuccessMessage(""), 3000);
-      } else {
-        Alert.alert("Error", response.message || "Failed to toggle servo");
-      }
-    } catch (error) {
-      console.error("[Settings] Servo toggle error:", error);
-      // ApiError.message carries the backend's detail.message.
-      Alert.alert(
-        "Error",
-        error instanceof Error && error.message
-          ? error.message
-          : "Failed to update servo settings",
-      );
-    } finally {
-      setIsLoadingServo(false);
-    }
-  };
 
-  // Spray Duration Save Handler
-  const handleSaveDuration = async (duration: number) => {
-    try {
-      console.log("[Settings] Saving spray duration:", duration);
-      const response = await setSprayDuration(duration);
-      if (response.success) {
-        // Prefer the value the controller reports it applied.
-        const applied = response.config?.spray_duration_sec;
-        setServoSprayDuration(
-          typeof applied === "number" && Number.isFinite(applied)
-            ? applied
-            : duration,
-        );
-        setSuccessMessage("Spray duration saved successfully");
-        setTimeout(() => setSuccessMessage(""), 3000);
-      } else {
-        Alert.alert("Save Error", response.message || "Failed to save spray duration");
-      }
-      return response;
-    } catch (error) {
-      console.error("[Settings] Spray save error:", error);
-      // e.g. "Spray configuration rejected: SPRAY_CONTROLLER_NOT_IDLE".
-      return {
-        success: false,
-        message:
-          error instanceof Error && error.message
-            ? error.message
-            : "Failed to save spray duration",
-      };
-    }
-  };
-
-  // Servo Test Handler
-  const handleServoTest = async (duration: number) => {
-    try {
-      console.log("[Settings] Testing spray config duration:", duration);
-      const response = await testSpray(duration);
-      console.log("[Settings] Test response:", response);
-      return response;
-    } catch (error) {
-      console.error("[Settings] Spray test error:", error);
-      // e.g. "PX4_STATE_UNSAFE" (not armed) or the active-mission refusal.
-      return {
-        success: false,
-        message:
-          error instanceof Error && error.message
-            ? error.message
-            : "Failed to test spray",
-      };
-    }
-  };
-
-  // Open Servo Config Modal: always re-fetch fresh config before showing
-  const handleOpenServoConfigModal = async () => {
-    setIsLoadingServoModal(true);
-    try {
-      await loadServoConfig();
-    } finally {
-      setIsLoadingServoModal(false);
-      setShowServoConfigModal(true);
-    }
-  };
 
   const handleObstacleDetectionToggle = async (enabled: boolean) => {
     setIsLoadingObstacle(true);
@@ -727,51 +643,14 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
     );
   }, [logout, onClose, session?.username]);
 
-  // Check if mission is active (memoized to prevent recalculating on every render)
-  const isMissionActive = React.useMemo(() => {
-    const missionStatus = (telemetry.mission.status || "IDLE").toUpperCase();
-    const isMissionCompleted =
-      telemetry.mission.total_wp > 0 &&
-      telemetry.mission.current_wp >= telemetry.mission.total_wp &&
-      telemetry.mission.progress_pct >= 100;
-    return (
-      !["IDLE", "STANDBY", ""].includes(missionStatus) && !isMissionCompleted
-    );
-  }, [
-    telemetry.mission.status,
-    telemetry.mission.total_wp,
-    telemetry.mission.current_wp,
-    telemetry.mission.progress_pct,
-  ]);
 
-  // Memoize servo config to prevent unnecessary re-renders and useEffect triggers
-  const servoConfig = React.useMemo(
-    () => ({
-      servo_channel: servoChannel,
-      servo_pwm_on: servoPwmOn,
-      servo_pwm_off: servoPwmOff,
-      servo_delay_before: servoDelayBefore,
-      servo_spray_duration: servoSprayDuration,
-      servo_delay_after: servoDelayAfter,
-      servo_enabled: servoEnabled,
-    }),
-    [
-      servoChannel,
-      servoPwmOn,
-      servoPwmOff,
-      servoDelayBefore,
-      servoSprayDuration,
-      servoDelayAfter,
-      servoEnabled,
-    ],
-  );
 
   return (
     <Modal
       visible={visible}
       animationType="slide"
       transparent={false}
-      onRequestClose={onClose}
+      onRequestClose={handleRequestClose}
       supportedOrientations={[
         "portrait",
         "portrait-upside-down",
@@ -814,7 +693,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
             </View>
           </View>
           <TouchableOpacity
-            onPress={onClose}
+            onPress={handleRequestClose}
             style={styles.closeButton}
             accessibilityRole="button"
             accessibilityLabel="Close settings"
@@ -838,7 +717,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                   <TouchableOpacity
                     key={cat.id}
                     style={[styles.sidebarItem, isActive && styles.sidebarItemActive]}
-                    onPress={() => setSelectedCategory(cat.id)}
+                    onPress={() => handleSelectCategory(cat.id)}
                     activeOpacity={0.7}
                   >
                     <View style={[styles.sidebarItemIconWrap, isActive && styles.sidebarItemIconWrapActive]}>
@@ -881,96 +760,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                 showsVerticalScrollIndicator={false}
               >
 
-              {/* 2. Spray Actuator Category */}
-              {selectedCategory === "spray" && (
-                <View style={styles.detailCard}>
-                  <View style={styles.cardHeader}>
-                    <View style={styles.cardHeaderLeft}>
-                      <View style={styles.cardHeaderIconBadge}>
-                        <Text style={styles.cardHeaderIcon}>⚡</Text>
-                      </View>
-                      <View>
-                        <Text style={styles.cardEyebrow}>ACTUATOR HARDWARE</Text>
-                        <Text style={styles.cardTitle}>Spray Configuration</Text>
-                      </View>
-                    </View>
-                    <Switch
-                      value={servoEnabled}
-                      onValueChange={handleServoEnabledToggle}
-                      disabled={isLoadingServo}
-                      trackColor={{ false: "#CBD5E1", true: "#1475EE" }}
-                      thumbColor="#FFFFFF"
-                    />
-                  </View>
-
-                  <View style={styles.settingRow}>
-                    <View style={styles.settingInfo}>
-                      <Text style={styles.settingLabel}>Spray Controller</Text>
-                      <Text style={styles.settingDescription}>
-                        AUX5 production spray controller master switch
-                      </Text>
-                    </View>
-                  </View>
-
-                  {servoConfigLoaded && (
-                    <View style={styles.telemetryWell}>
-                      <View style={styles.telemetryWellRow}>
-                        <Text style={styles.telemetryWellLabel}>Hardware Mapping:</Text>
-                        <Text style={styles.telemetryWellBadge}>AUX5 CHANNEL</Text>
-                      </View>
-                      <View style={styles.telemetryWellDivider} />
-                      <View style={styles.telemetryWellGrid}>
-                        <View style={styles.telemetryWellItem}>
-                          <Text style={styles.telemetryWellItemLabel}>PRESS PWM</Text>
-                          <Text style={styles.telemetryWellItemValue}>{servoPwmOn} µs</Text>
-                        </View>
-                        <View style={styles.telemetryWellItem}>
-                          <Text style={styles.telemetryWellItemLabel}>RELEASE PWM</Text>
-                          <Text style={styles.telemetryWellItemValue}>{servoPwmOff} µs</Text>
-                        </View>
-                        <View style={styles.telemetryWellItem}>
-                          <Text style={styles.telemetryWellItemLabel}>SPRAY DURATION</Text>
-                          <Text style={[styles.telemetryWellItemValue, { color: "#1475EE" }]}>
-                            {servoSprayDuration.toFixed(2)} s
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  )}
-
-                  <View style={styles.divider} />
-
-                  <TouchableOpacity
-                    style={[
-                      styles.configureTile,
-                      isLoadingServoModal && { opacity: 0.6 },
-                    ]}
-                    onPress={handleOpenServoConfigModal}
-                    disabled={isLoadingServoModal}
-                  >
-                    <View style={styles.configureTileIconWrap}>
-                      <Text style={styles.configureTileIcon}>
-                        {isLoadingServoModal ? "⏳" : "⚙️"}
-                      </Text>
-                    </View>
-                    <View style={styles.configureTileContent}>
-                      <Text style={styles.configureTileTitle}>
-                        Configure Spray Settings
-                      </Text>
-                      <Text style={styles.configureTileDescription}>
-                        {isLoadingServoModal
-                          ? "Loading config..."
-                          : "Configure AUX5 press and release PWM thresholds"}
-                      </Text>
-                    </View>
-                    <View style={styles.chevronCircle}>
-                      <Text style={styles.chevronText}>›</Text>
-                    </View>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* 3. Mission Mode Defaults Category */}
+              {/* Mission Mode Defaults Category (Consolidates Spray Actuator Inline) */}
               {selectedCategory === "mission" && (
                 <View style={styles.detailCard}>
                   <View style={styles.cardHeader}>
@@ -1000,7 +790,7 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                             isSelected && styles.segmentedButtonActive,
                             (isMissionActive || isSavingMissionMode) && styles.disabledControl,
                           ]}
-                          onPress={() => setMissionMarkingTool(tool)}
+                          onPress={() => handleSelectTool(tool)}
                           disabled={isMissionActive || isSavingMissionMode}
                         >
                           <Text style={styles.segmentedButtonIcon}>
@@ -1019,6 +809,40 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                     })}
                   </View>
 
+                  {/* Inline Spray Actuator or Laser Information Card */}
+                  {missionMarkingTool === "SPRAY" ? (
+                    <SprayActuatorCard
+                      draftServoEnabled={sprayActuator.draftServoEnabled}
+                      onToggleEnabled={sprayActuator.setDraftServoEnabled}
+                      draftDurationMs={sprayActuator.draftDurationMs}
+                      onAdjustDuration={sprayActuator.adjustDuration}
+                      onSetDirectDuration={sprayActuator.setDirectDuration}
+                      isDirty={sprayActuator.isDirty}
+                      channel={sprayActuator.channel}
+                      pressPwmUs={sprayActuator.pressPwmUs}
+                      releasePwmUs={sprayActuator.releasePwmUs}
+                      configLoaded={sprayActuator.configLoaded}
+                      isLoadingConfig={sprayActuator.isLoadingConfig}
+                      isOnline={connectionState === "connected"}
+                      canTestSpray={sprayActuator.canTestSpray}
+                      disabledTestReason={sprayActuator.disabledTestReason}
+                      isTesting={sprayActuator.isTesting}
+                      testStatus={sprayActuator.testStatus}
+                      testErrorMessage={sprayActuator.testErrorMessage}
+                      onExecuteTest={sprayActuator.executeSprayTest}
+                    />
+                  ) : (
+                    <View style={styles.laserInfoCard}>
+                      <View style={styles.laserInfoHeader}>
+                        <Text style={styles.laserInfoIcon}>🎯</Text>
+                        <Text style={styles.laserInfoTitle}>Laser Marking Active (Option A)</Text>
+                      </View>
+                      <Text style={styles.laserInfoText}>
+                        Optical Laser Target Marker designated for mission waypoints. Saving will automatically power OFF the AUX5 Spray Controller on the rover to guarantee the chemical actuator remains safely de-energized.
+                      </Text>
+                    </View>
+                  )}
+
                   <View style={styles.infoWell}>
                     <Text style={styles.infoWellText}>{missionDefaultSummary}</Text>
                   </View>
@@ -1026,16 +850,25 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                   <TouchableOpacity
                     style={[
                       styles.primaryActionButton,
-                      (isMissionActive || isSavingMissionMode) && styles.disabledControl,
+                      (isMissionActive ||
+                        isSavingMissionMode ||
+                        (missionMarkingTool === "SPRAY" && !sprayActuator.draftServoEnabled)) &&
+                        styles.disabledControl,
                     ]}
                     onPress={() => void handleSaveMissionMode()}
-                    disabled={isMissionActive || isSavingMissionMode}
+                    disabled={
+                      isMissionActive ||
+                      isSavingMissionMode ||
+                      (missionMarkingTool === "SPRAY" && !sprayActuator.draftServoEnabled)
+                    }
                   >
                     <Text style={styles.primaryActionIcon}>
                       {isSavingMissionMode ? "⏳" : "💾"}
                     </Text>
                     <Text style={styles.primaryActionText}>
-                      {isSavingMissionMode ? "Saving Mission Mode..." : "Save as Default"}
+                      {isSavingMissionMode
+                        ? "Saving Mission Mode..."
+                        : "Save Mission Mode as Rover Default"}
                     </Text>
                   </TouchableOpacity>
 
@@ -1338,23 +1171,13 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
 
         <TouchableOpacity
           style={styles.doneButton}
-          onPress={onClose}
+          onPress={handleRequestClose}
           accessibilityRole="button"
           accessibilityLabel="Close settings"
         >
           <Text style={styles.doneButtonText}>Done</Text>
         </TouchableOpacity>
       </View>
-
-      {/* Servo Configuration Modal */}
-      <ServoConfigModal
-        visible={showServoConfigModal}
-        currentConfig={servoConfig}
-        onClose={() => setShowServoConfigModal(false)}
-        onSave={handleSaveDuration}
-        onTest={handleServoTest}
-        maxDurationSec={manualOverrideTimeoutSec}
-      />
 
       {/* MAVLink Param Browser Modal */}
       <ParamBrowserModal
@@ -2000,5 +1823,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
     color: "#FFFFFF",
+  },
+  laserInfoCard: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1.5,
+    borderColor: "#FDE68A",
+    borderRadius: 12,
+    padding: 14,
+    marginVertical: 12,
+  },
+  laserInfoHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  laserInfoIcon: {
+    fontSize: 16,
+  },
+  laserInfoTitle: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#B45309",
+  },
+  laserInfoText: {
+    fontSize: 12,
+    color: "#92400E",
+    lineHeight: 18,
   },
 });
