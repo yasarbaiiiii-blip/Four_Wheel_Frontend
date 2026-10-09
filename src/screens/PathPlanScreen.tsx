@@ -1122,7 +1122,7 @@ export default function PathPlanScreen({
   // NOTE: selectedWaypoint is intentionally excluded from this callback's deps.
   // It's saved in a separate effect to avoid triggering 5 AsyncStorage writes
   // on every waypoint click.
-  const autoSaveTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const autoSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const debouncedAutoSave = useCallback(() => {
     // Clear existing timers
