@@ -18,6 +18,7 @@ This file is the **mandatory living handover register** for all AI agents, engin
 | **004** | 2026-10-10 | Home/Progress Screen Wiring Audit: Export, Edit (Reverse/Undo/Redo), Control Buttons, Fake-Data Removal | COMPLETED (not yet field-tested) | Claude Code (Sonnet 5.5) |
 | **005** | 2026-10-12 | Old-UI Gap Port: Export & Logs sheet, on-demand mission report, pause/RTK reason in deck, legacy panels commented | COMPLETED (not yet field-tested) | Claude Code (Sonnet 5.5) |
 | **006** | 2026-10-12 | New Mission Report Files: GNSS accuracy rating, friendly times, total mission time, real .xlsx and new PDF | COMPLETED (not yet field-tested) | Claude Code (Sonnet 5.5) |
+| **007** | 2026-10-12 | Neon Blue Plan Preview and Selectable Rover Icons (Settings > Rover Icon) | COMPLETED (not yet field-tested) | Claude Code (Sonnet 5.5) |
 
 ---
 
@@ -472,3 +473,55 @@ Also fixed a bug from entry 005: the clear-logs prompt said "Mission export comp
 - The tablet's save dialog and file name show `.csv` instead of `.xlsx` only if the workbook build fails.
 - Not done: latitude / longitude are not in the PDF (they are in the Excel sheet); the progress deck keeps its own copy of the rating limits.
 - Still not wired on the current backend (unchanged): arm/disarm, set-mode, joystick (no Manual Drive entry), `/api/mission/restart`, point status/events, `/api/path/*`, change-password, `/api/activity`.
+
+---
+
+## Entry 007 — Neon Blue Plan Preview and Selectable Rover Icons (Settings > Rover Icon)
+- **Date & Time:** 2026-10-12
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Claude Code (Sonnet 5.5)
+
+### 1. Objective & Scope
+Operator supplied a reference screen (`UI/WhatsApp Image 2026-10-07 at 11.21.00 AM.jpeg`) and three rover icon images (`UI/Rover icon/`) and asked for:
+1. The plan preview (route and points) in the **Neon Blue** look: neon light-blue route with a white centre line and blue body; neon blue points with a white ring and white number.
+2. The rover icon shown on its own on the map (no disc or ring).
+3. The three icons stored in the app and a **Settings section** where the operator picks one, working robustly.
+Colour template and design were agreed first in the artifact "Map Look Preview".
+
+### 2. Changes Implemented
+- **Files Created:**
+  - `src/constants/roverIcons.ts`: icon ids (`amber` default, `solar`, `clean`, `classic`), names, `toRoverIconId` (any unknown value becomes the default).
+  - `src/components/shared/RoverIconArt.tsx`: the four icons as `react-native-svg` vectors on a shared canvas (all point up, centred on the body so heading rotation pivots correctly). The three new icons were redrawn from the supplied phone screenshots; the originals are not bundled.
+  - `src/services/roverIconStorage.ts`: read and write of the choice (AsyncStorage key `@dyx/rover_icon_v1`). Never throws; unknown or unreadable value gives the default; a failed write returns false. Storage is loaded lazily so tests and screens that only draw the rover do not touch the native module.
+  - `src/context/RoverIconContext.tsx`: `RoverIconProvider`, `useRoverIcon`, `useRoverIconId`. Default shows first then the saved choice; a pick made before the saved value loads wins; writes are serialized so the last tap is saved; save failure sets `saveFailed` (choice still used this session); no provider means the default icon.
+  - `src/components/settings/RoverIconPicker.tsx`: Settings section (Field White theme, radio cards well over 48 dp, `accessibilityRole="radio"` with selected state, on-map preview, "Reset to default" only when not default, notice when a save failed).
+  - Tests: `constants/__tests__/roverIcons.test.ts`, `services/__tests__/roverIconStorage.test.ts`, `context/__tests__/RoverIconContext.test.tsx`, `components/settings/__tests__/RoverIconPicker.test.tsx`.
+- **Files Modified:**
+  - `src/components/shared/NativeMapLayers.tsx`: route is four line layers on one source (glow `#38BDF8`, edge `#38BDF8`, body `#1E88FF`, centre `#FFFFFF`; ids `<id>-glow`, `<id>-edge`, `<id>`, `<id>-centre`); points are a glow circle under a `#1475EE` circle with a white 2.5 ring and white number. Mission variant colours: neon blue pending, larger next point, green completed, grey skipped, red failed. This one file serves the Mission, Path Plan and home maps.
+  - `src/components/missionreport/MissionMapNative.tsx`: adds `skipped` and `failed` feature properties (`completed` keeps its old meaning, completed or skipped).
+  - `src/components/shared/RoverVehicleIcon.tsx`: draws the chosen icon, rotated to heading, no background. Same props as before, so the three map call sites are unchanged.
+  - `src/components/shared/AppHeader.tsx`: the 28 px header logo is the chosen icon (was `assets/rover-icon.png`).
+  - `src/screens/SettingsScreen.tsx`, `src/constants/icons.ts`: new `appearance` category ("Rover Icon") and icon keys `categoryAppearance`, `check`, `reset`.
+  - `App.tsx`: `RoverIconProvider` wraps the app content.
+  - Tests updated: `NativeMapLayers.test.tsx` (new layers and styles), `SettingsScreenCategories.test.ts` (6 visible categories, 7 in total).
+- **Files Deleted / Deprecated:** none. `assets/rover-icon.png` is no longer used by the header but is still used by `MissionStartConfirmationDialog` and the legacy `MissionControlCard`, so it stays.
+
+### 3. Key Architecture & Design Decisions
+- Vector drawings instead of image files: sharp at any size, transparent, no JPEG or screenshot chrome in the bundle.
+- Choice applies immediately and is persisted; there is no draft state, so nothing can be lost on leaving Settings.
+- The icon has a fixed look, so armed / RTK / disarmed is no longer shown on the marker (operator asked for the icon alone). That status is in the top bar and the progress deck. A small status dot can be added if wanted.
+- Mission-view point colours (green / grey / red for done / skipped / failed) were chosen to keep progress visible; the operator only said "neon blue is ok". Easy to make every point blue if preferred.
+
+### 4. Hardware Safety & Safety Interlocks
+- None touched. Display and local preference only. No rover command, E-stop, spray, arming or speed gate was changed.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** npx jest --ci -> 917 passed, 1 failed, 918 total (75 suites). The one failure is NativeMapLayers.test.tsx (the field-trajectory assertion), which failed the same way before this work (entries 004 to 006). New suites: roverIcons, roverIconStorage, RoverIconContext, RoverIconPicker (4 suites); NativeMapLayers authoring-layer test and SettingsScreenCategories updated and passing.
+- **Type Check:** `npx tsc --noEmit` -> 0 errors.
+- **Metro Bundler Check:** GET /index.bundle?platform=android&dev=true -> HTTP 200, 1895 modules, no errors (Metro started on port 8097 for the check and stopped afterwards).
+- **Manual Verification:** NOT done on a tablet or rover. Check: Settings > Rover Icon switches the icon on all maps and the top bar; the choice survives closing the app; route and points look right in sunlight at several zoom levels; the glow layers do not slow panning on the tablet.
+
+### 6. Current Repository State & Open Items
+- Uncommitted: all files above. `UI/` (design screenshots) and `.gitignore` edits are not part of this work.
+- The web / WebView map `MissionMap.tsx` is not restyled (native Android maps are the field target).
+- Open: whether to add a status dot beside the rover; whether mission-view points should all stay blue.

@@ -23,6 +23,7 @@ export const APP_ICONS = {
   categoryVoice: "volume-high",
   categoryLed: "led-on",
   categoryMavlink: "tune-vertical",
+  categoryAppearance: "palette-outline",
 
   // Mission Defaults & Marking Tool Selectors (Solid)
   toolSpray: "spray",
@@ -46,6 +47,10 @@ export const APP_ICONS = {
 
   // MAVLink Parameter Browser
   paramBrowser: "file-document-edit-outline",
+
+  // Settings controls
+  check: "check-circle",
+  reset: "restore",
 
   // Caution & Failsafe Banners
   warning: "alert-circle-outline",

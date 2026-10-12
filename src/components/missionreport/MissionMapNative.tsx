@@ -6,6 +6,10 @@ import {
   Camera,
 } from "@rnmapbox/maps";
 import { RoverVehicleIcon } from "../shared/RoverVehicleIcon";
+import {
+  isErrorWaypointStatus,
+  type WaypointUiStatus,
+} from "../../types/missionWaypointStatus";
 import { NativeTrajectoryLayer, NativeWaypointLayer } from "../shared/NativeMapLayers";
 import { TrajectoryStatusBanner } from "../shared/TrajectoryStatusBanner";
 import { OfflineMapStatusBadge } from "../shared/OfflineMapStatusBadge";
@@ -146,6 +150,9 @@ const MissionMapNativeBase: React.FC<Props> = ({
           if (!isValidLngLat(wp.lon, wp.lat)) return null;
           const status = statusMap?.[wp.sn]?.status;
           const completed = status === "completed" || status === "skipped";
+          // Skipped and failed points get their own colour on the map.
+          const skipped = status === "skipped";
+          const failed = isErrorWaypointStatus(status as WaypointUiStatus | undefined);
           return {
             type: "Feature" as const,
             id: sequence,
@@ -154,6 +161,8 @@ const MissionMapNativeBase: React.FC<Props> = ({
               sequence: sequence + 1,
               active: sequence === activeWaypointIndex ? 1 : 0,
               completed: completed ? 1 : 0,
+              skipped: skipped ? 1 : 0,
+              failed: failed ? 1 : 0,
             },
             geometry: {
               type: "Point" as const,

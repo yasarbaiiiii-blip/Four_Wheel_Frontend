@@ -20,6 +20,7 @@ import { colors } from "../theme/colors";
 import { useRover } from "../context/RoverContext";
 // import { FailsafeModeSelector } from "../components/pathplan/FailsafeModeSelector";
 import { SprayActuatorCard } from "../components/settings/SprayActuatorCard";
+import { RoverIconPicker } from "../components/settings/RoverIconPicker";
 import { useSprayActuator } from "../hooks/useSprayActuator";
 import { ParamBrowserModal } from "../components/settings/ParamBrowserModal";
 import { RTKInjectionScreen } from "../components/missionreport/RTKInjectionScreen";
@@ -61,6 +62,7 @@ export type SettingsCategory =
   | "obstacle"
   | "voice"
   | "led"
+  | "appearance"
   | "mavlink";
 
 export interface SettingsCategoryItem {
@@ -76,6 +78,7 @@ export const ALL_SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: "obstacle", title: "Obstacle Safety", subtitle: "Front LiDAR & auto-stop", iconKey: "categoryObstacle" },
   { id: "voice", title: "Voice Feedback", subtitle: "Language & audio updates", iconKey: "categoryVoice" },
   { id: "led", title: "LED Controller", subtitle: "Chassis indicator lights", iconKey: "categoryLed" },
+  { id: "appearance", title: "Rover Icon", subtitle: "Choose how the rover looks", iconKey: "categoryAppearance" },
   { id: "mavlink", title: "MAVLink Params", subtitle: "ArduRover autopilot", iconKey: "categoryMavlink" },
 ];
 
@@ -1147,7 +1150,10 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                 </View>
               )}
 
-              {/* 7. MAVLink Parameters Category */}
+              {/* 7. Rover Icon (appearance) Category */}
+              {selectedCategory === "appearance" && <RoverIconPicker />}
+
+              {/* 8. MAVLink Parameters Category */}
               {ENABLE_MAVLINK_PARAMS && selectedCategory === "mavlink" && (
                 <View style={styles.detailCard}>
                   <View style={styles.cardHeader}>

@@ -24,6 +24,8 @@ import {
   useMissionProgressOverlayOptional,
 } from "../../context/MissionProgressOverlayContext";
 import { MISSION_PROGRESS_LAYOUT } from "../../constants/missionProgressLayout";
+import { useRoverIconId } from "../../context/RoverIconContext";
+import { RoverIconArt } from "./RoverIconArt";
 
 interface Props {
   activeTab: "Dashboard" | "Marking Plan" | "Mission Progress";
@@ -112,6 +114,7 @@ const getRtkHeaderTone = (fixType: number, isLightMode = false): RtkHeaderTone =
 };
 
 const AppHeaderInner: React.FC<Props> = ({ activeTab, onTabChange, isLightMode, onToggleTheme }) => {
+  const roverIconId = useRoverIconId();
   // The header only owns mission-mode UI.  Reading the legacy RoverContext
   // here made this always-mounted component re-render for every telemetry
   // packet, even though its live RTK indicator already has a narrow selector.
@@ -240,11 +243,7 @@ const AppHeaderInner: React.FC<Props> = ({ activeTab, onTabChange, isLightMode, 
       <View style={styles.headerLeftCluster}>
         <View style={styles.leftSection}>
           <View style={styles.logoContainer}>
-            <Image
-              source={require("../../../assets/rover-icon.png")}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
+            <RoverIconArt id={roverIconId} size={28} />
           </View>
           <View>
             <Text style={styles.title}>DYX Autonomous</Text>

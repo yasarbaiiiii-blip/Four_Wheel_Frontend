@@ -56,6 +56,10 @@ jest.mock("../../components/settings/SprayActuatorCard", () => ({
   SprayActuatorCard: () => null,
 }));
 
+jest.mock("../../components/settings/RoverIconPicker", () => ({
+  RoverIconPicker: () => null,
+}));
+
 jest.mock("../../components/settings/ParamBrowserModal", () => ({
   ParamBrowserModal: () => null,
 }));
@@ -94,18 +98,18 @@ describe("SettingsScreen Categories Configuration", () => {
     expect(ENABLE_MAVLINK_PARAMS).toBe(false);
   });
 
-  it("contains exactly the 5 expected visible categories and excludes mavlink", () => {
+  it("contains exactly the 6 expected visible categories and excludes mavlink", () => {
     const visibleCategoryIds = SETTINGS_CATEGORIES.map((cat) => cat.id);
-    const expectedCategoryIds = ["rtk", "mission", "obstacle", "voice", "led"];
+    const expectedCategoryIds = ["rtk", "mission", "obstacle", "voice", "led", "appearance"];
 
     expect(visibleCategoryIds).toEqual(expectedCategoryIds);
-    expect(SETTINGS_CATEGORIES.length).toBe(5);
+    expect(SETTINGS_CATEGORIES.length).toBe(6);
     expect(visibleCategoryIds).not.toContain("mavlink");
   });
 
   it("retains mavlink in ALL_SETTINGS_CATEGORIES for future re-enablement", () => {
     const allCategoryIds = ALL_SETTINGS_CATEGORIES.map((cat) => cat.id);
     expect(allCategoryIds).toContain("mavlink");
-    expect(ALL_SETTINGS_CATEGORIES.length).toBe(6);
+    expect(ALL_SETTINGS_CATEGORIES.length).toBe(7);
   });
 });

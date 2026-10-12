@@ -169,17 +169,40 @@ test("authoring layers retain their source options and visual styles", () => {
     expect(source.props.tolerance).toBe(0.00001);
     expect(source.props.maxZoomLevel).toBe(22);
   }
-  expect(renderer!.root.findByType("LineLayer").props).toMatchObject({
-    id: "path-layer",
-    filter: ["==", ["get", "kind"], "line"],
-    style: { lineColor: "#1475EE", lineWidth: 4, lineJoin: "round", lineCap: "round", lineOpacity: 0.96, lineBlur: 0.15 },
-  });
-  expect(renderer!.root.findByType("CircleLayer").props).toMatchObject({
-    id: "waypoint-layer",
-    style: { circleColor: "#2563eb", circleStrokeColor: "#ffffff", circleStrokeWidth: 2.25 },
+  // Neon Blue route: glow, edge, body and a white centre line, bottom to top.
+  const lines = renderer!.root.findAllByType("LineLayer");
+  expect(lines.map((node: any) => node.props.id)).toEqual([
+    "path-layer-glow",
+    "path-layer-edge",
+    "path-layer",
+    "path-layer-centre",
+  ]);
+  for (const line of lines) {
+    expect(line.props.filter).toEqual(["==", ["get", "kind"], "line"]);
+    expect(line.props.style).toMatchObject({ lineCap: "round", lineJoin: "round" });
+  }
+  expect(lines.map((node: any) => node.props.style.lineColor)).toEqual([
+    "#38BDF8",
+    "#38BDF8",
+    "#1E88FF",
+    "#FFFFFF",
+  ]);
+  expect(lines[0].props.style).toMatchObject({ lineOpacity: 0.45, lineBlur: 5 });
+
+  // Points: a glow under a neon blue circle with a white ring.
+  const circles = renderer!.root.findAllByType("CircleLayer");
+  expect(circles.map((node: any) => node.props.id)).toEqual([
+    "waypoint-layer-glow",
+    "waypoint-layer",
+  ]);
+  expect(circles[0].props.style).toMatchObject({ circleColor: "#38BDF8", circleOpacity: 0.55 });
+  expect(circles[1].props.style).toMatchObject({
+    circleColor: "#1475EE",
+    circleStrokeColor: "#FFFFFF",
+    circleStrokeWidth: 2.5,
   });
   expect(renderer!.root.findByType("SymbolLayer").props).toMatchObject({
     id: "waypoint-layer-sequence",
-    style: { textField: "{sequence}", textAnchor: "center" },
+    style: { textField: "{sequence}", textAnchor: "center", textColor: "#FFFFFF" },
   });
 });
