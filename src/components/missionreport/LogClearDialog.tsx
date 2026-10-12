@@ -6,12 +6,15 @@ interface LogClearDialogProps {
   visible: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Overrides the default "export completed" wording. */
+  message?: string;
 }
 
 export const LogClearDialog: React.FC<LogClearDialogProps> = ({
   visible,
   onConfirm,
   onCancel,
+  message = 'Mission export completed successfully. Would you like to clear the mission logs now?',
 }) => {
   return (
     <Modal
@@ -24,7 +27,7 @@ export const LogClearDialog: React.FC<LogClearDialogProps> = ({
         <View style={styles.dialog}>
           <Text style={styles.title}>Clear Mission Logs</Text>
           <Text style={styles.message}>
-            Mission export completed successfully. Would you like to clear the mission logs now?
+            {message}
           </Text>
           <View style={styles.buttonContainer}>
             <TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={onCancel}>

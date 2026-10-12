@@ -54,3 +54,46 @@ export function pauseReasonText(
       };
   }
 }
+
+export interface PauseNotice {
+  /** Short headline, e.g. "Obstacle ahead". */
+  title: string;
+  /** One sentence telling the operator what to do or wait for. */
+  detail: string;
+  /** True when the rover will not accept Resume yet. */
+  blocking: boolean;
+}
+
+const PAUSE_TITLES: Record<string, string> = {
+  OBSTACLE: "Obstacle ahead",
+  RTK_LOST: "RTK lost",
+  RTK_FLOAT: "RTK float",
+  RTK_FLOAT_TIMEOUT: "RTK float timeout",
+  RTK_FLOAT_MANUAL: "RTK float",
+};
+
+/**
+ * Banner content for the progress deck while the rover is paused.
+ *
+ * Returns null when nothing is paused or the rover gave no reason (a plain
+ * operator pause needs no explanation). `resumeAvailable` is the rover's own
+ * flag; the notice never decides that Resume is allowed.
+ */
+export function pauseNotice(
+  isPaused: boolean,
+  pauseReason: string | null | undefined,
+  rtkReason?: string | null,
+  resumeAvailable?: boolean,
+): PauseNotice | null {
+  const reason = (pauseReason ?? "").trim().toUpperCase();
+  if (!isPaused || !reason) return null;
+  const title = PAUSE_TITLES[reason] ?? `Paused: ${reason}`;
+  if (resumeAvailable === true) {
+    return { title, detail: "Resume is available.", blocking: false };
+  }
+  return {
+    title,
+    detail: pauseReasonText(reason, rtkReason).blockedMessage,
+    blocking: true,
+  };
+}

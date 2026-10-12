@@ -15,6 +15,9 @@ This file is the **mandatory living handover register** for all AI agents, engin
 | **001** | 2026-10-09 | GNSS/RTK White Theme Refactor & Inline Spray Actuator (Mission Defaults) with Tap Testing | COMPLETED | Antigravity AI Agent |
 | **002** | 2026-10-09 | Classic Production-Grade Vector Icons Refactor (SettingsScreen & SprayActuatorCard) | COMPLETED | Antigravity AI Agent |
 | **003** | 2026-10-09 | Field Build Gating of MAVLink Params in System Settings | COMPLETED | Antigravity AI Agent |
+| **004** | 2026-10-10 | Home/Progress Screen Wiring Audit: Export, Edit (Reverse/Undo/Redo), Control Buttons, Fake-Data Removal | COMPLETED (not yet field-tested) | Claude Code (Sonnet 5.5) |
+| **005** | 2026-10-12 | Old-UI Gap Port: Export & Logs sheet, on-demand mission report, pause/RTK reason in deck, legacy panels commented | COMPLETED (not yet field-tested) | Claude Code (Sonnet 5.5) |
+| **006** | 2026-10-12 | New Mission Report Files: GNSS accuracy rating, friendly times, total mission time, real .xlsx and new PDF | COMPLETED (not yet field-tested) | Claude Code (Sonnet 5.5) |
 
 ---
 
@@ -307,4 +310,165 @@ When recording a completed section/task, copy and fill out the template below:
 - **How to Re-Enable MAVLink Params:**
   - In `src/screens/SettingsScreen.tsx`, change `export const ENABLE_MAVLINK_PARAMS = false;` to `export const ENABLE_MAVLINK_PARAMS = true;`.
 
+---
 
+## Entry 004 — Home/Progress Screen Wiring Audit: Export, Edit (Reverse/Undo/Redo), Control Buttons, Fake-Data Removal
+- **Date & Time:** 2026-10-10
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Claude Code (Sonnet 5.5)
+
+### 1. Objective & Scope
+Operator asked to (a) audit how the frontend is wired to `Four_Wheel_Backend` (Socket.IO + REST), then (b) fix the home screen and the Mission Progress deck:
+1. Export tile must export the modified uploaded mission file from the app.
+2. Edit mode in Mission Activity must show Reverse / Undo / Redo.
+3. Verify Upload / Load / Export / Extension tiles and the Mission Activity section.
+4. Verify home top bar and progress top bar data are real, and fix them if not.
+5. Verify Start / Stop / Pause / Resume / Skip / Next / Auto / Manual buttons change with state, and that the progress deck appears and fills in when a mission starts.
+
+### 2. Changes Implemented
+- **Files Created:**
+  - `src/utils/missionCsv.ts`: single shared mission-CSV builder (used by Path Plan upload, Edit-apply, and Export).
+  - `src/utils/missionEdit.ts`: pure `reverseMissionWaypoints`, `removeMissionWaypoint` (min 2 points), `sameMissionRoute`.
+  - `src/hooks/useDraftHistory.ts`: generic draft + undo/redo (50 steps), single-state so rapid taps are safe.
+  - `src/utils/missionProgressMetrics.ts`: progress from backend per-point status, accuracy mm, ETA, durations; returns null/"—" when unknown.
+  - `src/utils/missionDeckControls.ts`: button enable/disable rules per phase (idle/running/paused/waiting).
+  - `src/components/missionreport/MissionDeckControls.tsx`: START/STOP, PAUSE/RESUME, SKIP, NEXT, AUTO|MANUAL segmented control.
+  - `src/components/missionreport/MissionEditToolbar.tsx`: Reverse / Undo / Redo, Discard / Apply, UNSAVED badge.
+  - Tests (65 new): `missionCsv`, `missionEdit`, `missionProgressMetrics`, `missionDeckControls`, `useDraftHistory`, `MissionEditAndControls`.
+- **Files Modified:**
+  - `src/screens/MissionReportScreen.tsx`:
+    - Export tile now saves the app's current mission as CSV (`handleExportMissionFile`); disabled with no mission.
+    - Edit mode: Reverse/Undo/Redo + per-point Delete on a local draft; Apply re-uploads via normal `POST /api/mission/upload`, keeping the rover's current row-extension settings (`handleCommitMissionEdit`). Edit is blocked while a mission is active/offline.
+    - Control buttons rebuilt on `MissionDeckControls`; NEXT added (calls `/api/mission/next-point`); one request at a time, STOP always available.
+    - Progress deck auto-opens on idle -> active transition.
+    - Top bars: values are `null` ("—") when the rover link is down; RTK badge is green only for fix type >= 6.
+    - Mode-change and path-updating failures now show a notification (were silent).
+  - `src/screens/PathPlanScreen.tsx`: local CSV builder replaced by the shared `utils/missionCsv`.
+- **Files Deleted / Deprecated:** none. Removed dead JSX only: the unreachable "extended controls" drawer in `MissionReportScreen.tsx` (its `isControlsExpanded` state was never set true) including its **fake "Return to Base" button, which only called Pause**. Orphaned styles (`controlZeroGapDrawer`, `actionBtnRect*`, etc.) remain and can be cleaned later.
+
+### 3. Key Architecture & Design Decisions
+- Edits are a **draft**; the rover and the app list change only after the rover accepts the re-upload. A failed Apply keeps the draft.
+- After Apply the rover needs **Load again** before Start (backend rule: upload clears `accepted_for_start`). The dialog says so.
+- Fabricated values removed from the progress deck: stepper accuracy `14 + (index % 3) * 6`, default `14 mm`, `?? 28` satellites, HDOP 0.64, baseline 1.2 km, correction age 0.8 s, 24.8 V, 4.2 A, 3 h 15 m runtime, "4S LiFePO4", 31.4 C, "Mark-IV", 40/60 elapsed/left split, speed fallback 0.8 m/s, always-green battery segments. Root cause of the accuracy one: the map snapshot kept only `{status}`, so `position_error_cm` was never found.
+- Progress now = count of terminal per-point statuses (`computeMissionProgress`), not "first Pending waypoint" (waypoint.status is never updated).
+- Rover-reported live values used instead: `hrms`, battery voltage/current, `distance_to_next_m`.
+
+### 4. Hardware Safety & Safety Interlocks
+- No change to E-stop, spray actuator, or PX4 arming code.
+- STOP is never blocked by another pending request; only by a second STOP.
+- Start is blocked while an unsaved edit is open; edit mode closes automatically if a mission becomes active.
+- Removed a button that implied "return to home" but only paused the rover.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** `npm test` -> **844 passed, 1 failed, 845 total (67 suites)**. The one failure is `NativeMapLayers.test.tsx` ("rover telemetry and preview metadata do not reserialize unchanged mission geometry"); it failed identically before this work and is unrelated.
+- **Type Check:** `npx tsc --noEmit` -> 0 errors.
+- **Metro Bundler Check:** `GET /index.bundle?platform=android&dev=true` -> **HTTP 200**, 1896 modules; new modules confirmed inside the bundle.
+- **Manual Verification:** NOT done. Nothing was run on a tablet or against a rover.
+
+### 6. Current Repository State & Open Items
+- Working tree: modified `MissionReportScreen.tsx`, `PathPlanScreen.tsx`, `HANDOVER.md`; new files listed above. `.gitignore` was already modified before this session and was not touched.
+- Needs field verification: Edit -> Apply -> Load -> Start; Export file opens/re-uploads; NEXT in MANUAL point mode; auto-open of progress deck on Start.
+- Known caveats: Apply drops per-row "skip row end" choices (new mission revision); the planner may re-push the same path once when next opened.
+- Backend gaps found in the audit (not fixed here): no joystick/manual-drive socket handlers, no `/api/arm`, `/api/set_mode`, `/api/mission/restart`, point-status routes, or `/api/path/*` staging routes, while the frontend still calls them (see audit notes).
+
+---
+
+## Entry 005 — Old-UI Gap Port: Export & Logs Sheet, On-Demand Mission Report, Pause/RTK Reason in Deck
+- **Date & Time:** 2026-10-12
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Claude Code (Sonnet 5.5)
+
+### 1. Objective & Scope
+Operator asked (a) which features of the old Mission UI (`old_mission_ui.tsx` / `old_mission_report.tsx`, a snapshot of `MissionReportScreen.tsx` from before the progress deck) are missing from the new UI, then (b) to comment out the old UI (not delete) with an "old UI" message and add the client-relevant missing pieces in the Field White theme. Manual Drive / joystick was explicitly left out for now.
+
+Backend audit result used for scope (frontend vs `Four_Wheel_Backend` `latency-hardening`): the backend has no `/api/arm`, `/api/set_mode`, joystick sockets, `/api/mission/restart`, point-status/events or `/api/path/*`. Mission, extension, spray, RTK, obstacle, TTS and e-stop routes match.
+
+### 2. Changes Implemented
+- **Files Created:**
+  - `src/components/missionreport/MissionExportSheet.tsx`: "Export & logs" sheet (Mission file CSV / Mission report Excel-PDF / Clear mission logs). Rows >= 48 dp, accessibilityRole + label on every control.
+  - `src/components/missionreport/__tests__/MissionExportSheetAndNotice.test.tsx`: 7 tests (sheet routing, disabled states, blocked-clear reason, deck notice).
+- **Files Modified:**
+  - `src/screens/MissionReportScreen.tsx`:
+    - The seven legacy floating panels (vehicle status, progress card, Quick NTRIP + Manual entry, accuracy monitor, distance-to-target, mission control card, bottom table) are wrapped in ONE JSX block comment headed "OLD UI (disabled)", listing where each feature lives now. Nothing deleted; they were already unreachable (`useMissionActivityExperience = true`).
+    - Export tile now opens the Export & logs sheet. The on-demand report uses the existing `MissionReportExport` modal (hidden trigger) fed by the backend canonical report (`GET /api/mission/report`); after a saved report the existing `LogClearDialog` prompt appears again.
+    - Clear logs is blocked while a mission is active (checked when requested and again on confirm).
+    - Progress deck passes the rover's `pause_reason` / `rtk_reason` / `resumeAvailable` to a banner.
+  - `src/components/missionreport/MissionReportExport.tsx`: new optional `hideTrigger` and `openSignal` props (existing callers unchanged).
+  - `src/components/missionreport/MissionDeckControls.tsx`: optional `notice` banner (red = Resume blocked, green = Resume available).
+  - `src/utils/pauseReasonPresentation.ts` (+ test): new `pauseNotice()`.
+- **Files Deleted / Deprecated:** none. `old_mission_ui.tsx` and `old_mission_report.tsx` (UTF-16 root snapshots, excluded from `tsc`, imported nowhere) were left untouched.
+
+### 3. Key Architecture & Design Decisions
+- Reused the existing report exporter instead of writing a second one, so Excel/PDF output (per-point status, raw GNSS Along/Cross/Overall, accuracy) is identical to the completion dialog.
+- The deck banner only explains; whether Resume is allowed stays the rover's `resumeAvailable` flag.
+- Quick NTRIP card is not ported (RTK remains in Settings/RTK); the old card stays commented.
+
+### 4. Hardware Safety & Safety Interlocks
+- No change to E-stop, spray actuator, PX4 arming or speed gates.
+- Clear logs cannot run while a mission is active. STOP and the deck control rules from entry 004 are unchanged.
+
+### 5. Verification & Testing
+- **Tests:** `npx jest --ci` -> 857 passed, 1 failed, 858 total (68 suites). The failure is `NativeMapLayers.test.tsx` (pre-existing, same as entry 004). Targeted: `src/components/missionreport` + `pauseReasonPresentation` -> 42 passed.
+- **Type Check:** `npx tsc --noEmit` -> 0 errors.
+- **Metro:** `GET /index.bundle?platform=android&dev=true` -> HTTP 200, 1887 modules (Metro was started for the check and stopped afterwards).
+- **Manual Verification:** NOT done on a tablet or rover.
+
+### 6. Current Repository State & Open Items
+- Working tree: entry-004 files plus this entry's files are all uncommitted.
+- Needs field check: Export tile -> sheet on a tablet; report export with a real finished mission and the clear-logs prompt; the pause banner during an obstacle / RTK pause.
+- Still not wired on the current backend (unchanged): arm/disarm, set-mode, joystick (Manual Drive has no entry point), `/api/mission/restart`, point status/events, `/api/path/*`, change-password, `/api/activity`.
+- Not done: point-table drag-reorder, Quick NTRIP tile.
+
+---
+
+## Entry 006 — New Mission Report Files: GNSS Accuracy Rating, Friendly Times, Total Mission Time, Real .xlsx and New PDF
+- **Date & Time:** 2026-10-12
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Claude Code (Sonnet 5.5)
+
+### 1. Objective & Scope
+Operator approved a design (artifact "Export Flow Preview") for the exported mission report:
+1. Times read like `10:42 AM, Monday Oct 12`; add **Total mission time**.
+2. Replace Along / Cross / Overall with one **GNSS accuracy** value in mm and a rating: Excellent up to 20 mm, Good 20 to 35, Poor 35 to 60, Failed over 60.
+3. New modern, readable Excel and PDF templates (PDF points list grouped by row with an accuracy gauge).
+Also fixed a bug from entry 005: the clear-logs prompt said "Mission export completed successfully" even when opened from the Export sheet without exporting.
+
+### 2. Changes Implemented
+- **Files Created:**
+  - `src/utils/gnssAccuracyTier.ts`: rating limits, colours and range text. Rates the value rounded to whole mm so the printed number and the rating always agree.
+  - `src/utils/reportTimeFormat.ts`: `formatDateTime`, `formatPointTime`, `formatTotalTime`, `parseReportTime` (plain Date getters, no Intl).
+  - `src/utils/missionReportXlsx.ts`: writes a real `.xlsx` (OOXML parts zipped with JSZip). ExcelJS stays out of the native bundle on purpose.
+  - Tests: `utils/__tests__/gnssAccuracyTier.test.ts`, `reportTimeFormat.test.ts`, `missionReport.test.ts` (model, CSV, PDF, and the workbook read back with ExcelJS).
+- **Files Modified:**
+  - `src/utils/exportHelpers.ts`: rewritten. `buildMissionReportModel` is the single source for every format; `generatePDFHTML(model)` is the new template; `generateReportCsv` is the fallback. The old ExcelJS styled-sheet code and the old `generateExcel` were removed (the only caller was `MissionReportExport.tsx`).
+  - `src/components/missionreport/MissionReportExport.tsx`: uses the model; Excel writes `.xlsx` (CSV only if the build throws); preview row "Duration" is now "Total mission time"; new optional `fetchExportTiming` prop.
+  - `src/components/missionreport/MissionCompletionDialog.tsx`: passes `fetchExportTiming` through.
+  - `src/components/missionreport/LogClearDialog.tsx`: optional `message` prop.
+  - `src/screens/MissionReportScreen.tsx`: one short-lived `GET /api/mission/report` serves both the points and the timing (`mission.started_at` / `mission.completed_at`); clear-logs dialog uses its own wording when opened from the Export sheet.
+  - `package.json`, `package-lock.json`: `jszip ^3.10.1` declared as a direct dependency (it was already installed through `exceljs`; same version, no new download).
+- **Files Deleted / Deprecated:** none deleted. Removed code: old `generateExcel` and styled ExcelJS sheet (zero remaining references, checked by search before removal).
+
+### 3. Key Architecture & Design Decisions
+- GNSS accuracy is the backend's raw-GNSS `radial_error_mm`. It is never replaced by another source; no measurement shows a dash and no rating.
+- Failed is over 60 mm, same as the progress deck (`commandAccuracyTier`). The deck still has its own copy of the limits; `gnssAccuracyTier.ts` is the shared one for reports. The older 30 / 60 mm scale in `accuracyCalculation.ts` is no longer used by the export.
+- Start / finish come from the rover's report. If missing, the first and last point time are used; if neither exists the report shows a dash. Nothing is invented.
+- Summary counts are per waypoint (the old preview counted status-map entries).
+- Excel point table has filter buttons but no frozen pane, so the summary block does not take over a small screen.
+- Text from the uploaded mission file (row, block, pile) is escaped in the PDF.
+
+### 4. Hardware Safety & Safety Interlocks
+- No change to E-stop, spray, arming or speed gates. Reports are read-only views of rover data.
+- Clear logs is still blocked while a mission is active (entry 005).
+
+### 5. Verification & Testing
+- **Tests:** `npx jest --ci` -> 891 passed, 1 failed, 892 total (71 suites). The failure is `NativeMapLayers.test.tsx` (pre-existing, same as entries 004 and 005). New: 3 suites, 34 tests, including a round trip that loads the generated workbook with ExcelJS.
+- **Type Check:** `npx tsc --noEmit` -> 0 errors.
+- **Metro Bundler Check:** GET /index.bundle?platform=android&dev=true -> HTTP 200, 1890 modules, no errors (about 4 min on a loaded machine; Metro was started on port 8097 for the check and stopped afterwards).
+- **Manual Verification:** NOT done. The .xlsx has not been opened in Excel / Sheets and the PDF has not been printed on a tablet.
+
+### 6. Current Repository State & Open Items
+- All of entries 004 to 006 are uncommitted on `client_`.
+- Needs field check: Excel file in Excel and Google Sheets; PDF layout on the tablet (long missions page-break per row group); times and total mission time against the rover.
+- The tablet's save dialog and file name show `.csv` instead of `.xlsx` only if the workbook build fails.
+- Not done: latitude / longitude are not in the PDF (they are in the Excel sheet); the progress deck keeps its own copy of the rating limits.
+- Still not wired on the current backend (unchanged): arm/disarm, set-mode, joystick (no Manual Drive entry), `/api/mission/restart`, point status/events, `/api/path/*`, change-password, `/api/activity`.

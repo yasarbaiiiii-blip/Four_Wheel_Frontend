@@ -3,6 +3,7 @@ import { View, StyleSheet, Modal, Text, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 import MissionReportExport from './MissionReportExport';
+import type { ReportTiming } from '../../utils/exportHelpers';
 import { Waypoint } from './types';
 import type { WaypointUiStatus } from '../../types/missionWaypointStatus';
 
@@ -32,6 +33,7 @@ interface MissionCompletionDialogProps {
   fetchExportData?: () => Promise<
     MissionCompletionDialogProps['statusMap'] | null
   >;
+  fetchExportTiming?: () => Promise<ReportTiming | null>;
 }
 
 /** A compact acknowledgement card shown after the rover confirms completion. */
@@ -44,6 +46,7 @@ export const MissionCompletionDialog: React.FC<MissionCompletionDialogProps> = (
   statusMap,
   missionMode,
   fetchExportData,
+  fetchExportTiming,
 }) => {
   const {
     totalWaypoints,
@@ -122,6 +125,7 @@ export const MissionCompletionDialog: React.FC<MissionCompletionDialogProps> = (
               onExport={onExport}
               onExportComplete={() => {}}
               fetchExportData={fetchExportData}
+              fetchExportTiming={fetchExportTiming}
             />
           </View>
         </View>

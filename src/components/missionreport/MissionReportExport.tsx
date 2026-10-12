@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View,
@@ -19,16 +19,14 @@ import { colors } from '../../theme/colors';
 import { PATH_PLAN_GLASS, PATH_PLAN_HEADER } from '../../constants/pathPlanGlass';
 import { Waypoint } from './types';
 import {
-  generateExcel,
+  buildMissionReportModel,
   generatePDFHTML,
-  ExportData,
-  MissionStats,
+  generateReportCsv,
+  type ReportTiming,
 } from '../../utils/exportHelpers';
+import { buildMissionReportXlsx } from '../../utils/missionReportXlsx';
 import { downloadFileToDevice, getMimeType } from '../../utils/downloadHelper';
 import type { WaypointUiStatus } from '../../types/missionWaypointStatus';
-import { isErrorWaypointStatus } from '../../types/missionWaypointStatus';
-import { getStatusPresentation } from '../../utils/missionStatusPresentation';
-import { formatRawGnssAccuracyCells } from '../../utils/markingPointTableRows';
 import type { RawGnssSurveySnapshot } from '../../services/missionApi';
 
 export type MissionReportExportProps = {
@@ -43,7 +41,7 @@ export type MissionReportExportProps = {
       pile?: string | number;
       rowNo?: string | number;
       remark?: string;
-      // Frozen RAW GNSS survey-truth snapshot (exported Along/Cross/Overall).
+      // Frozen RAW GNSS survey-truth snapshot (its radial error is the exported GNSS accuracy).
       survey?: RawGnssSurveySnapshot | null;
       // Accuracy fields
       hrms?: number;
@@ -59,8 +57,14 @@ export type MissionReportExportProps = {
   onExportComplete?: () => void;
   /** Fetch the canonical backend report before opening the export modal. */
   fetchExportData?: () => Promise<MissionReportExportProps['statusMap'] | null>;
+  /** Mission start / finish from the rover's report, for the total mission time. */
+  fetchExportTiming?: () => Promise<ReportTiming | null>;
   /** `glass` — compact HUD toolbar; `default` — legacy filled button */
   variant?: 'default' | 'glass';
+  /** Hide the built-in button; open the export modal with `openSignal` instead. */
+  hideTrigger?: boolean;
+  /** Increment to open the export modal from outside (0 / unset = never). */
+  openSignal?: number;
 };
 
 const MissionReportExport: React.FC<MissionReportExportProps> = ({
@@ -70,13 +74,17 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
   onExport,
   onExportComplete,
   fetchExportData,
+  fetchExportTiming,
   variant = 'default',
+  hideTrigger = false,
+  openSignal = 0,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFetchingReport, setIsFetchingReport] = useState(false);
   const [canonicalStatusMap, setCanonicalStatusMap] = useState<
     MissionReportExportProps['statusMap'] | null
   >(null);
+  const [reportTiming, setReportTiming] = useState<ReportTiming | null>(null);
   const [exportFormat, setExportFormat] = useState<'excel' | 'pdf'>('excel');
   const [exportMethod, setExportMethod] = useState<'share' | 'save'>('save');
   const [isDownloading, setIsDownloading] = useState(false);
@@ -86,12 +94,18 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
   const exportStatusMap = canonicalStatusMap ?? statusMap;
 
   const openExportModal = async () => {
-    if (fetchExportData) {
+    if (fetchExportData || fetchExportTiming) {
       setIsFetchingReport(true);
       try {
-        const next = await fetchExportData();
+        const [next, timing] = await Promise.all([
+          fetchExportData ? fetchExportData().catch(() => null) : null,
+          fetchExportTiming ? fetchExportTiming().catch(() => null) : null,
+        ]);
         if (next && Object.keys(next).length > 0) {
           setCanonicalStatusMap(next);
+        }
+        if (timing) {
+          setReportTiming(timing);
         }
       } catch (error) {
         console.warn('[MissionReportExport] Canonical report fetch failed:', error);
@@ -102,37 +116,34 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
     setIsModalOpen(true);
   };
 
-  // Calculate mission statistics
-  const totalPoints = waypoints.length;
-  const completedPoints = Object.values(exportStatusMap).filter(
-    s => s.status === 'completed', // Only count actually completed waypoints
-  ).length;
-  const pendingPoints = Object.values(exportStatusMap).filter(
-    s => !s.status || s.status === 'pending', // genuinely pending only
-  ).length;
-  // Operator-requested skips (distinct from failures).
-  const skippedPoints = Object.values(exportStatusMap).filter(
-    s => s.status === 'skipped',
-  ).length;
-  // Unsuccessful/interrupted terminal outcomes: failed + aborted + stopped.
-  const errorPoints = Object.values(exportStatusMap).filter(
-    s => isErrorWaypointStatus(s.status),
-  ).length;
-  const successRate =
-    totalPoints > 0 ? ((completedPoints / totalPoints) * 100).toFixed(1) : '0.0';
+  // External open request (e.g. from the Mission tools export sheet).
+  useEffect(() => {
+    if (openSignal > 0) {
+      void openExportModal();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal]);
 
-  // Calculate mission timing
-  const timestamps = Object.values(exportStatusMap)
-    .map(s => s.timestamp)
-    .filter(t => t && t !== '-');
-
-  let missionDuration = 'N/A';
-  if (timestamps.length >= 2) {
-    const sortedTimes = timestamps.sort();
-    const startTime = sortedTimes[0];
-    const endTime = sortedTimes[sortedTimes.length - 1];
-    missionDuration = `${startTime} - ${endTime}`;
-  }
+  // One model feeds the preview below and every exported file.
+  const reportModel = useMemo(
+    () =>
+      buildMissionReportModel({
+        waypoints,
+        statusMap: exportStatusMap,
+        missionMode,
+        timing: reportTiming,
+      }),
+    [waypoints, exportStatusMap, missionMode, reportTiming],
+  );
+  const {
+    totalPoints,
+    completedPoints,
+    pendingPoints,
+    skippedPoints,
+    errorPoints,
+    successRate,
+    totalMissionTime: missionDuration,
+  } = reportModel.stats;
 
   // Fallback share since Expo managed workflow doesn't support SAF
   // Files are saved to app storage and user can share/export via sharing
@@ -181,76 +192,14 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
     setIsDownloading(true);
 
     try {
-      // Prepare export data
-      const data: ExportData[] = waypoints.map((waypoint, idx) => {
-        const wpStatus = exportStatusMap[waypoint.sn];
-        const row = waypoint.row || wpStatus?.rowNo || '-';
-        const block = waypoint.block || '-';
-        const pile = waypoint.pile || wpStatus?.pile || '-';
-
-        // Distinct, operator-facing label for every status (incl. failed/
-        // aborted/stopped). Falls back to Pending only when genuinely unset.
-        let statusDisplay = 'Pending';
-        if (wpStatus?.status) {
-          statusDisplay = getStatusPresentation(wpStatus.status).exportLabel;
-        } else if (wpStatus?.marked) {
-          statusDisplay = 'Marked';
-        } else if (wpStatus?.reached) {
-          statusDisplay = 'Reached';
-        }
-
-        // Format accuracy display if available (in cm)
-        const accuracyDisplay = wpStatus?.position_error_cm
-          ? `${wpStatus.accuracy_level ? wpStatus.accuracy_level.charAt(0).toUpperCase() + wpStatus.accuracy_level.slice(1) : 'Unknown'} - ${wpStatus.position_error_cm.toFixed(1)}cm`
-          : '-';
-
-        // RAW GNSS survey truth only; '—' when unavailable (never RPP).
-        const rawGnss = formatRawGnssAccuracyCells(wpStatus?.survey);
-
-        return {
-          'S/N': idx + 1,
-          ROW: String(row),
-          BLOCK: String(block),
-          PILE: pile,
-          Latitude: parseFloat(waypoint.lat.toFixed(7)),
-          Longitude: parseFloat(waypoint.lon.toFixed(7)),
-          Altitude: parseFloat(waypoint.alt.toFixed(2)),
-          Status: statusDisplay,
-          Timestamp: wpStatus?.timestamp ?? '-',
-          Accuracy: accuracyDisplay,
-          'Along (Raw GNSS)': rawGnss.along,
-          'Cross (Raw GNSS)': rawGnss.cross,
-          'Overall (Raw GNSS)': rawGnss.overall,
-        };
+      // Rebuild at export time so "Generated" is the moment of export.
+      const model = buildMissionReportModel({
+        waypoints,
+        statusMap: exportStatusMap,
+        missionMode,
+        timing: reportTiming,
       });
-
-      // Find error / interrupted locations (failed, aborted, stopped) — each
-      // labelled distinctly. Operator skips are listed separately below.
-      const errorLocations: string[] = [];
-      waypoints.forEach((wp, idx) => {
-        const wpStatus = exportStatusMap[wp.sn];
-        const s = wpStatus?.status;
-        if (s && (isErrorWaypointStatus(s) || s === 'skipped')) {
-          const row = wp.row || wpStatus?.rowNo || '-';
-          const block = wp.block || '-';
-          const pile = wp.pile || wpStatus?.pile || '-';
-          const label = getStatusPresentation(s).exportLabel.toUpperCase();
-          errorLocations.push(
-            `[${label}] Row ${row}, Block ${block}, Pile ${pile} (WP #${idx + 1})`,
-          );
-        }
-      });
-
-      // Build mission statistics
-      const stats: MissionStats = {
-        totalPoints,
-        completedPoints,
-        pendingPoints,
-        errorPoints,
-        successRate,
-        missionDuration,
-        errorLocations,
-      };
+      const baseName = exportFilename.trim();
 
       let fileUri: string;
       let filename: string;
@@ -258,67 +207,36 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
       let formatName: string;
 
       if (exportFormat === 'excel') {
-        // Generate Excel file using ExcelJS
-        console.log('[Export] Generating Excel file...');
-        const buffer = await generateExcel(data, stats, missionMode ?? null);
-
-        // In React Native, generateExcel may fall back to CSV for compatibility
-        const isReactNative =
-          typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
-        filename = `${exportFilename.trim()}.${
-          isReactNative ? 'csv' : 'xlsx'
-        }`;
-
-        // Write to file system
-        fileUri = `${FileSystem.documentDirectory}${filename}`;
-        if (isReactNative) {
-          // Buffer contains CSV. Write as UTF-8 text.
-          const csvText =
-            typeof TextDecoder !== 'undefined'
-              ? new TextDecoder().decode(new Uint8Array(buffer))
-              : String.fromCharCode.apply(
-                  null,
-                  Array.from(new Uint8Array(buffer)) as any,
-                );
-          // Write UTF-8 text; default encoding is UTF-8 in Expo FileSystem
-          await FileSystem.writeAsStringAsync(fileUri, csvText);
-        } else {
-          // Web/Node: buffer is XLSX; convert to base64
-          const uint8Array = new Uint8Array(buffer);
-          let binary = '';
-          uint8Array.forEach(byte => {
-            binary += String.fromCharCode(byte);
-          });
-          const base64 = btoa(binary);
-          await FileSystem.writeAsStringAsync(fileUri, base64, {
+        try {
+          const workbook = await buildMissionReportXlsx(model);
+          filename = `${baseName}.xlsx`;
+          fileUri = `${FileSystem.documentDirectory}${filename}`;
+          await FileSystem.writeAsStringAsync(fileUri, workbook.base64, {
             encoding: FileSystem.EncodingType.Base64,
           });
+          mimeType =
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+          formatName = 'Excel';
+          console.log('[Export] Excel file created:', fileUri);
+        } catch (xlsxError) {
+          // Never lose the export: fall back to the same ten columns as CSV.
+          console.warn('[Export] Excel build failed, writing CSV instead:', xlsxError);
+          filename = `${baseName}.csv`;
+          fileUri = `${FileSystem.documentDirectory}${filename}`;
+          await FileSystem.writeAsStringAsync(fileUri, generateReportCsv(model.rows));
+          mimeType = 'text/csv';
+          formatName = 'CSV';
         }
-
-        mimeType = isReactNative
-          ? 'text/csv'
-          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-        formatName = isReactNative ? 'CSV' : 'Excel';
-
-        console.log('[Export] Excel file created:', fileUri);
       } else {
-        // Generate PDF using expo-print
         console.log('[Export] Generating PDF file...');
-        const htmlContent = generatePDFHTML(data, stats, missionMode ?? null);
-
-        filename = `${exportFilename.trim()}.pdf`;
-
-        // Generate PDF from HTML (expo-print already saves to a shareable location)
+        filename = `${baseName}.pdf`;
+        // expo-print already saves to a shareable location.
         const { uri } = await Print.printToFileAsync({
-          html: htmlContent,
+          html: generatePDFHTML(model),
         });
-
-        // Use the generated URI directly (no need to copy)
         fileUri = uri;
-
         mimeType = 'application/pdf';
         formatName = 'PDF';
-
         console.log('[Export] PDF file created:', fileUri);
       }
 
@@ -426,6 +344,7 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
   return (
     <>
       {/* Export Button */}
+      {!hideTrigger && (
       <TouchableOpacity
         style={variant === 'glass' ? styles.exportButtonGlass : styles.exportButton}
         onPress={() => {
@@ -447,7 +366,7 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
           </>
         )}
       </TouchableOpacity>
-      
+      )}
 
       {/* Export Modal */}
       <Modal
@@ -509,7 +428,7 @@ const MissionReportExport: React.FC<MissionReportExportProps> = ({
                     </Text>
                   </View>
                   <View style={styles.previewItem}>
-                    <Text style={styles.previewLabel}>Duration:</Text>
+                    <Text style={styles.previewLabel}>Total mission time:</Text>
                     <Text style={styles.previewValue}>{missionDuration}</Text>
                   </View>
                 </View>

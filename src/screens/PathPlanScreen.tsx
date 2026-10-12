@@ -22,6 +22,7 @@ import { LegendList } from "@legendapp/list";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../theme/colors";
 import { DxfMapEntity, PathPlanWaypoint } from "../types/pathplan";
+import { buildMissionCsvFromWaypoints } from "../utils/missionCsv";
 import { asFiniteNumber, formatCoord } from "../utils/formatCoord";
 import { useTelemetryControl } from "../context/TelemetryContext";
 import { useMission } from "../context/MissionContext";
@@ -338,51 +339,6 @@ const BottomTableHeader = memo(
 
 // Toggle debug logging for this screen
 const DEBUG_LOG = true;
-
-const escapeMissionCsvCell = (value: unknown): string => {
-  const text = value === null || value === undefined ? "" : String(value);
-
-  if (/[",\r\n]/.test(text)) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
-
-  return text;
-};
-
-const buildMissionCsvFromWaypoints = (
-  waypoints: PathPlanWaypoint[],
-): string => {
-  const header = ["latitude", "longitude", "altitude", "block", "row", "pile"];
-
-  const rows = waypoints.map((waypoint, index) => {
-    if (!Number.isFinite(waypoint.lat) || !Number.isFinite(waypoint.lon)) {
-      throw new Error(`Point ${index + 1} has invalid coordinates.`);
-    }
-
-    if (waypoint.lat < -90 || waypoint.lat > 90) {
-      throw new Error(`Point ${index + 1} has an invalid latitude.`);
-    }
-
-    if (waypoint.lon < -180 || waypoint.lon > 180) {
-      throw new Error(`Point ${index + 1} has an invalid longitude.`);
-    }
-
-    return [
-      waypoint.lat.toFixed(9),
-      waypoint.lon.toFixed(9),
-
-      Number.isFinite(waypoint.alt) ? waypoint.alt : 0,
-
-      waypoint.block ?? "",
-      waypoint.row ?? "",
-      waypoint.pile ?? String(index + 1),
-    ]
-      .map(escapeMissionCsvCell)
-      .join(",");
-  });
-
-  return [header.join(","), ...rows].join("\n") + "\n";
-};
 
 interface PathPlanScreenProps {
   embedMap?: boolean;

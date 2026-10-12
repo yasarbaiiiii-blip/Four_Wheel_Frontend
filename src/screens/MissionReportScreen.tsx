@@ -138,7 +138,7 @@ import { useVerifiedMissionContext } from "../context/VerifiedMissionContext";
 import { useVerifiedMissionProgress } from "../hooks/useVerifiedMissionProgress";
 import { verifiedProgressToLegacy } from "../adapters/verifiedTargetBridge";
 import { getMissionProgressRef } from "../utils/missionStatusPresentation";
-import { pauseReasonText } from "../utils/pauseReasonPresentation";
+import { pauseNotice, pauseReasonText } from "../utils/pauseReasonPresentation";
 import {
   getMissionStartEligibility,
   isMissionStoredOnRover,
@@ -174,11 +174,42 @@ import {
   skipMissionPoint,
   stopMission,
   clearMission,
+  getMissionExtension,
   type MissionRuntimeState,
   type CanonicalMissionReport,
   type RawGnssSurveySnapshot,
 } from "../services/missionApi";
 import * as FileSystem from "expo-file-system/legacy";
+import { buildMissionCsvFromWaypoints } from "../utils/missionCsv";
+import { choiceFromSettings } from "../utils/missionExtension";
+import { downloadFileToDevice, getMimeType } from "../utils/downloadHelper";
+import { useDraftHistory } from "../hooks/useDraftHistory";
+import {
+  removeMissionWaypoint,
+  reverseMissionWaypoints,
+  sameMissionRoute,
+} from "../utils/missionEdit";
+import {
+  computeMissionProgress,
+  elapsedSec,
+  estimateRemainingSec,
+  formatDuration,
+  hrmsToMm,
+  pointAccuracyMm,
+  type PointStatusMap,
+} from "../utils/missionProgressMetrics";
+import { getDeckControlState } from "../utils/missionDeckControls";
+import {
+  isTerminalWaypointStatus,
+  type WaypointUiStatus,
+} from "../types/missionWaypointStatus";
+import {
+  MissionDeckControls,
+  type DeckPendingAction,
+} from "../components/missionreport/MissionDeckControls";
+import { MissionEditToolbar } from "../components/missionreport/MissionEditToolbar";
+import { MissionExportSheet } from "../components/missionreport/MissionExportSheet";
+import MissionReportExport from "../components/missionreport/MissionReportExport";
 
 import {
   projectBackendMissionReport,
@@ -640,6 +671,8 @@ export default function MissionReportScreen({
   // Mission completion dialog state
   const [showCompletionDialog, setShowCompletionDialog] = useState(false);
   const [showClearLogsDialog, setShowClearLogsDialog] = useState(false); // Post-export clear logs dialog
+  // True when the dialog follows a saved export; false when opened from the Export sheet.
+  const [clearLogsAfterExport, setClearLogsAfterExport] = useState(false);
   const [missionStartTime, setMissionStartTime] = useState<Date | null>(null);
   const [missionEndTime, setMissionEndTime] = useState<Date | null>(null);
   const [isMissionActive, setIsMissionActive] = useState(false); // Track if mission is currently running
@@ -3031,10 +3064,12 @@ export default function MissionReportScreen({
       const response = await setMissionExecutionMode(newMode);
 
       if (!response.success) {
+        const message =
+          response.mission?.message || "Backend rejected execution mode.";
+        showNotification("error", "Mode Change Failed", message, 5000);
         return {
           success: false,
-          message:
-            response.mission?.message || "Backend rejected execution mode.",
+          message,
         };
       }
 
@@ -3065,6 +3100,8 @@ export default function MissionReportScreen({
 
       void refreshBackendMission();
 
+      showNotification("error", "Mode Change Failed", message, 5000);
+
       return {
         success: false,
         message,
@@ -3081,9 +3118,12 @@ export default function MissionReportScreen({
     }
 
     if (authoringChanged) {
+      const message =
+        "Wait for the automatic path update to finish before starting this mission.";
+      showNotification("info", "Path Updating", message, 4000);
       return {
         success: false,
-        message: "Wait for the automatic path update to finish before starting this mission.",
+        message,
       };
     }
 
@@ -3609,6 +3649,162 @@ export default function MissionReportScreen({
     }
   };
 
+  // Save the mission currently shown in the app (including any applied edits)
+  // as a CSV the rover can accept again.
+  const exportInFlightRef = useRef(false);
+  const handleExportMissionFile = async (): Promise<void> => {
+    if (waypoints.length === 0) {
+      showNotification("error", "Nothing to export", "Upload a mission first.");
+      return;
+    }
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+
+    let temporaryFileUri: string | null = null;
+    try {
+      const csv = buildMissionCsvFromWaypoints(waypoints);
+      const cacheDirectory = FileSystem.cacheDirectory;
+      if (!cacheDirectory) throw new Error("Temporary storage is unavailable.");
+
+      const stamp = new Date()
+        .toISOString()
+        .replace(/[-:]/g, "")
+        .replace("T", "-")
+        .slice(0, 15);
+      const filename = `mission-${stamp}.csv`;
+      temporaryFileUri = `${cacheDirectory}${filename}`;
+
+      await FileSystem.writeAsStringAsync(temporaryFileUri, csv, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      const saved = await downloadFileToDevice(
+        temporaryFileUri,
+        filename,
+        getMimeType(filename),
+      );
+      if (saved) {
+        showNotification(
+          "success",
+          "Mission exported",
+          `${waypoints.length} points saved as ${filename}`,
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not export the mission.";
+      console.error("[MissionReportScreen] Mission export failed:", error);
+      showNotification("error", "Export failed", message, 5000);
+    } finally {
+      exportInFlightRef.current = false;
+      if (temporaryFileUri) {
+        await FileSystem.deleteAsync(temporaryFileUri, { idempotent: true }).catch(
+          () => undefined,
+        );
+      }
+    }
+  };
+
+  // Push an edited point list to the rover. The rover only ever sees a normal
+  // CSV upload, so every backend safety rule (not while a mission is active,
+  // validation, trajectory preparation) applies unchanged.
+  const handleCommitMissionEdit = async (
+    edited: Waypoint[],
+  ): Promise<{ success: boolean; message?: string }> => {
+    if (connectionState !== "connected") {
+      return { success: false, message: "Connect to the rover first." };
+    }
+    if (effectiveMissionActive) {
+      return { success: false, message: "Stop the mission before editing it." };
+    }
+    if (edited.length < 2) {
+      return { success: false, message: "A mission needs at least 2 points." };
+    }
+
+    let temporaryFileUri: string | null = null;
+    try {
+      // Keep the row-extension choice the rover currently holds. If it cannot
+      // be read, stop: guessing would silently change the mission.
+      let extension;
+      try {
+        extension = await getMissionExtension();
+      } catch {
+        return {
+          success: false,
+          message:
+            "Could not read the rover's row-extension settings. Nothing was changed.",
+        };
+      }
+      const choice = choiceFromSettings(
+        extension.extension ?? null,
+        extension.bounds,
+        extension.defaults ?? null,
+      );
+
+      const csv = buildMissionCsvFromWaypoints(edited);
+      const cacheDirectory = FileSystem.cacheDirectory;
+      if (!cacheDirectory) throw new Error("Temporary storage is unavailable.");
+      temporaryFileUri = `${cacheDirectory}mission-edit-${Date.now()}.csv`;
+      await FileSystem.writeAsStringAsync(temporaryFileUri, csv, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      invalidateForUpload();
+      const result = await uploadMissionCsv({
+        file: {
+          uri: temporaryFileUri,
+          name: "mission.csv",
+          mimeType: "text/csv",
+        } as any,
+        extensionMode: choice.enabled ? "ENABLE" : "DISABLE",
+        dummyPointDistanceM: choice.enabled ? choice.distanceM : undefined,
+        triggerDistanceM: choice.enabled ? choice.triggerDistanceM : undefined,
+      });
+
+      if (!result.success) {
+        resumePreviewAfterFailedUpload();
+        void refreshNow();
+        return {
+          success: false,
+          message: result.message ?? "The rover rejected the edited mission.",
+        };
+      }
+
+      // Only now, with the rover's confirmation, does the app show the edit.
+      setMissionWaypoints(edited);
+      setIsMissionActive(false);
+      setStatusMap({});
+      setMissionStartTime(null);
+      setMissionEndTime(null);
+      setCurrentIndex(null);
+      resetVerifiedProgress();
+      clearVerifiedTerminal();
+      await refreshBackendMission();
+      await refreshNow();
+
+      return {
+        success: true,
+        message: "The rover has the edited mission. Load it again before starting.",
+      };
+    } catch (error) {
+      resumePreviewAfterFailedUpload();
+      void refreshNow();
+      return {
+        success: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Could not update the mission on the rover.",
+      };
+    } finally {
+      if (temporaryFileUri) {
+        await FileSystem.deleteAsync(temporaryFileUri, { idempotent: true }).catch(
+          () => undefined,
+        );
+      }
+    }
+  };
+
   const handleClearMission = async () => {
     try {
       console.log("[MissionReportScreen] Clearing mission...");
@@ -3632,13 +3828,48 @@ export default function MissionReportScreen({
     console.log("[MissionReportScreen] Export report triggered");
   };
 
+  // The export window asks for the report's points and its timing together.
+  // One short-lived request serves both, so the rover is not asked twice.
+  const exportReportRef = useRef<{
+    at: number;
+    request: ReturnType<typeof getMissionReport>;
+  } | null>(null);
+  const getReportForExport = useCallback(() => {
+    const cached = exportReportRef.current;
+    if (cached && Date.now() - cached.at < 3000) return cached.request;
+    const request = getMissionReport();
+    exportReportRef.current = { at: Date.now(), request };
+    request.catch(() => {
+      if (exportReportRef.current?.request === request) {
+        exportReportRef.current = null;
+      }
+    });
+    return request;
+  }, []);
+
   const fetchCanonicalExportData = useCallback(async () => {
-    const response = await getMissionReport();
+    const response = await getReportForExport();
     if (!response?.success || response.available !== true || !response.report) {
       return null;
     }
     return projectCanonicalReportForExport(response.report);
-  }, []);
+  }, [getReportForExport]);
+
+  const fetchCanonicalExportTiming = useCallback(async () => {
+    const response = await getReportForExport();
+    if (!response?.success || response.available !== true || !response.report) {
+      return null;
+    }
+    const mission = (response.report as { mission?: unknown }).mission as
+      | { started_at?: unknown; completed_at?: unknown }
+      | undefined;
+    const text = (value: unknown) =>
+      typeof value === "string" && value.trim() !== "" ? value : null;
+    return {
+      startedAt: text(mission?.started_at),
+      finishedAt: text(mission?.completed_at),
+    };
+  }, [getReportForExport]);
 
   // Handle export completion - prompt user to clear logs or keep for review
   const handleExportComplete = () => {
@@ -3646,11 +3877,38 @@ export default function MissionReportScreen({
       "[MissionReportScreen] 📤 Export completed - showing clear logs prompt",
     );
     // Show dialog asking if user wants to clear mission logs
+    setClearLogsAfterExport(true);
     setShowClearLogsDialog(true);
   };
 
+  // Export sheet -> open the Excel / PDF report exporter (hidden trigger below).
+  const [reportExportSignal, setReportExportSignal] = useState(0);
+  const handleRequestExportReport = useCallback(() => {
+    setReportExportSignal((value) => value + 1);
+  }, []);
+
+  // Logs belong to the running mission, so they cannot be cleared mid-run.
+  const clearLogsBlockedReason = effectiveMissionActive
+    ? "Stop the mission before clearing its logs."
+    : null;
+
+  const handleRequestClearLogs = useCallback(() => {
+    if (clearLogsBlockedReason) {
+      showNotification("error", "Cannot Clear Logs", clearLogsBlockedReason);
+      return;
+    }
+    setClearLogsAfterExport(false);
+    setShowClearLogsDialog(true);
+  }, [clearLogsBlockedReason]);
+
   // User confirmed to clear logs after export
   const handleClearLogsAfterExport = async () => {
+    if (clearLogsBlockedReason) {
+      // A mission started while the confirm dialog was open.
+      setShowClearLogsDialog(false);
+      showNotification("error", "Cannot Clear Logs", clearLogsBlockedReason);
+      return;
+    }
     try {
       console.log(
         "[MissionReportScreen] 🗑️ User confirmed - clearing mission logs after export",
@@ -5163,6 +5421,14 @@ export default function MissionReportScreen({
         )}
       </View>
 
+      {/* OLD UI (disabled): the floating panels below belong to the previous
+          Mission screen and never render while useMissionActivityExperience is
+          true. Kept commented, not deleted, for reference. Their replacements:
+            - Live vehicle status / progress / accuracy / distance -> header + progress deck
+            - Mission control card                                  -> MissionDeckControls
+            - Bottom table export + clear logs                      -> Export sheet (Mission tools)
+            - Quick NTRIP card                                      -> Settings / RTK screen
+            - Manual Drive entry (Quick NTRIP "manual" button)      -> not available yet
       {!useMissionActivityExperience && isVisible && isRobotStatusVisible && (
         <DraggableCard
           style={styles.floatingRobotStatusPanel}
@@ -5310,27 +5576,45 @@ export default function MissionReportScreen({
           )}
         </DraggableCard>
       )}
+      END OF OLD UI (disabled) */}
 
       {useMissionActivityExperience && (
         <MissionActivityExperience
           waypoints={displayData.waypoints}
+          statusMap={displayData.statusMap as PointStatusMap}
+          currentIndex={effectiveCurrentIndex}
+          missionStartTime={displayData.startTime}
+          missionEndTime={displayData.endTime}
           isMissionActive={effectiveMissionActive}
           hasMissionLoaded={hasUploadedMission || missionUploadConfirmed}
           onClearMission={() => { void handleClearMission(); }}
           onOpenPlan={onOpenPlan ?? (() => undefined)}
-          onStart={() => { void handleStart(); }}
-          onPause={() => { void handlePause(); }}
-          onResume={() => { void handleResume(); }}
-          onStop={() => { void handleStop(); }}
+          onStart={() => handleStart()}
+          onPause={() => handlePause()}
+          onResume={() => handleResume()}
+          onStop={() => handleStop()}
           canStart={canStartMission}
           isPreparing={isPreparingMission}
           isMissionPaused={isBackendMissionPaused}
           mode={mode === "MANUAL" ? "manual" : "auto"}
-          onSetMode={(nextMode) => {
-            void handleSetExecutionMode(nextMode === "manual" ? "MANUAL" : "AUTO");
-          }}
-          onSkip={() => { void handleSkip(); }}
+          onSetMode={(nextMode) =>
+            handleSetExecutionMode(nextMode === "manual" ? "MANUAL" : "AUTO")
+          }
+          onSkip={() => handleSkip()}
+          onNext={() => handleNext()}
           waitingForManual={effectiveWaitingForManual}
+          onExport={handleExportMissionFile}
+          onExportReport={handleRequestExportReport}
+          onClearLogs={handleRequestClearLogs}
+          clearLogsBlockedReason={clearLogsBlockedReason}
+          pauseReason={backendPauseReason}
+          rtkReason={backendRtkReason}
+          resumeAvailable={backendResumeAvailable}
+          onCommitEdit={handleCommitMissionEdit}
+          editBlockedReason={
+            connectionState !== "connected" ? "Connect to the rover to edit the mission." : null
+          }
+          onNotify={(type, title, message) => showNotification(type, title, message, 4500)}
         />
       )}
 
@@ -5435,6 +5719,20 @@ export default function MissionReportScreen({
         statusMap={displayData.statusMap}
         missionMode={displayData.missionMode}
         fetchExportData={fetchCanonicalExportData}
+        fetchExportTiming={fetchCanonicalExportTiming}
+      />
+
+      {/* Mission report exporter (Excel / PDF), opened from the Export sheet */}
+      <MissionReportExport
+        hideTrigger
+        openSignal={reportExportSignal}
+        waypoints={displayData.waypoints}
+        statusMap={displayData.statusMap}
+        missionMode={displayData.missionMode}
+        onExport={handleExport}
+        onExportComplete={handleExportComplete}
+        fetchExportData={fetchCanonicalExportData}
+        fetchExportTiming={fetchCanonicalExportTiming}
       />
 
       {/* Clear Logs After Export Dialog */}
@@ -5442,6 +5740,11 @@ export default function MissionReportScreen({
         visible={showClearLogsDialog}
         onConfirm={handleClearLogsAfterExport}
         onCancel={handleKeepLogsAfterExport}
+        message={
+          clearLogsAfterExport
+            ? undefined
+            : "Clear the saved point status and timing for this mission? The mission plan stays loaded."
+        }
       />
     </SafeAreaView>
   );
@@ -5587,23 +5890,55 @@ const styles = StyleSheet.create({
 // Kept in this screen intentionally: it is a visual layer over the existing
 // mission state and handlers, rather than a second mission implementation.
 
+type DeckAction = () => Promise<unknown> | void;
+
 interface MissionActivityExperienceProps {
   waypoints: Waypoint[];
+  /** Per-point report status incl. recorded accuracy (position_error_cm). */
+  statusMap: PointStatusMap;
+  /** Backend-confirmed active point index, when the rover reports one. */
+  currentIndex?: number | null;
+  missionStartTime?: Date | null;
+  missionEndTime?: Date | null;
   isMissionActive: boolean;
   hasMissionLoaded: boolean;
   onClearMission: () => void;
   onOpenPlan: (intent?: PlanOpenIntent) => void;
-  onStart: () => void;
-  onPause: () => void;
-  onResume: () => void;
-  onStop: () => void;
+  onStart: DeckAction;
+  onPause: DeckAction;
+  onResume: DeckAction;
+  onStop: DeckAction;
   canStart: boolean;
   isPreparing: boolean;
   isMissionPaused: boolean;
   mode?: "auto" | "manual";
-  onSetMode?: (mode: "auto" | "manual") => void;
-  onSkip?: () => void;
+  onSetMode?: (mode: "auto" | "manual") => Promise<unknown> | void;
+  onSkip?: DeckAction;
+  onNext?: DeckAction;
   waitingForManual?: boolean;
+  /** Save the (modified) uploaded mission to the device as a CSV file. */
+  onExport?: () => Promise<void> | void;
+  /** Open the Excel / PDF mission report exporter. */
+  onExportReport?: () => void;
+  /** Ask to clear the mission logs (the screen shows the confirm dialog). */
+  onClearLogs?: () => void;
+  /** Why clearing logs is blocked right now, or null when it is allowed. */
+  clearLogsBlockedReason?: string | null;
+  /** Rover-reported pause reason / RTK reason / resume flag, for the deck notice. */
+  pauseReason?: string | null;
+  rtkReason?: string | null;
+  resumeAvailable?: boolean;
+  /** Push an edited point list to the rover (re-upload). */
+  onCommitEdit?: (
+    points: Waypoint[],
+  ) => Promise<{ success: boolean; message?: string }>;
+  /** Why editing is currently not allowed (offline, ...), or null. */
+  editBlockedReason?: string | null;
+  onNotify?: (
+    type: "success" | "error" | "info",
+    title: string,
+    message: string,
+  ) => void;
 }
 
 // UI preview only. These points are never written to mission state, shown on
@@ -5619,15 +5954,55 @@ const COMMAND_DEMO_WAYPOINTS: Waypoint[] = [
   { sn: 9008, block: "DEMO", row: "03", pile: "02", lat: 12.972474, lon: 77.595149, distance: 16.5, alt: 0, status: "Pending", time: "", remark: "UI preview" },
 ];
 
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Top-bar / progress-deck telemetry. When the rover link is down every value
+ * is null so the UI shows "—" instead of a stale or default-zero reading.
+ */
 function selectCommandTelemetry(snapshot: LiveTelemetrySnapshot) {
   const telemetry = snapshot.telemetry;
+  const connected = snapshot.connectionState === "connected";
+
+  if (!connected) {
+    return {
+      connected,
+      battery: null as number | null,
+      voltage: null as number | null,
+      current: null as number | null,
+      speed: null as number | null,
+      heading: null as number | null,
+      fixType: 0,
+      satellites: null as number | null,
+      hrms: null as number | null,
+      distToNext: null as number | null,
+      mode: "—",
+    };
+  }
+
+  const percentage = finiteOrNull(telemetry.battery?.percentage);
+  const voltageRaw = finiteOrNull(telemetry.battery?.voltage);
+  // 0 V / 0 % with no cell voltage means "no reading yet", not an empty pack.
+  const voltage = voltageRaw !== null && voltageRaw > 0 ? voltageRaw : null;
+
   return {
-    connected: snapshot.connectionState === "connected",
-    battery: telemetry.battery?.percentage ?? null,
-    speed: telemetry.global?.vel ?? telemetry.rpp_actual_speed_mps ?? null,
-    heading: telemetry.attitude?.yaw_deg ?? null,
+    connected,
+    battery:
+      percentage !== null && (percentage > 0 || voltage !== null)
+        ? percentage
+        : null,
+    voltage,
+    current: voltage !== null ? finiteOrNull(telemetry.battery?.current) : null,
+    speed: finiteOrNull(
+      telemetry.global?.vel ?? telemetry.rpp_actual_speed_mps,
+    ),
+    heading: finiteOrNull(telemetry.attitude?.yaw_deg),
     fixType: telemetry.rtk?.fix_type ?? 0,
-    satellites: telemetry.global?.satellites_visible ?? null,
+    satellites: finiteOrNull(telemetry.global?.satellites_visible),
+    hrms: finiteOrNull(telemetry.hrms),
+    distToNext: finiteOrNull(telemetry.distance_to_next_m),
     mode: telemetry.state?.mode ?? "—",
   };
 }
@@ -5708,14 +6083,16 @@ function commandAccuracyTier(accMm: number | null): { label: string; color: stri
 }
 
 function MissionActivityExperience({
-  waypoints, isMissionActive,
+  waypoints, statusMap, currentIndex, missionStartTime, missionEndTime,
+  isMissionActive,
   hasMissionLoaded, onClearMission, onOpenPlan,
   onStart, onPause, onResume, onStop,
   canStart, isPreparing, isMissionPaused,
-  mode, onSetMode, onSkip, waitingForManual
+  mode, onSetMode, onSkip, onNext, waitingForManual,
+  onExport, onExportReport, onClearLogs, clearLogsBlockedReason,
+  pauseReason, rtkReason, resumeAvailable,
+  onCommitEdit, editBlockedReason, onNotify,
 }: MissionActivityExperienceProps) {
-  const { mission } = useFieldMap();
-  const statusMap = mission.statusMap || {};
   const telemetry = useLiveTelemetrySelector(selectCommandTelemetry, shallowEqual);
   const { width: viewportWidth } = useWindowDimensions();
   const timelineAvailableWidth = Math.max(viewportWidth - 232, 250);
@@ -5724,10 +6101,17 @@ function MissionActivityExperience({
   const [showSettings, setShowSettings] = useState(false);
   const [isLightHeader, setIsLightHeader] = useState(true);
   const [isPointsExpanded, setIsPointsExpanded] = useState(false);
-  const [isEditingPoints, setIsEditingPoints] = useState(false);
+  const [isExportSheetOpen, setIsExportSheetOpen] = useState(false);
+  const editHistory = useDraftHistory<Waypoint[]>();
+  const isEditingPoints = editHistory.isEditing;
+  const [isApplyingEdit, setIsApplyingEdit] = useState(false);
+  const applyingEditRef = useRef(false);
+  const [pendingAction, setPendingAction] = useState<DeckPendingAction>(null);
+  const [isStopping, setIsStopping] = useState(false);
+  const controlLockRef = useRef(false);
+  const stopLockRef = useRef(false);
+  const deckMountedRef = useRef(true);
   const [activityCardHeight, setActivityCardHeight] = useState(0);
-  const [isControlsExpanded, setIsControlsExpanded] = useState(false);
-  const expandControlsAnim = useRef(new Animated.Value(0)).current;
   const [isTelemetryExpanded, setIsTelemetryExpanded] = useState(false);
   const expandTelemetryAnim = useRef(new Animated.Value(0)).current;
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
@@ -5761,19 +6145,6 @@ function MissionActivityExperience({
       useNativeDriver: true,
     }).start(() => setActiveHudModal(null));
   }, [hudModalAnim]);
-
-  const toggleControls = useCallback((expand?: boolean) => {
-    setIsControlsExpanded((prev) => {
-      const next = typeof expand === "boolean" ? expand : !prev;
-      Animated.spring(expandControlsAnim, {
-        toValue: next ? 1 : 0,
-        friction: 8,
-        tension: 50,
-        useNativeDriver: true,
-      }).start();
-      return next;
-    });
-  }, [expandControlsAnim]);
 
   const toggleTelemetry = useCallback((expand?: boolean) => {
     setIsTelemetryExpanded((prev) => {
@@ -5813,16 +6184,34 @@ function MissionActivityExperience({
   const pointsPanelProgress = useRef(new Animated.Value(0)).current;
   const isDemoPoints = waypoints.length === 0;
   const activityWaypoints = isDemoPoints ? COMMAND_DEMO_WAYPOINTS : waypoints;
+  const listWaypoints = editHistory.draft ?? activityWaypoints;
+  // Progress comes from the backend-reported per-point status map, never from
+  // the (never-updated) waypoint.status field and never from sample points.
+  const realStatusMap: PointStatusMap = isDemoPoints ? {} : statusMap;
+  const progress = useMemo(
+    () => computeMissionProgress(activityWaypoints, realStatusMap),
+    [activityWaypoints, realStatusMap],
+  );
   const currentPoint = useMemo(() => {
-    let cp = activityWaypoints.findIndex((w) => w.status === "Pending");
-    return cp === -1 ? Math.max(0, activityWaypoints.length - 1) : cp;
-  }, [activityWaypoints]);
+    const count = activityWaypoints.length;
+    if (
+      isMissionActive &&
+      typeof currentIndex === "number" &&
+      currentIndex >= 0 &&
+      currentIndex < count
+    ) {
+      return currentIndex;
+    }
+    return progress.activeIndex ?? Math.max(0, count - 1);
+  }, [activityWaypoints.length, currentIndex, isMissionActive, progress.activeIndex]);
   const routeKm = useMemo(() => commandRouteKm(activityWaypoints), [activityWaypoints]);
   const mapAreaWidth = Math.max(viewportWidth - 410, 0);
   const currentActivityWidth = activityCardWidth || 378;
   const expandedPanelWidth = currentActivityWidth + Math.max(280, Math.round(mapAreaWidth / 2));
   const expandedPointCardWidth = Math.max(240, Math.floor((expandedPanelWidth - 34) / 2));
-  const rtkIsFixed = commandRtkLabel(telemetry.fixType).toLowerCase().includes("fix");
+  // Green only for a true RTK fixed solution. A plain "GPS Fix" (type 3-4) or
+  // RTK float is not centimetre-grade, so it must not look "good".
+  const rtkIsFixed = telemetry.fixType >= 6;
   const headingRotation = typeof telemetry.heading === "number" && Number.isFinite(telemetry.heading)
     ? ((telemetry.heading % 360) + 360) % 360
     : 0;
@@ -5830,24 +6219,50 @@ function MissionActivityExperience({
     ? `${Math.round(headingRotation)}°`
     : "—";
   const headingDirection = commandHeadingDirection(telemetry.heading);
-  const progressPct = activityWaypoints.length > 0
-    ? Math.min(100, Math.max(0, Math.round((currentPoint / Math.max(activityWaypoints.length - 1, 1)) * 100)))
-    : 0;
+  const progressPct = progress.pct;
+  const doneCount = progress.done;
   const nextWp = activityWaypoints[currentPoint] || activityWaypoints[0];
-  const nextWpDistance = currentPoint > 0
+  // Length of the leg that ends at the current target (not distance-to-go).
+  const nextLegM = currentPoint > 0
     ? commandSegmentDistanceM(activityWaypoints[currentPoint - 1], nextWp)
     : (activityWaypoints.length > 1 ? commandSegmentDistanceM(nextWp, activityWaypoints[1]) : null);
-  const nextWpAccCm = (statusMap[nextWp?.sn ?? -1] as any)?.position_error_cm;
-  const nextWpAccMm = typeof nextWpAccCm === "number" ? Math.round(nextWpAccCm * 10) : null;
-  const estDurationMin = Math.max(1, Math.round((routeKm * 1000) / (Math.max(Number(telemetry.speed) || 1, 0.8) * 60)));
+  // Live distance to the current target, reported by the rover while it drives.
+  const distToTargetM = isMissionActive ? telemetry.distToNext : null;
+  const hrmsMm = hrmsToMm(telemetry.hrms);
   const totalKm = routeKm;
-  const coveredKm = activityWaypoints.length > 1
-    ? Math.min(totalKm, (currentPoint / Math.max(activityWaypoints.length - 1, 1)) * totalKm)
-    : 0;
+  const coveredKm = useMemo(() => {
+    if (isDemoPoints || activityWaypoints.length < 2) return 0;
+    let meters = 0;
+    for (let i = 1; i < currentPoint; i += 1) {
+      meters += commandSegmentDistanceM(activityWaypoints[i - 1], activityWaypoints[i]) ?? 0;
+    }
+    return Math.min(routeKm, meters / 1000);
+  }, [activityWaypoints, currentPoint, isDemoPoints, routeKm]);
   const remainingKm = Math.max(0, totalKm - coveredKm);
 
+  // Elapsed / ETA: real clock and measured speed only; "—" when unknown.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isMissionActive) return undefined;
+    setNowMs(Date.now());
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isMissionActive]);
+  const startMs = missionStartTime instanceof Date ? missionStartTime.getTime() : null;
+  const endMs = missionEndTime instanceof Date ? missionEndTime.getTime() : null;
+  const elapsedSeconds = isMissionActive
+    ? elapsedSec(startMs, nowMs)
+    : endMs !== null
+      ? elapsedSec(startMs, endMs)
+      : null;
+  const etaSeconds = isMissionActive
+    ? estimateRemainingSec(remainingKm * 1000, telemetry.speed)
+    : null;
+
+  const { end: endEditing } = editHistory;
+
   const openPointsPanel = useCallback(() => {
-    setIsEditingPoints(false);
+    endEditing();
     setIsPointsExpanded(true);
     pointsPanelProgress.setValue(0);
     requestAnimationFrame(() => {
@@ -5858,7 +6273,7 @@ function MissionActivityExperience({
         useNativeDriver: false,
       }).start();
     });
-  }, [pointsPanelProgress]);
+  }, [pointsPanelProgress, endEditing]);
 
   const closePointsPanel = useCallback(() => {
     Animated.timing(pointsPanelProgress, {
@@ -5868,13 +6283,233 @@ function MissionActivityExperience({
       useNativeDriver: false,
     }).start(({ finished }) => {
       if (finished) {
-        setIsEditingPoints(false);
+        endEditing();
         setIsPointsExpanded(false);
       }
     });
-  }, [pointsPanelProgress]);
+  }, [pointsPanelProgress, endEditing]);
 
   useEffect(() => () => pointsPanelProgress.stopAnimation(), [pointsPanelProgress]);
+  useEffect(() => {
+    deckMountedRef.current = true;
+    return () => {
+      deckMountedRef.current = false;
+    };
+  }, []);
+
+  // ── Edit mode (Reverse / Undo / Redo / Delete, applied to the rover) ──────
+  const editBlocked: string | null = isDemoPoints
+    ? "Upload a mission first."
+    : isMissionActive
+      ? "Stop the mission before editing its points."
+      : (editBlockedReason ?? null);
+  const isDraftDirty =
+    editHistory.draft !== null && !sameMissionRoute(editHistory.draft, waypoints);
+
+  const handleToggleEdit = useCallback(() => {
+    if (editHistory.isEditing) {
+      if (!isDraftDirty) {
+        editHistory.end();
+        return;
+      }
+      Alert.alert(
+        "Unsaved changes",
+        "Apply the changes to the rover, or discard them.",
+      );
+      return;
+    }
+    if (editBlocked) {
+      onNotify?.("info", "Editing unavailable", editBlocked);
+      return;
+    }
+    editHistory.begin(waypoints.map((point) => ({ ...point })));
+  }, [editBlocked, editHistory, isDraftDirty, onNotify, waypoints]);
+
+  const handleDiscardEdit = useCallback(() => {
+    if (!isDraftDirty) {
+      editHistory.end();
+      return;
+    }
+    Alert.alert("Discard changes?", "Your edits to the points will be lost.", [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: () => editHistory.end() },
+    ]);
+  }, [editHistory, isDraftDirty]);
+
+  const handleReverseDraft = useCallback(() => {
+    const current = editHistory.draft;
+    if (!current || current.length < 2) return;
+    editHistory.apply(reverseMissionWaypoints(current));
+  }, [editHistory]);
+
+  const handleDeleteDraftPoint = useCallback(
+    (index: number) => {
+      const current = editHistory.draft;
+      if (!current) return;
+      const next = removeMissionWaypoint(current, index);
+      if (next === current) {
+        onNotify?.("info", "Cannot delete", "A mission needs at least 2 points.");
+        return;
+      }
+      editHistory.apply(next);
+    },
+    [editHistory, onNotify],
+  );
+
+  const handleApplyEdit = useCallback(() => {
+    const draft = editHistory.draft;
+    if (!draft || !isDraftDirty || applyingEditRef.current || !onCommitEdit) return;
+    Alert.alert(
+      "Apply changes to the rover?",
+      `${draft.length} points will replace the uploaded mission. ` +
+        "The mission must be loaded again before it can start.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Apply",
+          onPress: () => {
+            if (applyingEditRef.current) return;
+            applyingEditRef.current = true;
+            setIsApplyingEdit(true);
+            void (async () => {
+              try {
+                const result = await onCommitEdit(draft);
+                if (!deckMountedRef.current) return;
+                if (result.success) {
+                  editHistory.end();
+                  onNotify?.(
+                    "success",
+                    "Mission updated",
+                    result.message ?? "The rover has the edited mission. Load it again before starting.",
+                  );
+                } else {
+                  onNotify?.(
+                    "error",
+                    "Update failed",
+                    result.message ?? "The rover did not accept the edited mission. Your changes are kept.",
+                  );
+                }
+              } catch (error) {
+                onNotify?.(
+                  "error",
+                  "Update failed",
+                  error instanceof Error ? error.message : "Could not update the mission. Your changes are kept.",
+                );
+              } finally {
+                applyingEditRef.current = false;
+                if (deckMountedRef.current) setIsApplyingEdit(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [editHistory, isDraftDirty, onCommitEdit, onNotify]);
+
+  // The mission was cleared while editing: there is nothing left to edit.
+  useEffect(() => {
+    if (isDemoPoints && editHistory.isEditing) editHistory.end();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoPoints]);
+
+  // A running mission must never be edited under the operator.
+  useEffect(() => {
+    if (isMissionActive && editHistory.isEditing) {
+      editHistory.end();
+      onNotify?.("info", "Editing closed", "Editing is closed while the mission runs.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMissionActive]);
+
+  /** Open the planner, but never silently throw away an unsaved draft. */
+  const openPlanGuarded = useCallback(
+    (intent?: PlanOpenIntent) => {
+      if (isDraftDirty) {
+        Alert.alert(
+          "Unsaved changes",
+          "Apply or discard your point edits first.",
+        );
+        return;
+      }
+      endEditing();
+      onOpenPlan(intent);
+    },
+    [endEditing, isDraftDirty, onOpenPlan],
+  );
+
+  const handleExportPress = useCallback(() => {
+    if (isDraftDirty) {
+      Alert.alert(
+        "Unsaved changes",
+        "Apply or discard your point edits first, so the exported file matches the rover.",
+      );
+      return;
+    }
+    void onExport?.();
+  }, [isDraftDirty, onExport]);
+
+  // Export tile opens the export & logs sheet; each row closes it first so the
+  // next dialog (file save, report modal, clear-logs prompt) is the only one up.
+  const closeExportSheet = useCallback(() => setIsExportSheetOpen(false), []);
+  const handleSheetExportFile = useCallback(() => {
+    setIsExportSheetOpen(false);
+    handleExportPress();
+  }, [handleExportPress]);
+  const handleSheetExportReport = useCallback(() => {
+    setIsExportSheetOpen(false);
+    onExportReport?.();
+  }, [onExportReport]);
+  const handleSheetClearLogs = useCallback(() => {
+    setIsExportSheetOpen(false);
+    onClearLogs?.();
+  }, [onClearLogs]);
+
+  const deckPauseNotice = useMemo(
+    () => pauseNotice(isMissionPaused, pauseReason, rtkReason, resumeAvailable),
+    [isMissionPaused, pauseReason, rtkReason, resumeAvailable],
+  );
+
+  // ── Mission control buttons: one request at a time, STOP always available ──
+  const runControl = useCallback(
+    async (key: Exclude<DeckPendingAction, null>, action?: DeckAction) => {
+      if (!action) return;
+      const isStop = key === "stop";
+      if (isStop ? stopLockRef.current : controlLockRef.current) return;
+      if (isStop) {
+        stopLockRef.current = true;
+        setIsStopping(true);
+      } else {
+        controlLockRef.current = true;
+        setPendingAction(key);
+      }
+      try {
+        await action();
+      } catch (error) {
+        console.warn(`[MissionActivity] ${key} request failed:`, error);
+      } finally {
+        if (isStop) {
+          stopLockRef.current = false;
+          if (deckMountedRef.current) setIsStopping(false);
+        } else {
+          controlLockRef.current = false;
+          if (deckMountedRef.current) setPendingAction(null);
+        }
+      }
+    },
+    [],
+  );
+
+  const controls = getDeckControlState({
+    isMissionActive,
+    isMissionPaused,
+    waitingForManual: Boolean(waitingForManual),
+    canStart,
+    isPreparing,
+    isEditing: isEditingPoints,
+    isBusy: pendingAction !== null,
+    isStopping,
+    mode: mode ?? "auto",
+  });
 
   const pointsPanelAnimatedWidth = pointsPanelProgress.interpolate({
     inputRange: [0, 1],
@@ -5892,10 +6527,20 @@ function MissionActivityExperience({
   });
 
   const selectedWp = selectedPointIndex !== null ? activityWaypoints[selectedPointIndex] : null;
-  const selectedPointAccCm = selectedWp?.sn !== undefined ? (statusMap[selectedWp.sn] as any)?.position_error_cm : null;
-  const selectedPointAccMm = typeof selectedPointAccCm === "number" ? Math.round(selectedPointAccCm * 10) : 14;
+  const selectedPointAccMm = selectedWp?.sn !== undefined ? pointAccuracyMm(realStatusMap[selectedWp.sn]) : null;
   const selectedTier = commandAccuracyTier(selectedPointAccMm);
-  const selectedPointRemark = selectedWp?.remark || (selectedWp?.sn !== undefined ? (statusMap[selectedWp.sn] as any)?.remark : null) || "Marked OK";
+  const selectedPointRemark = selectedWp?.remark || (selectedWp?.sn !== undefined ? (realStatusMap[selectedWp.sn] as any)?.remark : null) || "No remark recorded";
+
+  // When a run starts, bring the progress deck up so the operator sees it
+  // fill in. Only on the idle -> active transition: a deck the operator closed
+  // mid-run is left closed.
+  const wasMissionActiveRef = useRef(isMissionActive);
+  useEffect(() => {
+    if (isMissionActive && !wasMissionActiveRef.current && !isProgressVisible && !isDemoPoints) {
+      openProgressScreen();
+    }
+    wasMissionActiveRef.current = isMissionActive;
+  }, [isMissionActive, isProgressVisible, isDemoPoints, openProgressScreen]);
 
   return (
     <View style={fieldExperienceStyles.host} pointerEvents="box-none">
@@ -5927,10 +6572,10 @@ function MissionActivityExperience({
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
           <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{hasMissionLoaded ? "Mission ready to use" : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{hasMissionLoaded && <TouchableOpacity style={fieldExperienceStyles.clearMissionCompact} onPress={onClearMission} accessibilityRole="button" accessibilityLabel="Clear mission"><MaterialCommunityIcons name="trash-can-outline" size={15} color="#D94A42" /><Text style={fieldExperienceStyles.clearMissionCompactText}>Clear</Text></TouchableOpacity>}</View></View>
           <View style={fieldExperienceStyles.missionToolGrid}>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTilePrimary]} onPress={() => onOpenPlan("upload")} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={24} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolTilePrimaryText}>Upload</Text></TouchableOpacity>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => onOpenPlan()} disabled={!hasMissionLoaded} accessibilityRole="button" accessibilityLabel="Load mission plan" accessibilityState={{ disabled: !hasMissionLoaded }}><MaterialCommunityIcons name="tray-arrow-down" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Load</Text></TouchableOpacity>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => onOpenPlan()} disabled={!hasMissionLoaded} accessibilityRole="button" accessibilityLabel="Export mission plan" accessibilityState={{ disabled: !hasMissionLoaded }}><MaterialCommunityIcons name="file-export-outline" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Export</Text></TouchableOpacity>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => onOpenPlan()} disabled={!hasMissionLoaded} accessibilityRole="button" accessibilityLabel="Open mission extension tools" accessibilityState={{ disabled: !hasMissionLoaded }}><MaterialCommunityIcons name="vector-polyline-plus" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Extension</Text></TouchableOpacity>
+            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTilePrimary]} onPress={() => openPlanGuarded("upload")} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={24} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolTilePrimaryText}>Upload</Text></TouchableOpacity>
+            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => openPlanGuarded()} disabled={!hasMissionLoaded} accessibilityRole="button" accessibilityLabel="Load mission plan" accessibilityState={{ disabled: !hasMissionLoaded }}><MaterialCommunityIcons name="tray-arrow-down" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Load</Text></TouchableOpacity>
+            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={() => setIsExportSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Open export and logs menu"><MaterialCommunityIcons name="file-export-outline" size={24} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Export</Text></TouchableOpacity>
+            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => openPlanGuarded()} disabled={!hasMissionLoaded} accessibilityRole="button" accessibilityLabel="Open mission extension tools" accessibilityState={{ disabled: !hasMissionLoaded }}><MaterialCommunityIcons name="vector-polyline-plus" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Extension</Text></TouchableOpacity>
           </View>
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionActivityCard]} onLayout={(event) => { setActivityCardHeight(Math.round(event.nativeEvent.layout.height)); setActivityCardWidth(Math.round(event.nativeEvent.layout.width)); }}>
@@ -5998,7 +6643,7 @@ function MissionActivityExperience({
               >
                 <MaterialCommunityIcons name="satellite-uplink" size={14} color={rtkIsFixed ? "#16B980" : "#F08A24"} />
                 <Text style={[fieldExperienceStyles.topHudRtkText, { color: rtkIsFixed ? "#148263" : "#C86412" }]}>
-                  {commandRtkLabel(telemetry.fixType)}{nextWpAccMm != null ? ` (${nextWpAccMm}mm)` : ""}
+                  {commandRtkLabel(telemetry.fixType)}{hrmsMm != null ? ` (${hrmsMm}mm)` : ""}
                 </Text>
                 <MaterialCommunityIcons name="chevron-down" size={12} color={rtkIsFixed ? "#16B980" : "#F08A24"} />
               </TouchableOpacity>
@@ -6012,10 +6657,22 @@ function MissionActivityExperience({
                 accessibilityLabel="View power system diagnostics"
               >
                 <View style={fieldExperienceStyles.topHudBatterySegmentRow}>
-                  <View style={[fieldExperienceStyles.topHudBatterySeg, { backgroundColor: "#16B980" }]} />
-                  <View style={[fieldExperienceStyles.topHudBatterySeg, { backgroundColor: "#16B980" }]} />
-                  <View style={[fieldExperienceStyles.topHudBatterySeg, { backgroundColor: (telemetry.battery ?? 100) > 30 ? "#16B980" : "#E2E8F0" }]} />
-                  <View style={[fieldExperienceStyles.topHudBatterySeg, { backgroundColor: (telemetry.battery ?? 100) > 70 ? "#16B980" : "#E2E8F0" }]} />
+                  {[0, 25, 50, 75].map((threshold) => (
+                    <View
+                      key={`batt-seg-${threshold}`}
+                      style={[
+                        fieldExperienceStyles.topHudBatterySeg,
+                        {
+                          backgroundColor:
+                            telemetry.battery != null && telemetry.battery > threshold
+                              ? telemetry.battery < 20
+                                ? "#DC2626"
+                                : "#16B980"
+                              : "#E2E8F0",
+                        },
+                      ]}
+                    />
+                  ))}
                 </View>
                 <Text style={[fieldExperienceStyles.topHudSensorVal, { color: telemetry.battery != null && telemetry.battery < 20 ? "#D94A42" : "#148263" }]}>
                   {commandValue(telemetry.battery, "%", 0)}
@@ -6032,9 +6689,11 @@ function MissionActivityExperience({
               >
                 <MaterialCommunityIcons name="speedometer" size={14} color="#1475EE" />
                 <Text style={[fieldExperienceStyles.topHudSensorVal, { color: "#1475EE" }]}>
-                  {speedUnitKmh
-                    ? `${(Number(telemetry.speed || 0) * 3.6).toFixed(1)} km/h`
-                    : `${Number(telemetry.speed || 0).toFixed(1)} m/s`}
+                  {telemetry.speed == null
+                    ? "—"
+                    : speedUnitKmh
+                      ? `${(telemetry.speed * 3.6).toFixed(1)} km/h`
+                      : `${telemetry.speed.toFixed(1)} m/s`}
                 </Text>
                 <Text style={fieldExperienceStyles.topHudUnitToggleHint}>⇄</Text>
                 <MaterialCommunityIcons name="compass-outline" size={13} color="#1475EE" style={{ marginLeft: 3 }} />
@@ -6077,17 +6736,17 @@ function MissionActivityExperience({
                   <>
                     <View style={fieldExperienceStyles.topHudDistSegment}>
                       <Text style={fieldExperienceStyles.topHudDistLabel}>ELAPSED</Text>
-                      <Text style={fieldExperienceStyles.topHudDistVal}>{Math.round(estDurationMin * 0.4)} min</Text>
+                      <Text style={fieldExperienceStyles.topHudDistVal}>{formatDuration(elapsedSeconds)}</Text>
                     </View>
                     <View style={fieldExperienceStyles.topHudDistSep} />
                     <View style={fieldExperienceStyles.topHudDistSegment}>
                       <Text style={[fieldExperienceStyles.topHudDistLabel, { color: "#148263" }]}>EST. LEFT</Text>
-                      <Text style={[fieldExperienceStyles.topHudDistVal, { color: "#148263" }]}>{Math.round(estDurationMin * 0.6)} min</Text>
+                      <Text style={[fieldExperienceStyles.topHudDistVal, { color: "#148263" }]}>{formatDuration(etaSeconds)}</Text>
                     </View>
                     <View style={fieldExperienceStyles.topHudDistSep} />
                     <View style={fieldExperienceStyles.topHudDistSegment}>
                       <Text style={[fieldExperienceStyles.topHudDistLabel, { color: "#1475EE" }]}>SPEED</Text>
-                      <Text style={[fieldExperienceStyles.topHudDistVal, { color: "#1475EE" }]}>{Number(telemetry.speed || 0.8).toFixed(1)}m/s</Text>
+                      <Text style={[fieldExperienceStyles.topHudDistVal, { color: "#1475EE" }]}>{commandValue(telemetry.speed, " m/s", 1)}</Text>
                     </View>
                     <View style={fieldExperienceStyles.topHudModeBadgePill}>
                       <Text style={fieldExperienceStyles.topHudModeBadgeText}>⇄ KM</Text>
@@ -6096,11 +6755,13 @@ function MissionActivityExperience({
                 )}
               </TouchableOpacity>
 
-              {nextWpDistance != null && (
+              {(distToTargetM != null || nextLegM != null) && (
                 <View style={fieldExperienceStyles.topHudTargetCapsule}>
                   <MaterialCommunityIcons name="crosshairs-gps" size={14} color="#1D4ED8" />
                   <Text style={fieldExperienceStyles.topHudTargetText}>
-                    WP {currentPoint + 1} ({nextWpDistance.toFixed(0)}m)
+                    {distToTargetM != null
+                      ? `WP ${currentPoint + 1} · ${distToTargetM.toFixed(distToTargetM < 10 ? 1 : 0)} m to go`
+                      : `WP ${currentPoint + 1} · leg ${nextLegM!.toFixed(0)} m`}
                   </Text>
                 </View>
               )}
@@ -6166,24 +6827,12 @@ function MissionActivityExperience({
                       </Text>
                     </View>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>ACCURACY</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>{nextWpAccMm ?? 14} mm (±0.014m)</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>HORIZONTAL ACCURACY</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{hrmsMm != null ? `${hrmsMm} mm` : "—"}</Text>
                     </View>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
                       <Text style={fieldExperienceStyles.hudModalGridLabel}>SATELLITES</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>{telemetry.satellites ?? 28} Locked</Text>
-                    </View>
-                    <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>HDOP / VDOP</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>0.64 (Excellent)</Text>
-                    </View>
-                    <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>BASE BASELINE</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>1.2 km Link OK</Text>
-                    </View>
-                    <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>CORRECTION AGE</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>0.8s (100% Rate)</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{telemetry.satellites != null ? `${telemetry.satellites} visible` : "—"}</Text>
                     </View>
                   </View>
                 )}
@@ -6191,30 +6840,18 @@ function MissionActivityExperience({
                 {activeHudModal === "battery" && (
                   <View style={fieldExperienceStyles.hudModalGrid}>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>BATTERY STATE</Text>
-                      <Text style={[fieldExperienceStyles.hudModalGridVal, { color: "#059669" }]}>
-                        {commandValue(telemetry.battery, "%", 0)} Charged
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>BATTERY</Text>
+                      <Text style={[fieldExperienceStyles.hudModalGridVal, { color: telemetry.battery != null && telemetry.battery < 20 ? "#DC2626" : "#059669" }]}>
+                        {commandValue(telemetry.battery, "%", 0)}
                       </Text>
                     </View>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
                       <Text style={fieldExperienceStyles.hudModalGridLabel}>VOLTAGE</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>24.8 V</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{commandValue(telemetry.voltage, " V", 1)}</Text>
                     </View>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>CURRENT DRAW</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>4.2 A</Text>
-                    </View>
-                    <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>EST. RUNTIME</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>3h 15m remaining</Text>
-                    </View>
-                    <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>CHEMISTRY</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>4S LiFePO4</Text>
-                    </View>
-                    <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>TEMPERATURE</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>31.4°C (Normal)</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>CURRENT</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{commandValue(telemetry.current, " A", 1)}</Text>
                     </View>
                   </View>
                 )}
@@ -6223,21 +6860,21 @@ function MissionActivityExperience({
                   <View style={fieldExperienceStyles.hudModalGrid}>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
                       <Text style={fieldExperienceStyles.hudModalGridLabel}>ROVER UNIT</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>Mark-IV 4WD Autopilot</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>DYX 4WD Rover</Text>
                     </View>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>ACTIVE MISSION</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>Job #{activityWaypoints.length} Pts</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>MISSION</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{isDemoPoints ? "None loaded" : `${activityWaypoints.length} points`}</Text>
                     </View>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
                       <Text style={fieldExperienceStyles.hudModalGridLabel}>TELEMETRY LINK</Text>
-                      <Text style={[fieldExperienceStyles.hudModalGridVal, { color: telemetry.connected ? "#059669" : "#EF4444" }]}>
-                        {telemetry.connected ? "Active & Synchronized" : "Disconnected"}
+                      <Text style={[fieldExperienceStyles.hudModalGridVal, { color: telemetry.connected ? "#059669" : "#DC2626" }]}>
+                        {telemetry.connected ? "Connected" : "Disconnected"}
                       </Text>
                     </View>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
-                      <Text style={fieldExperienceStyles.hudModalGridLabel}>DRIVE CONTROLLER</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>{mode === "manual" ? "Manual Remote" : "Autonomous Nav"}</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>DRIVE MODE</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{mode === "manual" ? "Manual" : "Auto"}</Text>
                     </View>
                   </View>
                 )}
@@ -6253,9 +6890,9 @@ function MissionActivityExperience({
             <Text style={fieldExperienceStyles.floatingCalloutTitle}>
               TARGET WP {currentPoint + 1}
             </Text>
-            {nextWpDistance != null && (
+            {distToTargetM != null && (
               <Text style={fieldExperienceStyles.floatingCalloutSub}>
-                {nextWpDistance.toFixed(0)}m away
+                {distToTargetM.toFixed(distToTargetM < 10 ? 1 : 0)} m away
               </Text>
             )}
           </Animated.View>
@@ -6294,7 +6931,7 @@ function MissionActivityExperience({
                   </View>
                   <View style={fieldExperienceStyles.pointInspectionBody}>
                     <Text style={fieldExperienceStyles.inspectionItem}>
-                      GNSS: <Text style={{ color: selectedTier?.color ?? "#0F172A", fontWeight: "500" }}>{selectedPointAccMm} mm</Text>
+                      GNSS: <Text style={{ color: selectedTier?.color ?? "#0F172A", fontWeight: "500" }}>{selectedPointAccMm != null ? `${selectedPointAccMm} mm` : "—"}</Text>
                     </Text>
                     <Text style={fieldExperienceStyles.inspectionDivider}>·</Text>
                     <Text style={fieldExperienceStyles.inspectionItem}>
@@ -6314,7 +6951,7 @@ function MissionActivityExperience({
                   <Text style={fieldExperienceStyles.colEyebrowMinimal}>Waypoints Route</Text>
                   <View style={fieldExperienceStyles.progressWpCompletedBadge}>
                     <Text style={fieldExperienceStyles.progressWpCompletedText}>
-                      {currentPoint} / {activityWaypoints.length} Done
+                      {doneCount} / {activityWaypoints.length} Done
                     </Text>
                   </View>
                 </View>
@@ -6362,20 +6999,24 @@ function MissionActivityExperience({
                 contentContainerStyle={fieldExperienceStyles.deckStepperScrollMinimal}
               >
                 {activityWaypoints.map((waypoint, index) => {
-                  const isDone = index < currentPoint || waypoint.status === "Completed" || waypoint.status === "Marked";
-                  const isActive = index === currentPoint;
-                  
-                  let accMm: number | null = null;
-                  if (waypoint.sn !== undefined) {
-                    const accCm = (statusMap[waypoint.sn] as any)?.position_error_cm;
-                    if (typeof accCm === "number") {
-                      accMm = Math.round(accCm * 10);
-                    }
-                  }
-                  if (accMm == null && isDone) {
-                    accMm = 14 + (index % 3) * 6; // Realistic survey simulation if unrecorded
-                  }
-                  const tier = commandAccuracyTier(accMm) || { label: "Pending", color: "#64748B", solidBg: "#64748B", bg: "#F1F5F9", border: "#CBD5E1" };
+                  const pointStatus = String(realStatusMap[waypoint.sn]?.status ?? "").toLowerCase();
+                  const isDone = isTerminalWaypointStatus(pointStatus as WaypointUiStatus);
+                  const isActive = index === currentPoint && !isDone;
+
+                  // Recorded accuracy only. A finished point without a measurement
+                  // shows its outcome, never an invented number.
+                  const accMm = pointAccuracyMm(realStatusMap[waypoint.sn]);
+                  const outcomeTier =
+                    pointStatus === "failed" || pointStatus === "aborted" || pointStatus === "stopped"
+                      ? { label: "Failed", color: "#DC2626", solidBg: "#DC2626", bg: "#FEF2F2", border: "#C43C34" }
+                      : pointStatus === "skipped"
+                        ? { label: "Skipped", color: "#64748B", solidBg: "#64748B", bg: "#F1F5F9", border: "#CBD5E1" }
+                        : { label: "Done", color: "#148263", solidBg: "#16B980", bg: "#ECFDF5", border: "#148263" };
+                  const tier =
+                    commandAccuracyTier(accMm) ??
+                    (isDone
+                      ? outcomeTier
+                      : { label: "Pending", color: "#64748B", solidBg: "#64748B", bg: "#F1F5F9", border: "#CBD5E1" });
                   const isSelected = selectedPointIndex === index;
                   const cardNum = index + 1 < 10 ? `WP 0${index + 1}` : `WP ${index + 1}`;
 
@@ -6416,210 +7057,31 @@ function MissionActivityExperience({
               </ScrollView>
             </View>
 
-            {/* COLUMN 2: RIGHT SECTION (Operations Base Card + Upward Zero-Gap Expandable Drawer) */}
+            {/* COLUMN 2: mission controls. Buttons follow the confirmed rover state. */}
             <View style={fieldExperienceStyles.deckColRightWrap}>
-              {isControlsExpanded && (
-                <Animated.View
-                  style={[
-                    fieldExperienceStyles.controlZeroGapDrawer,
-                    {
-                      opacity: expandControlsAnim,
-                      transform: [
-                        {
-                          translateY: expandControlsAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [16, 0],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                >
-                  <View style={fieldExperienceStyles.drawerHeaderRow}>
-                    <Text style={fieldExperienceStyles.drawerTitle}>EXTENDED MISSION CONTROLS</Text>
-                    <TouchableOpacity
-                      onPress={() => toggleControls(false)}
-                      activeOpacity={0.7}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Collapse controls drawer"
-                    >
-                      <Text style={fieldExperienceStyles.drawerCloseText}>COLLAPSE ▾</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Chunky Rectangular Extended Drawer Buttons */}
-                  <View style={fieldExperienceStyles.drawerRectRow}>
-                    {/* Rect Button 1: Skip WP (Blue, flex: 1, height: 56px) */}
-                    <TouchableOpacity
-                      style={fieldExperienceStyles.actionBtnRectSkip}
-                      onPress={() => {
-                        if (mode === "manual" && waitingForManual) {
-                          onResume();
-                        } else if (onSkip) {
-                          onSkip();
-                        }
-                      }}
-                      activeOpacity={0.82}
-                      accessibilityRole="button"
-                      accessibilityLabel="Skip to next waypoint"
-                    >
-                      <View style={fieldExperienceStyles.btnRectIconBadge}>
-                        <MaterialCommunityIcons name="skip-next" size={22} color="#FFFFFF" />
-                      </View>
-                      <View style={fieldExperienceStyles.btnRectTextCol}>
-                        <Text style={fieldExperienceStyles.btnRectMainText}>SKIP WP</Text>
-                        <Text style={fieldExperienceStyles.btnRectSubText}>NEXT PT</Text>
-                      </View>
-                    </TouchableOpacity>
-
-                    {/* Rect Button 2: Drive Mode Toggle (Purple, flex: 1, height: 56px) */}
-                    <TouchableOpacity
-                      style={fieldExperienceStyles.actionBtnRectMode}
-                      onPress={() => onSetMode?.(mode === "auto" ? "manual" : "auto")}
-                      activeOpacity={0.82}
-                      accessibilityRole="button"
-                      accessibilityLabel="Toggle drive mode"
-                    >
-                      <View style={fieldExperienceStyles.btnRectIconBadge}>
-                        <MaterialCommunityIcons name="steering" size={22} color="#FFFFFF" />
-                      </View>
-                      <View style={fieldExperienceStyles.btnRectTextCol}>
-                        <Text style={fieldExperienceStyles.btnRectMainText}>DRIVE MODE</Text>
-                        <Text style={fieldExperienceStyles.btnRectSubText}>
-                          {mode === "manual" ? "MANUAL" : "AUTO"}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Rect Button 3: Return to Home Base (Teal, full width, height: 52px) */}
-                  <TouchableOpacity
-                    style={fieldExperienceStyles.actionBtnRectHome}
-                    onPress={() => {
-                      Alert.alert("Return to Home Base", "Send rover back to home origin coordinates?", [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Return", onPress: () => onPause() },
-                      ]);
-                    }}
-                    activeOpacity={0.82}
-                    accessibilityRole="button"
-                    accessibilityLabel="Return to home base"
-                  >
-                    <View style={fieldExperienceStyles.btnRectIconBadge}>
-                      <MaterialCommunityIcons name="home-map-marker" size={22} color="#FFFFFF" />
-                    </View>
-                    <View style={fieldExperienceStyles.btnRectTextColHoriz}>
-                      <Text style={fieldExperienceStyles.btnRectMainText}>RETURN TO BASE</Text>
-                      <Text style={fieldExperienceStyles.btnRectSubText}>HOME ORIGIN</Text>
-                    </View>
-                  </TouchableOpacity>
-                </Animated.View>
-              )}
-
-              {/* Base Operations Card: Buttons Only - No Text Clutter */}
-              <View style={[fieldExperienceStyles.deckRightBaseCard, isControlsExpanded && fieldExperienceStyles.deckBaseCardMergedTop]}>
-                <View style={fieldExperienceStyles.rectButtonsContainer}>
-                  {/* Row 1: Hero Full-Width Dynamic START / STOP Button (Height: 64px) */}
-                  <TouchableOpacity
-                    style={[
-                      isMissionActive
-                        ? fieldExperienceStyles.heroBtnStopMaster
-                        : fieldExperienceStyles.heroBtnStartMaster,
-                      !isMissionActive && (!canStart || isPreparing) && fieldExperienceStyles.disabled,
-                    ]}
-                    onPress={() => {
-                      if (isMissionActive) {
-                        onStop();
-                      } else if (isMissionPaused) {
-                        onResume();
-                      } else {
-                        onStart();
-                      }
-                    }}
-                    disabled={!isMissionActive && (!canStart || isPreparing)}
-                    activeOpacity={0.82}
-                    accessibilityRole="button"
-                    accessibilityLabel={isMissionActive ? "Stop mission" : "Start mission"}
-                  >
-                    <View style={fieldExperienceStyles.btnRectIconBadge}>
-                      <MaterialCommunityIcons
-                        name={isMissionActive ? "stop" : "play"}
-                        size={24}
-                        color="#FFFFFF"
-                      />
-                    </View>
-                    <Text style={fieldExperienceStyles.heroBtnMainTitle}>
-                      {isMissionActive ? "STOP MISSION" : "START MISSION"}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* Row 2: Secondary Split Sub-Row (PAUSE/RESUME + SKIP WP) - Height: 50px */}
-                  <View style={fieldExperienceStyles.subRowContainer}>
-                    {/* Sub Button 1: PAUSE / RESUME */}
-                    <TouchableOpacity
-                      style={[
-                        fieldExperienceStyles.subBtnPause,
-                        isMissionPaused && fieldExperienceStyles.subBtnResume,
-                        !isMissionActive && !isMissionPaused && fieldExperienceStyles.disabled,
-                      ]}
-                      onPress={isMissionPaused ? onResume : onPause}
-                      disabled={!isMissionActive && !isMissionPaused}
-                      activeOpacity={0.82}
-                      accessibilityRole="button"
-                      accessibilityLabel={isMissionPaused ? "Resume mission" : "Pause mission"}
-                    >
-                      <MaterialCommunityIcons
-                        name={isMissionPaused ? "play" : "pause"}
-                        size={20}
-                        color="#FFFFFF"
-                      />
-                      <Text style={fieldExperienceStyles.subBtnText}>
-                        {isMissionPaused ? "RESUME" : "PAUSE"}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {/* Sub Button 2: SKIP WP */}
-                    <TouchableOpacity
-                      style={[
-                        fieldExperienceStyles.subBtnSkip,
-                        !isMissionActive && !isMissionPaused && !(mode === "manual" && waitingForManual) && fieldExperienceStyles.disabled,
-                      ]}
-                      onPress={() => {
-                        if (mode === "manual" && waitingForManual) {
-                          onResume();
-                        } else if (onSkip) {
-                          onSkip();
-                        }
-                      }}
-                      disabled={!isMissionActive && !isMissionPaused && !(mode === "manual" && waitingForManual)}
-                      activeOpacity={0.82}
-                      accessibilityRole="button"
-                      accessibilityLabel="Skip waypoint"
-                    >
-                      <MaterialCommunityIcons
-                        name="skip-next"
-                        size={20}
-                        color="#FFFFFF"
-                      />
-                      <Text style={fieldExperienceStyles.subBtnText}>SKIP WP</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Row 3: Drive Mode Toggle Button */}
-                  <TouchableOpacity
-                    style={fieldExperienceStyles.cleanModeBtn}
-                    onPress={() => onSetMode?.(mode === "auto" ? "manual" : "auto")}
-                    activeOpacity={0.82}
-                    accessibilityRole="button"
-                    accessibilityLabel="Toggle drive mode"
-                  >
-                    <MaterialCommunityIcons name="steering" size={18} color="#536D97" />
-                    <Text style={fieldExperienceStyles.cleanModeBtnText}>
-                      {mode === "manual" ? "MODE: MANUAL" : "MODE: AUTO"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+              <View style={fieldExperienceStyles.deckRightBaseCard}>
+                <MissionDeckControls
+                  controls={controls}
+                  mode={mode ?? "auto"}
+                  isPreparing={isPreparing}
+                  pending={isStopping ? "stop" : pendingAction}
+                  notice={deckPauseNotice}
+                  onPrimary={() => {
+                    void (controls.primary === "stop"
+                      ? runControl("stop", onStop)
+                      : runControl("start", onStart));
+                  }}
+                  onSecondary={() => {
+                    void (controls.secondary === "resume"
+                      ? runControl("resume", onResume)
+                      : runControl("pause", onPause));
+                  }}
+                  onSkip={() => { void runControl("skip", onSkip); }}
+                  onNext={() => { void runControl("next", onNext); }}
+                  onSetMode={(next) => {
+                    void runControl("mode", onSetMode ? () => onSetMode(next) : undefined);
+                  }}
+                />
               </View>
             </View>
 
@@ -6628,15 +7090,74 @@ function MissionActivityExperience({
       )}
 
       {isPointsExpanded && <Animated.View style={[fieldExperienceStyles.pointsPanel, { width: pointsPanelAnimatedWidth, height: activityCardHeight || 320 }]}>
-        <View style={fieldExperienceStyles.pointsPanelHeader}><View style={fieldExperienceStyles.expandedActivityTitle}><View style={fieldExperienceStyles.expandedActivityIcon}><MaterialCommunityIcons name="map-marker-path" size={21} color="#FFFFFF" /></View><Text style={fieldExperienceStyles.pointsPanelTitle}>Mission activity</Text></View><View style={fieldExperienceStyles.pointsPanelHeaderActions}><TouchableOpacity style={[fieldExperienceStyles.editAllButton, isEditingPoints && fieldExperienceStyles.editAllButtonActive]} onPress={() => setIsEditingPoints((value) => !value)} accessibilityRole="button" accessibilityLabel={isEditingPoints ? "Finish editing mission points" : "Enable editing for all mission points"}><MaterialCommunityIcons name={isEditingPoints ? "check" : "pencil-outline"} size={15} color={isEditingPoints ? "#FFFFFF" : "#1475EE"} /><Text style={[fieldExperienceStyles.editAllText, isEditingPoints && fieldExperienceStyles.editAllTextActive]}>{isEditingPoints ? "Done" : "Edit"}</Text></TouchableOpacity><TouchableOpacity style={fieldExperienceStyles.pointsPanelClose} onPress={closePointsPanel} accessibilityRole="button" accessibilityLabel="Close mission activity"><MaterialCommunityIcons name="chevron-right" size={23} color="#173563" /></TouchableOpacity></View></View>
+        <View style={fieldExperienceStyles.pointsPanelHeader}>
+          <View style={fieldExperienceStyles.expandedActivityTitle}>
+            <View style={fieldExperienceStyles.expandedActivityIcon}><MaterialCommunityIcons name="map-marker-path" size={21} color="#FFFFFF" /></View>
+            <Text style={fieldExperienceStyles.pointsPanelTitle}>Mission activity</Text>
+          </View>
+          <View style={fieldExperienceStyles.pointsPanelHeaderActions}>
+            <TouchableOpacity
+              style={[fieldExperienceStyles.editAllButton, { minHeight: 48, minWidth: 72 }, isEditingPoints && fieldExperienceStyles.editAllButtonActive, !isEditingPoints && editBlocked != null && fieldExperienceStyles.disabled]}
+              onPress={handleToggleEdit}
+              accessibilityRole="button"
+              accessibilityLabel={isEditingPoints ? "Finish editing mission points" : "Edit mission points"}
+              accessibilityState={{ disabled: !isEditingPoints && editBlocked != null }}
+            >
+              <MaterialCommunityIcons name={isEditingPoints ? "check" : "pencil-outline"} size={16} color={isEditingPoints ? "#FFFFFF" : "#1475EE"} />
+              <Text style={[fieldExperienceStyles.editAllText, { fontSize: 12 }, isEditingPoints && fieldExperienceStyles.editAllTextActive]}>{isEditingPoints ? "Done" : "Edit"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[fieldExperienceStyles.pointsPanelClose, { minHeight: 48, minWidth: 48 }]}
+              onPress={() => {
+                if (isDraftDirty) {
+                  Alert.alert("Unsaved changes", "Apply or discard your point edits before closing.");
+                  return;
+                }
+                closePointsPanel();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Close mission activity"
+            >
+              <MaterialCommunityIcons name="chevron-right" size={23} color="#173563" />
+            </TouchableOpacity>
+          </View>
+        </View>
+        {isEditingPoints && (
+          <MissionEditToolbar
+            pointCount={listWaypoints.length}
+            canReverse={listWaypoints.length >= 2}
+            canUndo={editHistory.canUndo}
+            canRedo={editHistory.canRedo}
+            isDirty={isDraftDirty}
+            isApplying={isApplyingEdit}
+            onReverse={handleReverseDraft}
+            onUndo={editHistory.undo}
+            onRedo={editHistory.redo}
+            onCancel={handleDiscardEdit}
+            onApply={handleApplyEdit}
+          />
+        )}
         <ScrollView showsVerticalScrollIndicator contentContainerStyle={fieldExperienceStyles.pointsPanelList}>
-          {activityWaypoints.map((waypoint, index) => <View key={`${waypoint.sn}-${index}`} style={[fieldExperienceStyles.pointRow, fieldExperienceStyles.readableExpandedPointRow, { width: expandedPointCardWidth }]}>
+          {listWaypoints.map((waypoint, index) => <View key={`${waypoint.sn}-${index}`} style={[fieldExperienceStyles.pointRow, fieldExperienceStyles.readableExpandedPointRow, { width: expandedPointCardWidth }]}>
             <View style={[fieldExperienceStyles.pointIcon, fieldExperienceStyles.readableExpandedPointIcon]}><Text style={[fieldExperienceStyles.pointIconText, fieldExperienceStyles.readablePointNumber]}>{String(index + 1).padStart(2, "0")}</Text></View>
-            <View style={[fieldExperienceStyles.pointDetails, fieldExperienceStyles.pointDataCentered]}><View style={fieldExperienceStyles.pointCoordinatePair}><View style={fieldExperienceStyles.pointCoordinateItem}><Text style={[fieldExperienceStyles.pointCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>LAT</Text><Text style={[fieldExperienceStyles.pointCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>{commandCoordinate(waypoint.lat)}</Text></View><View style={fieldExperienceStyles.pointCoordinateDivider} /><View style={fieldExperienceStyles.pointCoordinateItem}><Text style={[fieldExperienceStyles.pointCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>LON</Text><Text style={[fieldExperienceStyles.pointCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>{commandCoordinate(waypoint.lon)}</Text></View></View><View style={fieldExperienceStyles.pointDistance}><MaterialCommunityIcons name={index === 0 ? "flag-variant-outline" : "ruler"} size={12} color="#60799D" /><Text style={[fieldExperienceStyles.pointDistanceText, fieldExperienceStyles.readableDistanceText]}>{index === 0 ? "Start" : commandDistanceLabel(commandSegmentDistanceM(activityWaypoints[index - 1], waypoint)).replace(" from previous", "")}</Text></View></View>
-            {isEditingPoints && <View style={fieldExperienceStyles.pointActions}><TouchableOpacity style={fieldExperienceStyles.pointAction} onPress={() => { if (!isDemoPoints) onOpenPlan(); }} accessibilityRole="button" accessibilityLabel={`Edit point ${index + 1} in planner`}><MaterialCommunityIcons name="pencil-outline" size={17} color="#1475EE" /><Text style={[fieldExperienceStyles.pointActionText, fieldExperienceStyles.readableActionText]}>Edit</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.pointAction, fieldExperienceStyles.pointDeleteAction]} onPress={() => { if (!isDemoPoints) onOpenPlan(); }} accessibilityRole="button" accessibilityLabel={`Delete point ${index + 1} in planner`}><MaterialCommunityIcons name="trash-can-outline" size={17} color="#D94A42" /><Text style={[fieldExperienceStyles.pointDeleteText, fieldExperienceStyles.readableActionText]}>Delete</Text></TouchableOpacity></View>}
+            <View style={[fieldExperienceStyles.pointDetails, fieldExperienceStyles.pointDataCentered]}><View style={fieldExperienceStyles.pointCoordinatePair}><View style={fieldExperienceStyles.pointCoordinateItem}><Text style={[fieldExperienceStyles.pointCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>LAT</Text><Text style={[fieldExperienceStyles.pointCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>{commandCoordinate(waypoint.lat)}</Text></View><View style={fieldExperienceStyles.pointCoordinateDivider} /><View style={fieldExperienceStyles.pointCoordinateItem}><Text style={[fieldExperienceStyles.pointCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>LON</Text><Text style={[fieldExperienceStyles.pointCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>{commandCoordinate(waypoint.lon)}</Text></View></View><View style={fieldExperienceStyles.pointDistance}><MaterialCommunityIcons name={index === 0 ? "flag-variant-outline" : "ruler"} size={12} color="#60799D" /><Text style={[fieldExperienceStyles.pointDistanceText, fieldExperienceStyles.readableDistanceText]}>{index === 0 ? "Start" : commandDistanceLabel(commandSegmentDistanceM(listWaypoints[index - 1], waypoint)).replace(" from previous", "")}</Text></View></View>
+            {isEditingPoints && <View style={fieldExperienceStyles.pointActions}>
+              <TouchableOpacity style={[fieldExperienceStyles.pointAction, { minHeight: 48 }, isApplyingEdit && fieldExperienceStyles.disabled]} disabled={isApplyingEdit} onPress={() => { if (!isDemoPoints) openPlanGuarded(); }} accessibilityRole="button" accessibilityLabel={`Edit point ${index + 1} in planner`}><MaterialCommunityIcons name="pencil-outline" size={17} color="#1475EE" /><Text style={[fieldExperienceStyles.pointActionText, fieldExperienceStyles.readableActionText]}>Edit</Text></TouchableOpacity>
+              <TouchableOpacity style={[fieldExperienceStyles.pointAction, fieldExperienceStyles.pointDeleteAction, { minHeight: 48 }, (isApplyingEdit || listWaypoints.length <= 2) && fieldExperienceStyles.disabled]} disabled={isApplyingEdit || listWaypoints.length <= 2} onPress={() => handleDeleteDraftPoint(index)} accessibilityRole="button" accessibilityLabel={`Delete point ${index + 1}`}><MaterialCommunityIcons name="trash-can-outline" size={17} color="#DC2626" /><Text style={[fieldExperienceStyles.pointDeleteText, fieldExperienceStyles.readableActionText]}>Delete</Text></TouchableOpacity>
+            </View>}
           </View>)}
         </ScrollView>
       </Animated.View>}
+      <MissionExportSheet
+        visible={isExportSheetOpen}
+        onClose={closeExportSheet}
+        onExportFile={handleSheetExportFile}
+        onExportReport={handleSheetExportReport}
+        onClearLogs={handleSheetClearLogs}
+        fileDisabled={!hasMissionLoaded || isDemoPoints}
+        reportDisabled={!hasMissionLoaded || isDemoPoints || !onExportReport}
+        clearBlockedReason={onClearLogs ? (clearLogsBlockedReason ?? null) : "Not available."}
+      />
       <SettingsScreen visible={showSettings} onClose={() => setShowSettings(false)} />
     </View>
   );

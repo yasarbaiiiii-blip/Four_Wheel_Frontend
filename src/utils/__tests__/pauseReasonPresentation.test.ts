@@ -1,4 +1,4 @@
-import { pauseReasonText } from "../pauseReasonPresentation";
+import { pauseNotice, pauseReasonText } from "../pauseReasonPresentation";
 
 describe("pauseReasonText", () => {
   it("names an obstacle pause instead of a generic block", () => {
@@ -34,5 +34,43 @@ describe("pauseReasonText", () => {
       blockedMessage: "Resume blocked: ODOM_STALE",
     });
     expect(pauseReasonText(null).blockedLabel).toBe("RESUME BLOCKED");
+  });
+});
+
+describe("pauseNotice", () => {
+  it("is null when the mission is not paused", () => {
+    expect(pauseNotice(false, "OBSTACLE")).toBeNull();
+  });
+
+  it("is null for a plain operator pause with no rover reason", () => {
+    expect(pauseNotice(true, null)).toBeNull();
+    expect(pauseNotice(true, "  ")).toBeNull();
+  });
+
+  it("names the reason and blocks Resume until the rover allows it", () => {
+    const notice = pauseNotice(true, "obstacle", null, false);
+    expect(notice).toEqual({
+      title: "Obstacle ahead",
+      detail: "Obstacle ahead. Clear the path; Resume unlocks when it is clear.",
+      blocking: true,
+    });
+  });
+
+  it("uses the rover's RTK reason for an RTK pause", () => {
+    expect(pauseNotice(true, "RTK_LOST", "Correction age 12 s")?.detail).toBe(
+      "Correction age 12 s",
+    );
+  });
+
+  it("stops blocking once the rover reports Resume available", () => {
+    expect(pauseNotice(true, "RTK_FLOAT", null, true)).toEqual({
+      title: "RTK float",
+      detail: "Resume is available.",
+      blocking: false,
+    });
+  });
+
+  it("falls back to the raw reason for unknown pauses", () => {
+    expect(pauseNotice(true, "ODOM_STALE")?.title).toBe("Paused: ODOM_STALE");
   });
 });
