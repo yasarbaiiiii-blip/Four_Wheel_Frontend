@@ -47,6 +47,15 @@ export function isPx4Payload(data: unknown): data is Px4TelemetryData {
   );
 }
 
+/** FCU state from a health reply, or null when the reply does not report it. */
+export function fcuConnectedFromHealth(health: {
+  fcu_connected?: boolean | null;
+  vehicle_connected?: boolean | null;
+}): boolean | null {
+  const reported = health.fcu_connected ?? health.vehicle_connected;
+  return reported === undefined || reported === null ? null : Boolean(reported);
+}
+
 const safeNum = (value: unknown, fallback = 0): number => {
   const numberValue =
     typeof value === "number" ? value : Number.parseFloat(String(value));

@@ -46,9 +46,11 @@ import {
   toLiveTelemetryEnvelope,
   unwrapTelemetryPayload,
   mergeMissionStatus,
+  fcuConnectedFromHealth,
 } from "../adapters/px4TelemetryAdapter";
 import { toNetworkData } from "../adapters/px4NetworkAdapter";
 import { rtkStatusToEnvelope } from "../adapters/px4RtkStatusAdapter";
+import { unwrapRtkStatus } from "../adapters/rtkControlAdapter";
 import { toRtkUiState } from "../adapters/px4RtkUiStateAdapter";
 import { normalizePx4Mode } from "../adapters/px4ModeAdapter";
 import { PX4_SYSTEM, PX4_TELEMETRY, PX4_RTK, PX4_TTS, PX4_OBSTACLE } from "../config/px4Endpoints";
@@ -1533,7 +1535,8 @@ if (envelope.within_test_tolerance !== undefined) {
           prevNetwork
         );
       }
-      if (rtkRaw) {
+      // An incomplete status must not write fix_type 0 over live telemetry.
+      if (unwrapRtkStatus(rtkRaw)) {
         const rtkEnv = rtkStatusToEnvelope(rtkRaw);
         envelope.network = {
           ...(envelope.network ?? prevNetwork),
@@ -1547,16 +1550,17 @@ if (envelope.within_test_tolerance !== undefined) {
         envelope.rtk_ui_state = toRtkUiState(rtkRaw);
       }
       if (healthRaw) {
-        const fcuConnected = Boolean(
-          healthRaw.fcu_connected ?? healthRaw.vehicle_connected,
-        );
-        envelope.fcu_connected = fcuConnected;
+        // A health reply that does not report the FCU says nothing about it.
+        const fcuConnected = fcuConnectedFromHealth(healthRaw);
+        if (fcuConnected !== null) {
+          envelope.fcu_connected = fcuConnected;
+          envelope.state = {
+            system_status: fcuConnected ? "ACTIVE" : "STANDBY",
+          };
+        }
         if (healthRaw.mission_state != null) {
           envelope.mission_state = String(healthRaw.mission_state);
         }
-        envelope.state = {
-          system_status: fcuConnected ? "ACTIVE" : "STANDBY",
-        };
         if (
           typeof healthRaw.rpp_state === "number" &&
           Number.isFinite(healthRaw.rpp_state)

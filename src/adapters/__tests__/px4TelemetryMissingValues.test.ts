@@ -1,4 +1,6 @@
-import { isPx4Payload, toRoverTelemetry } from "../px4TelemetryAdapter";
+import { fcuConnectedFromHealth, isPx4Payload, toRoverTelemetry } from "../px4TelemetryAdapter";
+import { rtkStatusToEnvelope } from "../px4RtkStatusAdapter";
+import { unwrapRtkStatus } from "../rtkControlAdapter";
 
 const adapt = (packet: Record<string, unknown>) =>
   toRoverTelemetry(packet as Parameters<typeof toRoverTelemetry>[0]);
@@ -58,5 +60,59 @@ describe("toRoverTelemetry reported and missing values", () => {
     const telemetry = adapt({ gps: { fix_type: 8 } });
     expect(telemetry.rtk.fix_type).toBe(0);
     expect(telemetry.rtk.base_linked).toBe(false);
+  });
+
+  it("reads the C++ backend packet when the FCU is live but GPS is silent", () => {
+    const packet = {
+      generated_at: 1793702600000,
+      vehicle: { connected: true, armed: false, mode: "HOLD", heading_deg: null, ground_speed_mps: null },
+      position: { latitude: null, longitude: null, altitude_m: null },
+      gps: { fix_type: null, rtk_fixed: null, satellites_visible: null, raw_hrms_m: null, raw_vrms_m: null },
+      battery: { voltage_v: 25.2, remaining_percent: 40 },
+    };
+    expect(isPx4Payload(packet)).toBe(true);
+
+    const telemetry = adapt(packet);
+    expect(telemetry.fcu_connected).toBe(true);
+    expect(telemetry.state.armed).toBe(false);
+    expect(telemetry.state.mode).toBe("HOLD");
+    expect(telemetry.battery.voltage).toBe(25.2);
+    expect(telemetry.battery.percentage).toBe(40);
+    expect(telemetry.global.lat).toBeNull();
+    expect(telemetry.global.satellites_visible).toBeNull();
+    expect(telemetry.rtk.fix_type).toBe(0);
+  });
+
+  it("reads the C++ backend packet when the FCU has gone silent", () => {
+    const telemetry = adapt({
+      generated_at: 1793702600000,
+      vehicle: { connected: false, armed: null, mode: null, heading_deg: null, ground_speed_mps: null },
+      position: { latitude: null, longitude: null, altitude_m: null },
+      gps: { fix_type: null, rtk_fixed: null, satellites_visible: null, raw_hrms_m: null, raw_vrms_m: null },
+      battery: { voltage_v: null, remaining_percent: null },
+    });
+    expect(telemetry.fcu_connected).toBe(false);
+    expect(telemetry.state.mode).toBe("UNKNOWN");
+    expect(telemetry.battery.percentage).toBeNull();
+  });
+});
+
+describe("REST poll cannot overwrite live telemetry", () => {
+  it("treats a health reply without an FCU field as unknown", () => {
+    expect(fcuConnectedFromHealth({})).toBeNull();
+    expect(fcuConnectedFromHealth({ fcu_connected: null })).toBeNull();
+  });
+
+  it("uses the FCU state when the health reply reports it", () => {
+    expect(fcuConnectedFromHealth({ fcu_connected: true })).toBe(true);
+    expect(fcuConnectedFromHealth({ fcu_connected: false })).toBe(false);
+    expect(fcuConnectedFromHealth({ vehicle_connected: true })).toBe(true);
+  });
+
+  it("rejects the C++ RTK status, whose envelope would write fix_type 0", () => {
+    const cppStatus = { correction_source: { source: "ntrip" }, state: "stopped" };
+    const asStatus = cppStatus as unknown as Parameters<typeof rtkStatusToEnvelope>[0];
+    expect(unwrapRtkStatus(asStatus)).toBeNull();
+    expect(rtkStatusToEnvelope(asStatus).rtk?.fix_type).toBe(0);
   });
 });
