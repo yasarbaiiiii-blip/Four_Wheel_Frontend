@@ -33,3 +33,31 @@ export function isSocketTelemetryStalled(
   const age = socketTelemetryPacketAgeMs(nowMs);
   return age === null || age > limitMs;
 }
+
+/** The socket watchdog reconnects after this long with no sign of life. */
+export const SOCKET_WATCHDOG_SILENCE_MS = 8_000;
+
+/**
+ * Decides whether a "connected" socket has gone silent.
+ *
+ * Once telemetry has started, only telemetry counts, so a stream that stops
+ * cannot leave old values on screen. Before the first packet the backend's
+ * ping proves the link is up: a rover with no telemetry source yet is connected,
+ * and reconnecting would not help.
+ */
+export function isSocketSilent(input: {
+  lastPacketMs: number | null;
+  lastHeartbeatMs: number | null;
+  connectedAtMs: number | null;
+  nowMs: number;
+}): boolean {
+  const { lastPacketMs, lastHeartbeatMs, connectedAtMs, nowMs } = input;
+  if (lastPacketMs !== null) {
+    return nowMs - lastPacketMs > SOCKET_WATCHDOG_SILENCE_MS;
+  }
+  if (connectedAtMs === null) {
+    return false;
+  }
+  const lastAlive = Math.max(connectedAtMs, lastHeartbeatMs ?? connectedAtMs);
+  return nowMs - lastAlive > SOCKET_WATCHDOG_SILENCE_MS;
+}

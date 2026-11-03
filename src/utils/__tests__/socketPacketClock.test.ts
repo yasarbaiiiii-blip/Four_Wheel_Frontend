@@ -1,6 +1,8 @@
 import {
   LIVE_PANEL_PACKET_STALE_MS,
+  SOCKET_WATCHDOG_SILENCE_MS,
   clearSocketTelemetryPacket,
+  isSocketSilent,
   isSocketTelemetryStalled,
   markSocketTelemetryPacket,
   socketTelemetryPacketAgeMs,
@@ -27,5 +29,59 @@ describe("socketPacketClock", () => {
     markSocketTelemetryPacket(10_000);
     clearSocketTelemetryPacket();
     expect(isSocketTelemetryStalled(10_001)).toBe(true);
+  });
+});
+
+describe("isSocketSilent", () => {
+  const limit = SOCKET_WATCHDOG_SILENCE_MS;
+
+  test("not connected is never silent", () => {
+    expect(
+      isSocketSilent({
+        lastPacketMs: null,
+        lastHeartbeatMs: null,
+        connectedAtMs: null,
+        nowMs: 1_000_000,
+      }),
+    ).toBe(false);
+  });
+
+  test("no telemetry and no heartbeat is silent after the limit", () => {
+    const base = { lastPacketMs: null, lastHeartbeatMs: null, connectedAtMs: 1000 };
+    expect(isSocketSilent({ ...base, nowMs: 1000 + limit })).toBe(false);
+    expect(isSocketSilent({ ...base, nowMs: 1000 + limit + 1 })).toBe(true);
+  });
+
+  test("heartbeat keeps a connected rover with no telemetry source alive", () => {
+    expect(
+      isSocketSilent({
+        lastPacketMs: null,
+        lastHeartbeatMs: 60_000,
+        connectedAtMs: 1000,
+        nowMs: 60_000 + limit,
+      }),
+    ).toBe(false);
+  });
+
+  test("heartbeat stopping is silent, so a dead link still reconnects", () => {
+    expect(
+      isSocketSilent({
+        lastPacketMs: null,
+        lastHeartbeatMs: 60_000,
+        connectedAtMs: 1000,
+        nowMs: 60_000 + limit + 1,
+      }),
+    ).toBe(true);
+  });
+
+  test("heartbeat does not hide telemetry that started and then stopped", () => {
+    expect(
+      isSocketSilent({
+        lastPacketMs: 50_000,
+        lastHeartbeatMs: 70_000,
+        connectedAtMs: 1000,
+        nowMs: 50_000 + limit + 1,
+      }),
+    ).toBe(true);
   });
 });
