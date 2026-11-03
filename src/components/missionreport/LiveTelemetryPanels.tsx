@@ -240,9 +240,9 @@ export const LiveVehicleStatusCard: React.FC<
   // VehicleStatusCard needs only this small presentation projection, not the
   // complete rover payload. Its identity changes only with a visible field.
   const telemetry = useMemo(() => ({
-    battery: { percentage: live.batteryPct, voltage: live.batteryVoltage },
+    battery: { percentage: live.batteryPct ?? undefined, voltage: live.batteryVoltage },
     rtk: { fix_type: live.fixType },
-    global: { satellites_visible: live.satellites },
+    global: { satellites_visible: live.satellites ?? undefined },
     hrms: live.hrms,
     vrms: live.vrms,
   }), [
@@ -261,9 +261,9 @@ export const LiveVehicleStatusCard: React.FC<
       typeof live.vrms === "string" ? parseFloat(live.vrms) : live.vrms;
     const rppLabel = live.rppStateName?.trim();
     return {
-      battery: `${live.batteryPct.toFixed(1)}% (${live.batteryVoltage.toFixed(2)}V)`,
+      battery: `${live.batteryPct?.toFixed(1) ?? "—"}% (${live.batteryVoltage.toFixed(2)}V)`,
       gps: live.gpsFixName?.trim() || fixTypeLabel(live.fixType),
-      satellites: live.satellites,
+      satellites: live.satellites ?? 0,
       hrms: `${(hrmsValue || 0).toFixed(3)} m`,
       vrms: `${(vrmsValue || 0).toFixed(3)} m`,
       imu: rppLabel ? `RPP ${rppLabel}` : live.imuStatus,

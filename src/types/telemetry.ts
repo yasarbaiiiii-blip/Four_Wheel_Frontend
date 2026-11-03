@@ -13,18 +13,20 @@ export interface TelemetryState {
   heartbeat_ts: number;
 }
 
+/** A null value means the rover did not report it. Never show null as 0. */
 export interface TelemetryGlobal {
-  lat: number;
-  lon: number;
-  alt_rel: number;
-  vel: number;
-  satellites_visible: number;
+  lat: number | null;
+  lon: number | null;
+  alt_rel: number | null;
+  vel: number | null;
+  satellites_visible: number | null;
 }
 
 export interface TelemetryBattery {
   voltage: number;
   current: number;
-  percentage: number;
+  /** Null means the rover did not report it, not an empty pack. */
+  percentage: number | null;
   /** Rover backend lockout flag; START/RESUME/NEXT/SKIP are refused while true. */
   mission_lockout?: boolean;
   /**
@@ -127,7 +129,7 @@ export interface RoverTelemetry {
   /** True when socket is connected but telemetry is older than the stale window. */
   stale?: boolean;
   attitude?: {
-    yaw_deg: number;
+    yaw_deg: number | null;
   };
   wp_dist_cm?: number;
   xtrack_cm?: number;
@@ -218,7 +220,7 @@ export interface TelemetryEnvelope {
   vrms?: number;
   imu_status?: string;
   attitude?: {
-    yaw_deg: number;
+    yaw_deg: number | null;
   };
   wp_dist_cm?: number;
   xtrack_cm?: number;

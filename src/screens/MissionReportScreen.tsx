@@ -198,6 +198,8 @@ import {
   pointAccuracyMm,
   type PointStatusMap,
 } from "../utils/missionProgressMetrics";
+import { gnssFixLabel as commandRtkLabel } from "../utils/gnssFixLabel";
+import { modeDisplayLabel } from "../adapters/px4ModeAdapter";
 import { getDeckControlState } from "../utils/missionDeckControls";
 import {
   isTerminalWaypointStatus,
@@ -5974,9 +5976,10 @@ function selectCommandTelemetry(snapshot: LiveTelemetrySnapshot) {
       current: null as number | null,
       speed: null as number | null,
       heading: null as number | null,
-      fixType: 0,
+      fixType: null as number | null,
       satellites: null as number | null,
       hrms: null as number | null,
+      vrms: null as number | null,
       distToNext: null as number | null,
       mode: "—",
     };
@@ -5999,19 +6002,14 @@ function selectCommandTelemetry(snapshot: LiveTelemetrySnapshot) {
       telemetry.global?.vel ?? telemetry.rpp_actual_speed_mps,
     ),
     heading: finiteOrNull(telemetry.attitude?.yaw_deg),
-    fixType: telemetry.rtk?.fix_type ?? 0,
+    // Connected but no packet yet is "no reading", not "No Fix".
+    fixType: telemetry.lastMessageTs ? finiteOrNull(telemetry.rtk?.fix_type) : null,
     satellites: finiteOrNull(telemetry.global?.satellites_visible),
     hrms: finiteOrNull(telemetry.hrms),
+    vrms: finiteOrNull(telemetry.vrms),
     distToNext: finiteOrNull(telemetry.distance_to_next_m),
-    mode: telemetry.state?.mode ?? "—",
+    mode: modeDisplayLabel(telemetry.state?.mode ?? "UNKNOWN"),
   };
-}
-
-function commandRtkLabel(fixType: number): string {
-  if (fixType >= 6) return "RTK Fixed";
-  if (fixType === 5) return "RTK Float";
-  if (fixType >= 3) return "GPS Fix";
-  return "GPS acquiring";
 }
 
 function commandValue(value: number | null, suffix: string, digits = 1): string {
@@ -6209,9 +6207,9 @@ function MissionActivityExperience({
   const currentActivityWidth = activityCardWidth || 378;
   const expandedPanelWidth = currentActivityWidth + Math.max(280, Math.round(mapAreaWidth / 2));
   const expandedPointCardWidth = Math.max(240, Math.floor((expandedPanelWidth - 34) / 2));
-  // Green only for a true RTK fixed solution. A plain "GPS Fix" (type 3-4) or
-  // RTK float is not centimetre-grade, so it must not look "good".
-  const rtkIsFixed = telemetry.fixType >= 6;
+  // Green only for a true RTK fixed solution. 3D Fix, DGPS or RTK float is not
+  // centimetre-grade, so it must not look "good".
+  const rtkIsFixed = telemetry.fixType === 6;
   const headingRotation = typeof telemetry.heading === "number" && Number.isFinite(telemetry.heading)
     ? ((telemetry.heading % 360) + 360) % 360
     : 0;
@@ -6229,6 +6227,7 @@ function MissionActivityExperience({
   // Live distance to the current target, reported by the rover while it drives.
   const distToTargetM = isMissionActive ? telemetry.distToNext : null;
   const hrmsMm = hrmsToMm(telemetry.hrms);
+  const vrmsMm = hrmsToMm(telemetry.vrms);
   const totalKm = routeKm;
   const coveredKm = useMemo(() => {
     if (isDemoPoints || activityWaypoints.length < 2) return 0;
@@ -6551,7 +6550,7 @@ function MissionActivityExperience({
           <View style={[fieldExperienceStyles.homeStatusBlock, telemetry.connected ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, telemetry.connected ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name="lan-connect" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>LINK</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, telemetry.connected ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{telemetry.connected ? "Connected" : "Offline"}</Text></View></View>
           <View style={[fieldExperienceStyles.homeStatusBlock, rtkIsFixed ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, rtkIsFixed ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name="satellite-uplink" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: rtkIsFixed ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>RTK</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, rtkIsFixed ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{commandRtkLabel(telemetry.fixType)}</Text></View></View>
           <View style={[fieldExperienceStyles.homeStatusBlock, telemetry.battery != null && telemetry.battery >= 20 ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, telemetry.battery != null && telemetry.battery >= 20 ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name={telemetry.battery != null && telemetry.battery < 20 ? "battery-alert-variant-outline" : telemetry.battery != null && telemetry.battery < 60 ? "battery-medium" : "battery-high"} size={18} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: telemetry.battery != null && telemetry.battery >= 20 ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>BATTERY</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, telemetry.battery != null && telemetry.battery >= 20 ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{commandValue(telemetry.battery, "%", 0)}</Text></View></View>
-          <View style={[fieldExperienceStyles.homeStatusBlock, telemetry.satellites != null && telemetry.satellites >= 8 ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, telemetry.satellites != null && telemetry.satellites >= 8 ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name="satellite-variant" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: telemetry.satellites != null && telemetry.satellites >= 8 ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>SATELLITES</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, telemetry.satellites != null && telemetry.satellites >= 8 ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{telemetry.satellites == null ? "—" : `${telemetry.satellites} visible`}</Text></View></View>
+          <View style={[fieldExperienceStyles.homeStatusBlock, telemetry.satellites != null && telemetry.satellites >= 8 ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, telemetry.satellites != null && telemetry.satellites >= 8 ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name="satellite-variant" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: telemetry.satellites != null && telemetry.satellites >= 8 ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>SATELLITES</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, telemetry.satellites != null && telemetry.satellites >= 8 ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{telemetry.satellites == null ? "—" : `${telemetry.satellites} used`}</Text></View></View>
           <View style={[fieldExperienceStyles.homeStatusBlock, isMissionActive ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeInfo : fieldExperienceStyles.homeWatchBadgeInfoDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, isMissionActive ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconInfo]}><MaterialCommunityIcons name="robot-industrial" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: isMissionActive ? "#16B980" : "#1475EE" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>MODE</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, isMissionActive ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueInfo : fieldExperienceStyles.homeStatusValueInfoDark)]} numberOfLines={1}>{String(telemetry.mode)}</Text></View></View>
         </View>
         <View style={[fieldExperienceStyles.homeControls, !isLightHeader && fieldExperienceStyles.homeControlsDark]}><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeThemeButton, !isLightHeader && fieldExperienceStyles.homeThemeButtonDark]} onPress={() => setIsLightHeader((value) => !value)} accessibilityRole="button" accessibilityLabel="Toggle light and dark top bar"><MaterialCommunityIcons name={isLightHeader ? "weather-night" : "white-balance-sunny"} size={19} color="#FFFFFF" /><Text style={fieldExperienceStyles.homeControlLabel}>THEME</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeSettingsButton, !isLightHeader && fieldExperienceStyles.homeControlDark]} onPress={() => setShowSettings(true)} accessibilityRole="button" accessibilityLabel="Open settings"><MaterialCommunityIcons name="tune-variant" size={19} color={isLightHeader ? "#173563" : "#F8FAFC"} /><Text style={[fieldExperienceStyles.homeSettingsLabel, !isLightHeader && fieldExperienceStyles.homeSettingsLabelDark]}>SETTINGS</Text></TouchableOpacity></View>
@@ -6831,8 +6830,12 @@ function MissionActivityExperience({
                       <Text style={fieldExperienceStyles.hudModalGridVal}>{hrmsMm != null ? `${hrmsMm} mm` : "—"}</Text>
                     </View>
                     <View style={fieldExperienceStyles.hudModalGridItem}>
+                      <Text style={fieldExperienceStyles.hudModalGridLabel}>VERTICAL ACCURACY</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{vrmsMm != null ? `${vrmsMm} mm` : "—"}</Text>
+                    </View>
+                    <View style={fieldExperienceStyles.hudModalGridItem}>
                       <Text style={fieldExperienceStyles.hudModalGridLabel}>SATELLITES</Text>
-                      <Text style={fieldExperienceStyles.hudModalGridVal}>{telemetry.satellites != null ? `${telemetry.satellites} visible` : "—"}</Text>
+                      <Text style={fieldExperienceStyles.hudModalGridVal}>{telemetry.satellites != null ? `${telemetry.satellites} used` : "—"}</Text>
                     </View>
                   </View>
                 )}

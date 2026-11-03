@@ -8,6 +8,7 @@
 import { countSocketPacket } from "../utils/realtimeDiagnostics";
 import {
   clearSocketTelemetryPacket,
+  isSocketSilent,
   markSocketTelemetryPacket,
 } from "../utils/socketPacketClock";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -209,18 +210,19 @@ const DEFAULT_STATE: TelemetryState = {
   heartbeat_ts: 0,
 };
 
+// Null until the rover reports a value, so the UI shows "—" and not a false 0.
 const DEFAULT_GLOBAL: TelemetryGlobal = {
-  lat: 0,
-  lon: 0,
-  alt_rel: 0,
-  vel: 0,
-  satellites_visible: 0,
+  lat: null,
+  lon: null,
+  alt_rel: null,
+  vel: null,
+  satellites_visible: null,
 };
 
 const DEFAULT_BATTERY: TelemetryBattery = {
   voltage: 0,
   current: 0,
-  percentage: 0,
+  percentage: null,
 };
 
 const DEFAULT_RTK: TelemetryRtk = {
@@ -899,6 +901,7 @@ export function useRoverTelemetry(): UseRoverTelemetryResult {
    */
   const socketConnectedAtRef = useRef<number | null>(null);
   const lastSocketPacketTsRef = useRef<number | null>(null);
+  const lastSocketHeartbeatTsRef = useRef<number | null>(null);
   const lastSocketGeneratedAtRef = useRef<number | null>(null);
 
   /**
@@ -1643,10 +1646,10 @@ if (envelope.within_test_tolerance !== undefined) {
           latest as unknown as Record<string, unknown>
         ),
         adapted: {
-          battery_pct: adapted.battery.percentage,
+          battery_pct: adapted.battery.percentage ?? undefined,
           battery_v: adapted.battery.voltage,
           gps_fix: adapted.rtk.fix_type,
-          gps_sat: adapted.global.satellites_visible,
+          gps_sat: adapted.global.satellites_visible ?? undefined,
           hrms: adapted.hrms,
           vrms: adapted.vrms,
           mode: adapted.state.mode,
@@ -1880,6 +1883,12 @@ if (envelope.within_test_tolerance !== undefined) {
         );
         socketRef.current = socket;
 
+        socket.io.on("ping", () => {
+          if (socketRef.current === socket) {
+            lastSocketHeartbeatTsRef.current = Date.now();
+          }
+        });
+
         let connectionGeneration: number | null = null;
 
         socket.on("connect", () => {
@@ -1915,6 +1924,7 @@ if (envelope.within_test_tolerance !== undefined) {
             transport: socket.io.engine?.transport?.name ?? "unknown",
           });
           socketConnectedAtRef.current = Date.now();
+          lastSocketHeartbeatTsRef.current = null;
           clearSocketTelemetryPacket();
 
           hasLiveTelemetryRef.current = false;
@@ -2084,6 +2094,7 @@ if (envelope.within_test_tolerance !== undefined) {
           hasLiveTelemetryRef.current = false;
           connectionGeneration = null;
           lastSocketPacketTsRef.current = null;
+          lastSocketHeartbeatTsRef.current = null;
           clearSocketTelemetryPacket();
 
           const emptyTelemetry = createDefaultTelemetry();
@@ -2232,11 +2243,11 @@ if (envelope.within_test_tolerance !== undefined) {
                 connectionState: "connected",
                 lastMessageTs: generatedAt,
                 adapted: {
-                  battery_pct: adapted.battery.percentage,
+                  battery_pct: adapted.battery.percentage ?? undefined,
                   battery_v: adapted.battery.voltage,
                   gps_fix: adapted.rtk.fix_type,
                   gps_fix_name: adapted.gps_fix_name,
-                  gps_sat: adapted.global.satellites_visible,
+                  gps_sat: adapted.global.satellites_visible ?? undefined,
                   hrms: adapted.hrms,
                   vrms: adapted.vrms,
                   mode: adapted.state.mode,
@@ -2244,8 +2255,8 @@ if (envelope.within_test_tolerance !== undefined) {
                   fcu_connected: adapted.fcu_connected,
                   rpp_state_name: adapted.rpp_state_name,
                   imu_status: adapted.imu_status,
-                  lat: adapted.global.lat,
-                  lon: adapted.global.lon,
+                  lat: adapted.global.lat ?? undefined,
+                  lon: adapted.global.lon ?? undefined,
                 },
               });
             }
@@ -2396,11 +2407,12 @@ if (envelope.within_test_tolerance !== undefined) {
       const lastPacket = lastSocketPacketTsRef.current;
       const connectedAt = socketConnectedAtRef.current;
       const now = Date.now();
-      const stale =
-        (lastPacket != null && now - lastPacket > 8_000) ||
-        (lastPacket == null &&
-          connectedAt != null &&
-          now - connectedAt > 8_000);
+      const stale = isSocketSilent({
+        lastPacketMs: lastPacket,
+        lastHeartbeatMs: lastSocketHeartbeatTsRef.current,
+        connectedAtMs: connectedAt,
+        nowMs: now,
+      });
       if (stale) {
         telemetryDiagLog("Watchdog reconnect: socket silent", {
           sinceLastPacketMs: lastPacket != null ? now - lastPacket : null,

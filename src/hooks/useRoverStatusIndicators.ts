@@ -51,7 +51,7 @@ export function useRoverStatusIndicators(): RoverStatusIndicators {
 
     // Treat an all-zero battery (no voltage AND no percentage) as "no data"
     // rather than a depleted battery. A real low battery still reports voltage.
-    const hasBatteryData = telemetry.battery.voltage > 0 || telemetry.battery.percentage > 0;
+    const hasBatteryData = telemetry.battery.voltage > 0 || (telemetry.battery.percentage ?? 0) > 0;
 
     return {
       networkType,

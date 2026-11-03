@@ -111,11 +111,11 @@ const TelemetryDisplay: React.FC = () => {
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>Altitude (Rel):</Text>
-            <Text style={styles.value}>{telemetry.global.alt_rel.toFixed(2)} m</Text>
+            <Text style={styles.value}>{telemetry.global.alt_rel?.toFixed(2) ?? "—"} m</Text>
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>Ground Speed:</Text>
-            <Text style={styles.value}>{telemetry.global.vel.toFixed(2)} m/s</Text>
+            <Text style={styles.value}>{telemetry.global.vel?.toFixed(2) ?? "—"} m/s</Text>
           </View>
         </View>
       ) : (

@@ -50,7 +50,7 @@ const CHENNAI: [number, number] = [80.2707, 13.0827];
  */
 function selectMapTelemetry(snapshot: {
   telemetry: {
-    attitude?: { yaw_deg?: number };
+    attitude?: { yaw_deg?: number | null };
     state?: { armed?: boolean };
     rtk?: { fix_type?: number };
   };

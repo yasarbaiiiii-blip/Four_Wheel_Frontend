@@ -93,8 +93,13 @@ const batteryCriticalStopError = (
   return String(value);
 };
 
+/**
+ * PX4 fix types are 0-6. Anything else counts as no fix: PX4 uses 8 for an
+ * extrapolated position, which must never read as RTK Fixed.
+ */
 function mapGpsFix(fix: unknown): number {
-  return Math.max(0, Math.min(6, safeNum(fix, 0)));
+  const fixType = safeNum(fix, 0);
+  return fixType >= 0 && fixType <= 6 ? fixType : 0;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -361,7 +366,8 @@ export function toTelemetryEnvelopeFromRoverData(
     critical_stop_error: batteryCriticalStopError(flat, battery),
   });
 
-  const fixType = optNum(flat.gps_fix ?? gps.fix_type);
+  const reportedFix = optNum(flat.gps_fix ?? gps.fix_type);
+  const fixType = reportedFix === undefined ? undefined : mapGpsFix(reportedFix);
   envelope.rtk = cleanObj({
     fix_type: fixType,
     base_linked: fixType !== undefined ? fixType >= 5 : undefined,
@@ -431,13 +437,13 @@ export function toRoverTelemetry(
   };
 
   const global: TelemetryGlobal = {
-    lat: safeNum(flat.lat ?? position?.latitude),
-    lon: safeNum(flat.lon ?? position?.longitude),
-    alt_rel: safeNum(flat.alt ?? position?.altitude_m),
-    vel: safeNum(
+    lat: optionalNum(flat.lat ?? position?.latitude),
+    lon: optionalNum(flat.lon ?? position?.longitude),
+    alt_rel: optionalNum(flat.alt ?? position?.altitude_m),
+    vel: optionalNum(
       flat.speed_m_s ?? flat.speed_mps ?? vehicle?.ground_speed_mps,
     ),
-    satellites_visible: safeNum(
+    satellites_visible: optionalNum(
       flat.gps_sat ?? gps?.satellites_visible,
     ),
   };
@@ -445,7 +451,7 @@ export function toRoverTelemetry(
   const battery: TelemetryBattery = {
     voltage: safeNum(flat.battery_v ?? batterySection?.voltage_v),
     current: safeNum(batterySection?.current_a),
-    percentage: safeNum(
+    percentage: optionalNum(
       flat.battery_pct ?? batterySection?.remaining_percent,
     ),
   };
@@ -863,7 +869,7 @@ rpp_along_position: rppAlongPosition,
       return distanceCm !== null ? Math.max(0, distanceCm / 100) : undefined;
     })(),
     attitude: {
-      yaw_deg: safeNum(
+      yaw_deg: optionalNum(
         flat.heading_ned_deg ?? flat.heading_deg ?? vehicle?.heading_deg,
       ),
     },

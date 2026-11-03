@@ -376,8 +376,8 @@ type MissionControlResponseWithRestore = MissionControlResponse & {
  */
 function selectPathPlanTelemetry(snapshot: {
   telemetry: {
-    global?: { lat?: number; lon?: number; alt_rel?: number };
-    attitude?: { yaw_deg?: number };
+    global?: { lat?: number | null; lon?: number | null; alt_rel?: number | null };
+    attitude?: { yaw_deg?: number | null };
     mission?: { status?: string };
     stale?: boolean;
   };
@@ -385,10 +385,10 @@ function selectPathPlanTelemetry(snapshot: {
 }) {
   return {
     roverPosition: snapshot.roverPosition,
-    lat: snapshot.telemetry.global?.lat,
-    lon: snapshot.telemetry.global?.lon,
-    altRel: snapshot.telemetry.global?.alt_rel,
-    heading: snapshot.telemetry.attitude?.yaw_deg,
+    lat: snapshot.telemetry.global?.lat ?? undefined,
+    lon: snapshot.telemetry.global?.lon ?? undefined,
+    altRel: snapshot.telemetry.global?.alt_rel ?? undefined,
+    heading: snapshot.telemetry.attitude?.yaw_deg ?? undefined,
     missionStatus: snapshot.telemetry.mission?.status,
     stale: snapshot.telemetry.stale === true,
   };
