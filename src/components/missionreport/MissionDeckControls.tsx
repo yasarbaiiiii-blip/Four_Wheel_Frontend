@@ -138,11 +138,11 @@ export function MissionDeckControls({
           disabled={!controls.skipEnabled}
           activeOpacity={0.82}
           accessibilityRole="button"
-          accessibilityLabel="Skip current waypoint"
+          accessibilityLabel="Skip current goal"
           accessibilityState={{ disabled: !controls.skipEnabled }}
         >
           <MaterialCommunityIcons name="debug-step-over" size={20} color="#FFFFFF" />
-          <Text style={styles.subText}>SKIP</Text>
+          <Text style={styles.subText}>SKIP GOAL</Text>
         </TouchableOpacity>
 
         <TouchableOpacity

@@ -1288,3 +1288,76 @@ Tests, `tsc` and Metro not re-run because no source changed since entry 024. Ent
 
 ### 6. Current Repository State & Open Items
 - Both repos still uncommitted until the operator runs the commands. The backend has still not been built with real ROS or run on the Jetson.
+
+---
+
+## Entry 028 — Local Mission Stop and Control Safety Work (Phases 1–3 Partial)
+- **Date & Time:** 2026-11-04 14:29 IST
+- **Working Branch:** Frontend `client_` at `9f37614`; backend `Beacon-and-Telemetry-updation` at `99134fc`
+- **Agent / Contributor:** Codex (GPT-6)
+
+### 1. Objective & Scope
+Implement the attached mission-controls plan's Phases 1–3 where feasible, without committing, pushing, or merging. Local app control fixes and decision-only backend Stop/E-stop assertion routes were implemented. Backend stop recovery, positive command routes, off-rover full mission dry run, Jetson build, and on-rover tests remain open.
+
+### 2. Changes Implemented
+- **Files Created:** `src/components/shared/__tests__/EstopControlsMission.test.tsx`: verifies an enabled, accessible, 48 dp E-stop in each latch state.
+- **Frontend Files Modified:** `src/components/shared/EstopControls.tsx` (mission variant and 48 dp targets); `src/components/missionreport/MissionDeckControls.tsx` (Skip current goal wording); `src/screens/MissionReportScreen.tsx` (visible E-stop in home and progress views, Stop during Start, no silent E-stop release, generation fencing of late control/status replies, confirmed Start states, truthfully recorded Stop, mode confirmation, Skip confirmation); `src/services/missionApi.ts` (pause/skip availability fields); `src/utils/missionDeckControls.ts`, `src/utils/missionLifecycleState.ts`, `src/utils/missionStartEligibility.ts` (backend state and control availability rules); focused tests in `src/utils/__tests__/missionDeckControls.test.ts`, `missionLifecycleState.test.ts`, `missionStartEligibility.test.ts`, and `src/components/missionreport/__tests__/MissionEditAndControls.test.tsx`.
+- **Backend Files Modified:** `src/rover_backend/include/rover_backend/mission_compat_service.hpp` (authenticated decision-only Stop/E-stop, explicit release refusal); `src/rover_backend/src/rover_backend.cpp` (public `/api/mission/stop`, `/api/estop`, `/api/estop/release` routes); `src/rover_backend/tests/mission_compat/e2e_mission.py` (off-rover route assertions).
+- **Files Deleted / Deprecated:** None.
+
+### 3. Key Architecture & Design Decisions
+- The app now requires a loaded READY mission for Start, accepts RUNNING/PAUSED/WAITING_FOR_NEXT as confirmed Start outcomes, and does not clear prior mission data on an unexpected response.
+- Stop increments a command generation; older Start, Pause, Resume, Next, Skip and REST status replies cannot overwrite it. The deck keeps Stop visible until a subsequent STOPPED/ERROR/FAULT state. A decision-only Stop is worded "Stop recorded" without claiming physical motion stopped.
+- The public backend Stop and E-stop routes bypass upload/load serialization and use the native mailbox's priority Stop path. Release returns HTTP 423 until a disarmed, authenticated recovery design is approved and implemented. Positive command routes remain absent.
+- Skip needs an operator confirmation, and Pause/Resume/Skip buttons use backend availability flags rather than guessing from a broad RUNNING state.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4 arming, motion, `enable_motion`, `observe_only`, AUX, solenoid, speed gate, or spray code was changed. No hardware command was sent.
+- Native Stop still reports `physical_stop_confirmed: false` and `px4_stop_confirmed: false`; the new public response preserves that distinction. E-stop is a software request, not a substitute for the independent physical E-stop.
+- The native Stop latch is deliberately not reset. Phase 1 recovery requires the backend owner's approved design (D4); Phase 2 Pause lease (D5) and the Phase 0 merged Jetson build are also outstanding.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** `npm test -- --runInBand --silent --cacheDirectory D:\Four_Wheel_Frontend\.jest-cache --testPathPattern="EstopControlsMission|missionDeckControls|MissionEditAndControls|missionStartEligibility|missionLifecycleState|estopControlsView|MissionExportSheetAndNotice"` — 109/109 passed in 7 suites. Temporary Jest cache removed afterward.
+- **Type Check:** `npx tsc --noEmit` — passed with zero errors.
+- **Metro Bundler Check:** `curl.exe` of `http://127.0.0.1:8081/index.bundle?platform=android&dev=true&minify=false` — HTTP 200; Metro bundled 1831 modules. Server stopped afterward.
+- **Backend:** `python3 -m py_compile` of the edited e2e script in WSL Ubuntu 24.04 — passed. `git diff --check` passed in both repositories. C++/ROS/Drogon build and the e2e mission harness could not run here: WSL has no Drogon headers or ROS build dependencies. No Jetson, tablet, PX4, or rover test was performed.
+
+### 6. Current Repository State & Open Items
+- Both repositories contain only the listed uncommitted work; no commit, push, or merge was performed. The frontend dependency install created ignored `node_modules`; no scratch cache remains.
+- **Phase 1 partial:** app E-stop/Stop behavior and public decision-only assertion routes are local. Stop recovery and a confirmed physical stop are not implemented. A release attempt is explicitly refused.
+- **Phase 2 partial:** app controls use backend state and truthful results. Start/Pause/Resume/Next/Skip/execution-mode public routes, native Next/Skip, lease handling, state mapping and Socket.IO `mission_status` remain to be built on the backend owner's integrated branch.
+- **Phase 3 not started:** the off-rover full mission sequence harness depends on those routes and the Phase 0 merged build. Do not run rover motion or spray tests with this work.
+- Next: review D1/D4/D5 with the backend owner, integrate the backend branches under the operator's separate authorization, build on the Jetson, finish Phase 1 exit tests, then proceed to Phase 2 and the off-rover Phase 3 dry run.
+
+---
+
+## Entry 029 — Full Local Code Test After Mission Control Changes
+- **Date & Time:** 2026-11-04 14:37 IST
+- **Working Branch:** Frontend `client_`; backend `Beacon-and-Telemetry-updation`
+- **Agent / Contributor:** Codex (GPT-6)
+
+### 1. Objective & Scope
+Run the code tests for Entry 028's uncommitted work, including the complete frontend suite, TypeScript check, Android Metro bundle, and available backend checks. No commit, push, merge, hardware run, or rover command was requested or performed.
+
+### 2. Changes Implemented
+- **Files Created:** None.
+- **Files Modified:** `src/components/shared/__tests__/NativeMapLayers.test.tsx` — corrected an older final assertion: when the backend preview phase becomes `idle`, the route line is intentionally hidden and only waypoint markers remain. Added a check that unchanged geometry was not serialized again. `HANDOVER.md` — this entry.
+- **Files Deleted / Deprecated:** None.
+
+### 3. Key Architecture & Design Decisions
+- Preserved the existing `canDrawBackendLine` rule (`phase === "ready"` and at least two backend points). The test now checks that rule instead of expecting a route from an idle preview.
+- No runtime app or backend behavior changed in this task.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4, arming, E-stop, motion, spray, AUX, speed gate, or actuator code changed. No hardware command was sent.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** `npm test -- --runInBand --silent --cacheDirectory D:\Four_Wheel_Frontend\.jest-cache` — **967/967 tests passed, 79/79 suites passed**. The first full run exposed the stale map assertion (966/967); the corrected full run passed. Temporary Jest cache removed.
+- **Type Check:** `npx tsc --noEmit` — passed with zero errors.
+- **Metro Bundler Check:** Android `index.bundle?platform=android&dev=true&minify=false` — HTTP **200**; Metro bundled 1888 modules. Server stopped afterward.
+- **Backend:** WSL Ubuntu 24.04 `python3 -m py_compile` on `e2e_mission.py` passed. Attempted C++ syntax compile of `compat_test.cpp`; blocked at missing `nlohmann/json.hpp`. The backend C++ test harness and ROS/Drogon build were not run.
+- **Git:** `git diff --check` passed for the backend; final status reviewed in both repos.
+
+### 6. Current Repository State & Open Items
+- Frontend still holds Entry 028's uncommitted changes plus the corrected map test and this handover entry. Backend still holds Entry 028's three uncommitted files. No commit, push, or merge.
+- Frontend tests, type check, and Metro pass locally. Backend C++ compilation and the off-rover e2e harness need a Linux environment with nlohmann-json, Drogon, Boost, SQLite, OpenSSL, and the required ROS dependencies; later Jetson acceptance remains open.

@@ -154,7 +154,9 @@ test("rover telemetry and preview metadata do not reserialize unchanged mission 
 
   mockPreview = { ...mockPreview, phase: "idle" };
   act(() => { renderer!.update(fieldMap(23)); });
-  expect(renderer!.root.findAllByType("ShapeSource").map((node: any) => node.props.id)).toEqual(["field-trajectory", "field-points"]);
+  // An idle preview no longer authorizes a route line; waypoint markers stay.
+  expect(renderer!.root.findAllByType("ShapeSource").map((node: any) => node.props.id)).toEqual(["field-points"]);
+  expect(mockSerializeShape).toHaveBeenCalledTimes(4);
 });
 
 test("authoring layers retain their source options and visual styles", () => {

@@ -132,6 +132,10 @@ describe("MissionDeckControls", () => {
     isEditing: false,
     isBusy: false,
     isStopping: false,
+    pauseAvailable: true,
+    skipAvailable: true,
+    resumeAvailable: true,
+    canChangeMode: true,
     mode: "auto",
   };
 
@@ -165,7 +169,7 @@ describe("MissionDeckControls", () => {
     expect(allText()).toContain("START MISSION");
     expect(button("Start mission").props.disabled).toBe(false);
     expect(button("Pause mission").props.disabled).toBe(true);
-    expect(button("Skip current waypoint").props.disabled).toBe(true);
+    expect(button("Skip current goal").props.disabled).toBe(true);
     expect(button("Continue to next waypoint").props.disabled).toBe(true);
   });
 
@@ -174,7 +178,7 @@ describe("MissionDeckControls", () => {
     expect(allText()).toContain("STOP MISSION");
     expect(button("Stop mission").props.disabled).toBe(false);
     expect(button("Pause mission").props.disabled).toBe(false);
-    expect(button("Skip current waypoint").props.disabled).toBe(false);
+    expect(button("Skip current goal").props.disabled).toBe(false);
     expect(button("Continue to next waypoint").props.disabled).toBe(true);
   });
 

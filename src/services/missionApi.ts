@@ -152,6 +152,8 @@ export interface MissionRuntimeState {
 
   pause_reason?: string | null;
   resume_available?: boolean;
+  pause_available?: boolean;
+  skip_available?: boolean;
 
   /**
    * Backend-owned power-cycle recovery state.

@@ -27,7 +27,7 @@ const HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 };
 
 type EstopControlsProps = {
   /** Header keeps redundant STOP access; the Manual bar swaps STOP for RELEASE. */
-  variant?: "header" | "vertical";
+  variant?: "header" | "vertical" | "mission";
 };
 
 export const EstopControls: React.FC<EstopControlsProps> = ({
@@ -89,13 +89,13 @@ export const EstopControls: React.FC<EstopControlsProps> = ({
 
   return (
     <View style={[styles.row, isVertical && styles.vertical]}>
-      {view.showLatchedBadge && !isVertical && (
+      {view.showLatchedBadge && variant === "header" && (
         <View style={styles.latchedBadge} accessibilityLabel="Emergency stop is on">
           <Text style={styles.latchedText}>E-STOP ON</Text>
         </View>
       )}
 
-      {view.showRelease && !isVertical && (
+      {view.showRelease && variant === "header" && (
         <TouchableOpacity
           onPress={handleRelease}
           disabled={isReleasing}
@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    height: 36,
+    minHeight: 48,
     paddingHorizontal: 10,
     borderRadius: 10,
     backgroundColor: colors.warning,
@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    height: 36,
+    minHeight: 48,
     paddingHorizontal: 12,
     borderRadius: 10,
     backgroundColor: colors.danger,

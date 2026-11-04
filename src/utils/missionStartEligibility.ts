@@ -148,6 +148,7 @@ export function shouldSkipExecutionModePost(
 export type MissionStartOutcome =
   | { kind: "running" }
   | { kind: "paused"; pauseReason: string | null }
+  | { kind: "waiting" }
   | { kind: "other"; state: string };
 
 export function classifyMissionStartOutcome(input: {
@@ -161,6 +162,9 @@ export function classifyMissionStartOutcome(input: {
   }
   if (state === "RUNNING") {
     return { kind: "running" };
+  }
+  if (state === "WAITING_FOR_NEXT") {
+    return { kind: "waiting" };
   }
   return { kind: "other", state };
 }

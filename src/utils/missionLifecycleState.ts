@@ -27,6 +27,8 @@ export const MISSION_RUNTIME_LIFECYCLE_KEYS = [
   "progress_pct",
   "progress_percent",
   "resume_available",
+  "pause_available",
+  "skip_available",
   "pause_reason",
   "rtk_motion_ok",
   "rtk_reason",
@@ -121,6 +123,8 @@ export interface MissionLifecycleSlice {
   resume_stage?: string | null;
   stop_stage?: string | null;
   resume_available?: boolean;
+  pause_available?: boolean;
+  skip_available?: boolean;
   pause_reason?: string | null;
   rtk_motion_ok?: boolean;
   rtk_reason?: string | null;
@@ -142,6 +146,8 @@ export const MISSION_LIFECYCLE_SLICE_KEYS = [
   "resume_stage",
   "stop_stage",
   "resume_available",
+  "pause_available",
+  "skip_available",
   "pause_reason",
   "rtk_motion_ok",
   "rtk_reason",
@@ -191,6 +197,8 @@ export function buildMissionLifecycleSlice(
     resume_stage: optionalString(event.resume_stage),
     stop_stage: optionalString(event.stop_stage),
     resume_available: optionalBoolean(event.resume_available),
+    pause_available: optionalBoolean(event.pause_available),
+    skip_available: optionalBoolean(event.skip_available),
     pause_reason: optionalString(event.pause_reason),
     rtk_motion_ok: optionalBoolean(event.rtk_motion_ok),
     rtk_reason: optionalString(event.rtk_reason),
@@ -237,6 +245,8 @@ export interface EffectiveMissionLifecycle {
   source: "socket" | "rest" | "none";
   state: string | null;
   resumeAvailable: boolean;
+  pauseAvailable: boolean;
+  skipAvailable: boolean;
   /** Upper-cased, trimmed; null when absent. */
   pauseReason: string | null;
   rtkReason: string | null;
@@ -282,6 +292,8 @@ export function resolveEffectiveMissionLifecycle(
       source: "socket",
       state: upperOrNull(slice.state),
       resumeAvailable: slice.resume_available === true,
+      pauseAvailable: slice.pause_available === true,
+      skipAvailable: slice.skip_available === true,
       pauseReason: upperOrNull(slice.pause_reason),
       rtkReason: nonEmptyOrNull(slice.rtk_reason),
       rtkMotionOk:
@@ -297,6 +309,8 @@ export function resolveEffectiveMissionLifecycle(
       source: "none",
       state: null,
       resumeAvailable: false,
+      pauseAvailable: false,
+      skipAvailable: false,
       pauseReason: null,
       rtkReason: null,
       rtkMotionOk: null,
@@ -310,6 +324,8 @@ export function resolveEffectiveMissionLifecycle(
     source: "rest",
     state: upperOrNull(mission.state),
     resumeAvailable: mission.resume_available === true,
+    pauseAvailable: mission.pause_available === true,
+    skipAvailable: mission.skip_available === true,
     pauseReason: upperOrNull(mission.pause_reason),
     rtkReason: nonEmptyOrNull(mission.rtk_reason),
     rtkMotionOk:

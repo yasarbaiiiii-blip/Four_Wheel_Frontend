@@ -50,6 +50,7 @@ import {
   isTerminalPointEventPayload,
 } from "../utils/reportRefreshScheduler";
 import { QuickNtripStartCard } from "../components/missionreport/QuickNtripStartCard";
+import { EstopControls } from "../components/shared/EstopControls";
 import { ManualDrivePanel } from "../components/manual/ManualDrivePanel";
 import MissionControlCard from "../components/missionreport/MissionControlCard";
 import { WaypointsTable } from "../components/missionreport/WaypointsTable";
@@ -105,7 +106,6 @@ import {
 } from "../adapters/rtkControlAdapter";
 import {
   armVehicle,
-  releaseEmergencyStop,
   setManualMode,
 } from "../services/vehicleControlService";
 // NOTE: calculateAccuracy and formatAccuracyDisplay commented out - now using backend wp_dist_cm
@@ -376,7 +376,10 @@ export default function MissionReportScreen({
 
   const [backendMission, setBackendMissionState] =
     useState<MissionRuntimeState | null>(null);
+  const [stopAwaitingTerminal, setStopAwaitingTerminal] = useState(false);
   const backendMissionRef = useRef<MissionRuntimeState | null>(null);
+  const commandGenerationRef = useRef(0);
+  const stopFenceRef = useRef(false);
   // When the current backendMission object was accepted. Lets a newer
   // Socket.IO lifecycle push win over an older REST snapshot and vice versa.
   const backendMissionReceivedAtRef = useRef<number | null>(null);
@@ -424,6 +427,12 @@ export default function MissionReportScreen({
   const setBackendMission = useCallback(
     (mission: MissionRuntimeState | null | undefined) => {
       const incoming = mission ?? null;
+      const incomingState = String(incoming?.state ?? "").trim().toUpperCase();
+      if (stopFenceRef.current && !["STOPPED", "ERROR", "FAULT"].includes(incomingState)) return;
+      if (stopFenceRef.current) {
+        stopFenceRef.current = false;
+        setStopAwaitingTerminal(false);
+      }
       setBackendMissionState((prev) => {
         // A compact mission_lifecycle@1 packet carries no point_results or
         // report. Merge it into the same mission/run's previous snapshot
@@ -467,6 +476,7 @@ export default function MissionReportScreen({
     const handleMissionStatus = (raw: unknown) => {
       if (!raw || typeof raw !== "object") return;
       const incoming = raw as MissionRuntimeState;
+      if (stopFenceRef.current && !["STOPPED", "FAULT", "ERROR"].includes(String(incoming.state ?? "").trim().toUpperCase())) return;
       const current = backendMissionRef.current;
       const incomingId = String(incoming.mission_id ?? "").trim();
       const currentId = String(current?.mission_id ?? "").trim();
@@ -563,6 +573,7 @@ export default function MissionReportScreen({
   const staleMissionRunIdRef = useRef<string | null>(null);
   const holdingForNewReportRunRef = useRef(false);
   const [isPreparingMission, setIsPreparingMission] = useState(false);
+  const [isStartingMission, setIsStartingMission] = useState(false);
   const startTimingAttemptRef = useRef<string | null>(null);
   // The confirmation dialog can be tapped again before React has rendered the
   // button's loading state. Keep a synchronous guard so duplicate START calls
@@ -1540,14 +1551,7 @@ export default function MissionReportScreen({
     }
   }, [reportStatusMap, socketPointResults]);
 
-  const effectiveWaitingForManual =
-    backendMissionState === "WAITING_FOR_NEXT" ||
-    String(screenTelemetry.missionStatus ?? "")
-      .trim()
-      .toUpperCase() === "WAITING_FOR_NEXT" ||
-    waitingForManual ||
-    px4WaitingForContinue ||
-    (verifiedCtx.isLoaded && verifiedWaiting);
+  const effectiveWaitingForManual = effectiveLifecycle.state === "WAITING_FOR_NEXT";
 
   // Check if showing previous mission data
   const isShowingPreviousMission =
@@ -1642,7 +1646,9 @@ export default function MissionReportScreen({
 
     try {
       const requestStartedAt = Date.now();
+      const generation = commandGenerationRef.current;
       const response = await getMissionStatus();
+      if (generation !== commandGenerationRef.current || stopFenceRef.current) return;
 
       if (!response?.success || !response?.mission) {
         return;
@@ -3065,9 +3071,11 @@ export default function MissionReportScreen({
 
       const response = await setMissionExecutionMode(newMode);
 
-      if (!response.success) {
+      if (!response.success || response.mission?.execution_mode !== newMode) {
         const message =
-          response.mission?.message || "Backend rejected execution mode.";
+          response.success
+            ? "The rover did not confirm the requested execution mode."
+            : response.mission?.message || response.message || "Backend rejected execution mode.";
         showNotification("error", "Mode Change Failed", message, 5000);
         return {
           success: false,
@@ -3119,6 +3127,12 @@ export default function MissionReportScreen({
       };
     }
 
+    if (effectiveLifecycle.state !== "READY" || backendMission?.accepted_for_start !== true) {
+      const message = "Load a mission and wait for the rover to report READY before starting.";
+      showNotification("info", "Start Unavailable", message, 5000);
+      return { success: false, message };
+    }
+
     if (authoringChanged) {
       const message =
         "Wait for the automatic path update to finish before starting this mission.";
@@ -3136,6 +3150,10 @@ export default function MissionReportScreen({
       };
     }
     startInFlightRef.current = true;
+    setIsStartingMission(true);
+    const generation = commandGenerationRef.current;
+    const superseded = () => generation !== commandGenerationRef.current;
+    const stoppedDuringStart = () => ({ success: false, message: "Stop superseded the pending Start." });
 
     const attemptId = createMissionStartAttemptId();
     startTimingAttemptRef.current = attemptId;
@@ -3183,6 +3201,7 @@ export default function MissionReportScreen({
         setIsPreparingMission(true);
         logMissionStartTiming(attemptId, "backend_phase", "restore");
         latestMission = await restoreRetainedMissionForStart();
+        if (superseded()) return stoppedDuringStart();
       }
 
       const eligibility = getMissionStartEligibility({
@@ -3262,6 +3281,7 @@ export default function MissionReportScreen({
         logMissionStartTiming(attemptId, "backend_phase", "prepare");
 
         const prepareResponse = await prepareMission();
+        if (superseded()) return stoppedDuringStart();
         latestMission = prepareResponse.mission;
         setBackendMission(prepareResponse.mission);
 
@@ -3288,6 +3308,7 @@ export default function MissionReportScreen({
             mountedRef.current
           ) {
             const status = await getMissionStatus();
+            if (superseded()) return stoppedDuringStart();
             if (status?.success && status.mission) {
               readyMission = status.mission;
               latestMission = status.mission;
@@ -3326,6 +3347,12 @@ export default function MissionReportScreen({
         )
       ) {
         const modeResponse = await setMissionExecutionMode(executionMode);
+        if (superseded()) return stoppedDuringStart();
+        if (!modeResponse.success || modeResponse.mission?.execution_mode !== executionMode) {
+          const message = modeResponse.message || "The rover did not confirm the requested execution mode.";
+          showNotification("error", "Mode Change Failed", message, 5000);
+          return { success: false, message };
+        }
         latestMission = modeResponse.mission;
         setBackendMission(modeResponse.mission);
         logMissionStartTiming(
@@ -3337,22 +3364,9 @@ export default function MissionReportScreen({
         logMissionStartTiming(attemptId, "execution_mode", "skipped");
       }
 
-      // Previous Complete/Stop latches the shared STOP contract.
-      // That latch is not always visible as emergency_stop=true, so
-      // Start must always RELEASE before POST /api/mission/start.
-      try {
-        await releaseEmergencyStop();
-        logMissionStartTiming(attemptId, "estop_release");
-      } catch (releaseError) {
-        logMissionStartTiming(attemptId, "estop_release", "failed");
-        console.log(
-          "[MissionReportScreen] Pre-start E-stop release skipped/failed:",
-          releaseError,
-        );
-      }
-
       logMissionStartTiming(attemptId, "start_post_sent");
       const response = await startMission(latestMission?.mission_id);
+      if (superseded()) return stoppedDuringStart();
       logMissionStartTiming(
         attemptId,
         "start_post_returned",
@@ -3374,14 +3388,9 @@ export default function MissionReportScreen({
         };
       }
 
-      clearCurrentMissionData();
-
-      // The backend response is synchronized with Mission Manager's
-      // acknowledged START status, so it is authoritative on its own:
-      // no follow-up GET and no automatic RESUME. Socket.IO confirms
-      // independently.
+      // Only a confirmed running, paused or waiting state counts as Start.
+      // An unexpected response triggers a fresh status request below.
       const startedMission = response.mission;
-      setBackendMission(startedMission);
       const startOutcome = classifyMissionStartOutcome({
         state: startedMission?.state,
         pauseReason: startedMission?.pause_reason,
@@ -3391,6 +3400,16 @@ export default function MissionReportScreen({
         "backend_phase",
         `start_outcome=${startOutcome.kind}`,
       );
+
+      if (startOutcome.kind === "other") {
+        const message = `Start was not confirmed (rover state: ${startOutcome.state || "unknown"}).`;
+        showNotification("error", "Start Not Confirmed", message, 6000);
+        void refreshBackendMission();
+        return { success: false, message };
+      }
+
+      clearCurrentMissionData();
+      setBackendMission(startedMission);
 
       setIsMissionActive(true);
       setMissionStartTime(new Date());
@@ -3411,6 +3430,8 @@ export default function MissionReportScreen({
             : "Rover paused. Press Resume when it is allowed.",
           6000,
         );
+      } else if (startOutcome.kind === "waiting") {
+        showNotification("info", "Waiting for Operator", "The rover is waiting for the next point command.", 6000);
       } else {
         showNotification(
           "success",
@@ -3428,6 +3449,7 @@ export default function MissionReportScreen({
 
       return response;
     } catch (error) {
+      if (superseded()) return stoppedDuringStart();
       const message =
         error instanceof Error ? error.message : "Failed to start mission.";
 
@@ -3450,18 +3472,21 @@ export default function MissionReportScreen({
     } finally {
       startInFlightRef.current = false;
       setIsPreparingMission(false);
+      setIsStartingMission(false);
     }
   };
 
   const handlePause = async () => {
+    const generation = commandGenerationRef.current;
     try {
       console.log("[MissionReportScreen] Pausing mission...");
 
       const response = await pauseMission();
+      if (generation !== commandGenerationRef.current) return { success: false, message: "Stop superseded Pause." };
 
-      setBackendMission(response.mission);
+      if (response.mission) setBackendMission(response.mission);
 
-      if (response.success) {
+      if (response.success && String(response.mission?.state ?? "").trim().toUpperCase() === "PAUSED") {
         // A paused mission is still an active mission.
         setIsMissionActive(true);
 
@@ -3470,10 +3495,16 @@ export default function MissionReportScreen({
           "Mission Paused",
           response.mission.message || "Mission paused successfully.",
         );
+      } else {
+        const message = response.message || response.mission?.message || "Pause was not confirmed by the rover.";
+        showNotification("error", "Pause Not Confirmed", message, 5000);
+        void refreshBackendMission();
+        return { success: false, message };
       }
 
       return response;
     } catch (error) {
+      if (generation !== commandGenerationRef.current) return { success: false, message: "Stop superseded Pause." };
       const message =
         error instanceof Error ? error.message : "Failed to pause mission.";
 
@@ -3491,6 +3522,7 @@ export default function MissionReportScreen({
   };
 
   const handleResume = async () => {
+    const generation = commandGenerationRef.current;
     if (!backendResumeAvailable) {
       const reason = pauseReasonText(backendPauseReason, backendRtkReason).blockedMessage;
 
@@ -3506,10 +3538,11 @@ export default function MissionReportScreen({
       console.log("[MissionReportScreen] Resuming mission...");
 
       const response = await resumeMission();
+      if (generation !== commandGenerationRef.current) return { success: false, message: "Stop superseded Resume." };
 
-      setBackendMission(response.mission);
+      if (response.mission) setBackendMission(response.mission);
 
-      if (response.success) {
+      if (response.success && ["RUNNING", "WAITING_FOR_NEXT"].includes(String(response.mission?.state ?? "").trim().toUpperCase())) {
         setIsMissionActive(true);
 
         showNotification(
@@ -3517,10 +3550,16 @@ export default function MissionReportScreen({
           "Mission Resumed",
           response.mission.message || "Mission resumed successfully.",
         );
+      } else {
+        const message = response.message || response.mission?.message || "Resume was not confirmed by the rover.";
+        showNotification("error", "Resume Not Confirmed", message, 5000);
+        void refreshBackendMission();
+        return { success: false, message };
       }
 
       return response;
     } catch (error) {
+      if (generation !== commandGenerationRef.current) return { success: false, message: "Stop superseded Resume." };
       const message =
         error instanceof Error ? error.message : "Failed to resume mission.";
 
@@ -3538,25 +3577,34 @@ export default function MissionReportScreen({
   };
 
   const handleStop = async () => {
+    const generation = ++commandGenerationRef.current;
+    stopFenceRef.current = true;
+    setStopAwaitingTerminal(true);
     try {
       console.log("[MissionReportScreen] Stopping mission...");
 
       const response = await stopMission();
+      if (generation !== commandGenerationRef.current) return response;
+      if (!response.success) {
+        showNotification("error", "Stop Not Confirmed", response.message || response.mission?.message || "The rover refused Stop.", 6000);
+        return response;
+      }
 
-      setBackendMission(response.mission);
-
-      if (response.success) {
-        setCurrentIndex(null);
-        setIsMissionActive(false);
-        setWaitingForManual(false);
-
-        preserveCurrentMission.current();
-
-        showNotification(
-          "success",
-          "Mission Stopped",
-          response.mission.message || "Mission stopped successfully.",
-        );
+      showNotification("info", "Stop recorded", "Stop request recorded. Physical stop is not confirmed.", 6000);
+      try {
+        const status = await getMissionStatus();
+        if (generation === commandGenerationRef.current && status.success && status.mission) {
+          setBackendMission(status.mission);
+          const state = String(status.mission.state ?? "").trim().toUpperCase();
+          if (["STOPPED", "ERROR", "FAULT"].includes(state)) {
+            setCurrentIndex(null);
+            setIsMissionActive(false);
+            setWaitingForManual(false);
+            preserveCurrentMission.current();
+          }
+        }
+      } catch (statusError) {
+        console.warn("[MissionReportScreen] Stop status refresh failed:", statusError);
       }
 
       return response;
@@ -3565,8 +3613,6 @@ export default function MissionReportScreen({
         error instanceof Error ? error.message : "Failed to stop mission.";
 
       console.error("[MissionReportScreen] Stop failed:", error);
-
-      void refreshBackendMission();
 
       showNotification("error", "Stop Failed", message, 5000);
 
@@ -3578,25 +3624,30 @@ export default function MissionReportScreen({
   };
 
   const handleNext = async () => {
+    const generation = commandGenerationRef.current;
     try {
       console.log("[MissionReportScreen] Moving to next marking point...");
 
       const response = await nextMissionPoint();
+      if (generation !== commandGenerationRef.current) return { success: false, message: "Stop superseded Next." };
 
-      setBackendMission(response.mission);
+      if (response.mission) setBackendMission(response.mission);
 
       if (response.success) {
-        setWaitingForManual(false);
+        if (response.mission?.state) {
+          setWaitingForManual(String(response.mission.state).trim().toUpperCase() === "WAITING_FOR_NEXT");
+        }
 
         showNotification(
-          "success",
-          "Next Marking Point",
-          response.mission.message || "Moving to the next marking point.",
+          "info",
+          "Next request recorded",
+          response.mission?.message || response.message || "The rover recorded the Next request.",
         );
       }
 
       return response;
     } catch (error) {
+      if (generation !== commandGenerationRef.current) return { success: false, message: "Stop superseded Next." };
       const message =
         error instanceof Error
           ? error.message
@@ -3616,23 +3667,26 @@ export default function MissionReportScreen({
   };
 
   const handleSkip = async () => {
+    const generation = commandGenerationRef.current;
     try {
       console.log("[MissionReportScreen] Skipping current marking point...");
 
       const response = await skipMissionPoint();
+      if (generation !== commandGenerationRef.current) return { success: false, message: "Stop superseded Skip." };
 
-      setBackendMission(response.mission);
+      if (response.mission) setBackendMission(response.mission);
 
       if (response.success) {
         showNotification(
-          "success",
-          "Marking Point Skipped",
-          response.mission.message || "Current marking point was skipped.",
+          "info",
+          "Skip current goal",
+          response.mission?.message || response.message || "The rover recorded the Skip request.",
         );
       }
 
       return response;
     } catch (error) {
+      if (generation !== commandGenerationRef.current) return { success: false, message: "Stop superseded Skip." };
       const message =
         error instanceof Error
           ? error.message
@@ -5595,9 +5649,14 @@ export default function MissionReportScreen({
           onPause={() => handlePause()}
           onResume={() => handleResume()}
           onStop={() => handleStop()}
-          canStart={canStartMission}
+          canStart={canStartMission && effectiveLifecycle.state === "READY" && backendMission?.accepted_for_start === true}
           isPreparing={isPreparingMission}
           isMissionPaused={isBackendMissionPaused}
+          missionState={effectiveLifecycle.state}
+          isStarting={isStartingMission || stopAwaitingTerminal}
+          pauseAvailable={effectiveLifecycle.pauseAvailable}
+          skipAvailable={effectiveLifecycle.skipAvailable}
+          canChangeMode={effectiveLifecycle.state === "READY" && backendMission?.accepted_for_start === false}
           mode={mode === "MANUAL" ? "manual" : "auto"}
           onSetMode={(nextMode) =>
             handleSetExecutionMode(nextMode === "manual" ? "MANUAL" : "AUTO")
@@ -5913,6 +5972,11 @@ interface MissionActivityExperienceProps {
   canStart: boolean;
   isPreparing: boolean;
   isMissionPaused: boolean;
+  missionState?: string | null;
+  isStarting?: boolean;
+  pauseAvailable?: boolean;
+  skipAvailable?: boolean;
+  canChangeMode?: boolean;
   mode?: "auto" | "manual";
   onSetMode?: (mode: "auto" | "manual") => Promise<unknown> | void;
   onSkip?: DeckAction;
@@ -6085,7 +6149,8 @@ function MissionActivityExperience({
   isMissionActive,
   hasMissionLoaded, onClearMission, onOpenPlan,
   onStart, onPause, onResume, onStop,
-  canStart, isPreparing, isMissionPaused,
+  canStart, isPreparing, isMissionPaused, missionState, isStarting,
+  pauseAvailable, skipAvailable, canChangeMode,
   mode, onSetMode, onSkip, onNext, waitingForManual,
   onExport, onExportReport, onClearLogs, clearLogsBlockedReason,
   pauseReason, rtkReason, resumeAvailable,
@@ -6108,6 +6173,7 @@ function MissionActivityExperience({
   const [isStopping, setIsStopping] = useState(false);
   const controlLockRef = useRef(false);
   const stopLockRef = useRef(false);
+  const skipConfirmOpenRef = useRef(false);
   const deckMountedRef = useRef(true);
   const [activityCardHeight, setActivityCardHeight] = useState(0);
   const [isTelemetryExpanded, setIsTelemetryExpanded] = useState(false);
@@ -6499,6 +6565,7 @@ function MissionActivityExperience({
   );
 
   const controls = getDeckControlState({
+    state: missionState,
     isMissionActive,
     isMissionPaused,
     waitingForManual: Boolean(waitingForManual),
@@ -6507,6 +6574,11 @@ function MissionActivityExperience({
     isEditing: isEditingPoints,
     isBusy: pendingAction !== null,
     isStopping,
+    isStarting,
+    pauseAvailable,
+    skipAvailable,
+    resumeAvailable,
+    canChangeMode,
     mode: mode ?? "auto",
   });
 
@@ -6553,7 +6625,7 @@ function MissionActivityExperience({
           <View style={[fieldExperienceStyles.homeStatusBlock, telemetry.satellites != null && telemetry.satellites >= 8 ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, telemetry.satellites != null && telemetry.satellites >= 8 ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name="satellite-variant" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: telemetry.satellites != null && telemetry.satellites >= 8 ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>SATELLITES</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, telemetry.satellites != null && telemetry.satellites >= 8 ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{telemetry.satellites == null ? "—" : `${telemetry.satellites} used`}</Text></View></View>
           <View style={[fieldExperienceStyles.homeStatusBlock, isMissionActive ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeInfo : fieldExperienceStyles.homeWatchBadgeInfoDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, isMissionActive ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconInfo]}><MaterialCommunityIcons name="robot-industrial" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: isMissionActive ? "#16B980" : "#1475EE" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>MODE</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, isMissionActive ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueInfo : fieldExperienceStyles.homeStatusValueInfoDark)]} numberOfLines={1}>{String(telemetry.mode)}</Text></View></View>
         </View>
-        <View style={[fieldExperienceStyles.homeControls, !isLightHeader && fieldExperienceStyles.homeControlsDark]}><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeThemeButton, !isLightHeader && fieldExperienceStyles.homeThemeButtonDark]} onPress={() => setIsLightHeader((value) => !value)} accessibilityRole="button" accessibilityLabel="Toggle light and dark top bar"><MaterialCommunityIcons name={isLightHeader ? "weather-night" : "white-balance-sunny"} size={19} color="#FFFFFF" /><Text style={fieldExperienceStyles.homeControlLabel}>THEME</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeSettingsButton, !isLightHeader && fieldExperienceStyles.homeControlDark]} onPress={() => setShowSettings(true)} accessibilityRole="button" accessibilityLabel="Open settings"><MaterialCommunityIcons name="tune-variant" size={19} color={isLightHeader ? "#173563" : "#F8FAFC"} /><Text style={[fieldExperienceStyles.homeSettingsLabel, !isLightHeader && fieldExperienceStyles.homeSettingsLabelDark]}>SETTINGS</Text></TouchableOpacity></View>
+        <View style={[fieldExperienceStyles.homeControls, !isLightHeader && fieldExperienceStyles.homeControlsDark]}><EstopControls variant="mission" /><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeThemeButton, !isLightHeader && fieldExperienceStyles.homeThemeButtonDark]} onPress={() => setIsLightHeader((value) => !value)} accessibilityRole="button" accessibilityLabel="Toggle light and dark top bar"><MaterialCommunityIcons name={isLightHeader ? "weather-night" : "white-balance-sunny"} size={19} color="#FFFFFF" /><Text style={fieldExperienceStyles.homeControlLabel}>THEME</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeSettingsButton, !isLightHeader && fieldExperienceStyles.homeControlDark]} onPress={() => setShowSettings(true)} accessibilityRole="button" accessibilityLabel="Open settings"><MaterialCommunityIcons name="tune-variant" size={19} color={isLightHeader ? "#173563" : "#F8FAFC"} /><Text style={[fieldExperienceStyles.homeSettingsLabel, !isLightHeader && fieldExperienceStyles.homeSettingsLabelDark]}>SETTINGS</Text></TouchableOpacity></View>
       </View>
       <View style={fieldExperienceStyles.homeHeadingCard}>
         <View style={fieldExperienceStyles.homeHeadingDial}><MaterialCommunityIcons name="navigation-variant" size={20} color="#1475EE" style={{ transform: [{ rotate: `${headingRotation}deg` }] }} /></View>
@@ -6766,6 +6838,7 @@ function MissionActivityExperience({
               )}
             </View>
 
+            <EstopControls variant="mission" />
             {/* Right: Close Button */}
             <TouchableOpacity style={fieldExperienceStyles.deckCloseBtn} onPress={closeProgressScreen} activeOpacity={0.82} accessibilityRole="button" accessibilityLabel="Close mission operations deck">
               <MaterialCommunityIcons name="close" size={18} color="#64748B" />
@@ -7079,7 +7152,14 @@ function MissionActivityExperience({
                       ? runControl("resume", onResume)
                       : runControl("pause", onPause));
                   }}
-                  onSkip={() => { void runControl("skip", onSkip); }}
+                  onSkip={() => {
+                    if (skipConfirmOpenRef.current) return;
+                    skipConfirmOpenRef.current = true;
+                    Alert.alert("Skip current goal?", "The rover will skip the current goal if its safety checks allow it.", [
+                      { text: "Cancel", style: "cancel", onPress: () => { skipConfirmOpenRef.current = false; } },
+                      { text: "Skip goal", style: "destructive", onPress: () => { skipConfirmOpenRef.current = false; void runControl("skip", onSkip); } },
+                    ], { onDismiss: () => { skipConfirmOpenRef.current = false; } });
+                  }}
                   onNext={() => { void runControl("next", onNext); }}
                   onSetMode={(next) => {
                     void runControl("mode", onSetMode ? () => onSetMode(next) : undefined);

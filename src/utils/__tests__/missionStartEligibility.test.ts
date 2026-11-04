@@ -167,10 +167,10 @@ describe("classifyMissionStartOutcome", () => {
     },
   );
 
-  test("other states are reported as-is", () => {
+  test("waiting is reported separately from an unexpected state", () => {
     expect(classifyMissionStartOutcome({ state: "waiting_for_next" })).toEqual({
-      kind: "other",
-      state: "WAITING_FOR_NEXT",
+      kind: "waiting",
     });
+    expect(classifyMissionStartOutcome({ state: "READY" })).toEqual({ kind: "other", state: "READY" });
   });
 });

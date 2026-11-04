@@ -142,6 +142,8 @@ describe("Socket.IO lifecycle slice", () => {
 
   it.each<[string, unknown]>([
     ["resume_available", true],
+    ["pause_available", true],
+    ["skip_available", true],
     ["pause_reason", "OPERATOR"],
     ["rtk_reason", "ok"],
     ["rtk_motion_ok", true],
@@ -168,6 +170,16 @@ describe("effective lifecycle authority", () => {
     expect(view.source).toBe("socket");
     expect(view.resumeAvailable).toBe(true);
     expect(view.pauseReason).toBe("OPERATOR");
+  });
+
+  it("takes Pause and Skip authority from the same lifecycle snapshot", () => {
+    const slice = buildMissionLifecycleSlice(
+      socketPayload({ pause_available: true, skip_available: false }),
+      2000,
+    );
+    const view = resolveEffectiveMissionLifecycle(slice, restBlocked, 1000);
+    expect(view.pauseAvailable).toBe(true);
+    expect(view.skipAvailable).toBe(false);
   });
 
   it("ignores a socket push from a different mission_id", () => {
