@@ -211,10 +211,10 @@ export function BackendTrajectoryProvider({
         const nextId =
           typeof mission.mission_id === "string" ? mission.mission_id : null;
         const loadCleared = mission.trajectory_ready !== true;
+        // With no earlier mission, any reported mission is the new upload. A
+        // fast backend can finish before a poll sees trajectory_ready drop.
         const missionChanged =
-          missionIdAtHoldRef.current != null &&
-          nextId != null &&
-          nextId !== missionIdAtHoldRef.current;
+          nextId != null && nextId !== missionIdAtHoldRef.current;
         if (loadCleared || missionChanged) {
           holdPreviewRef.current = false;
         } else {
