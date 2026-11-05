@@ -31,6 +31,7 @@ import {
   shallowEqual,
   useLiveTelemetrySelector,
 } from "../context/liveTelemetryStore";
+import { EstopControls } from "../components/shared/EstopControls";
 import { PathSequenceSidebar } from "../components/pathplan/PathSequenceSidebar";
 import MissionOpsPanel from "../components/pathplan/MissionOpsPanel";
 import { MissionStatistics } from "../components/pathplan/MissionStatistics";
@@ -5056,6 +5057,12 @@ export default function PathPlanScreen({
           recordAndApply(updatedList);
         }}
       />
+
+      {isVisible && (
+        <View style={styles.floatingEstop} pointerEvents="box-none">
+          <EstopControls variant="mission" />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -5067,6 +5074,14 @@ const styles = StyleSheet.create({
   },
   containerOverMap: {
     backgroundColor: "transparent",
+  },
+  // Above the layer controls at top 76: 12 + 48 dp leaves a 16 dp gap.
+  floatingEstop: {
+    position: "absolute",
+    left: 16,
+    top: 12,
+    zIndex: 2000,
+    elevation: 6,
   },
   floatingLayerControlsWrapper: {
     position: "absolute",

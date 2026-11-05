@@ -1,5 +1,6 @@
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
+import { Alert } from "react-native";
 import { EstopControls } from "../EstopControls";
 import { emergencyStop, releaseEmergencyStop } from "../../../services/vehicleControlService";
 
@@ -41,5 +42,40 @@ describe("mission emergency stop", () => {
     await act(async () => { await stop.props.onPress(); });
     expect(emergencyStop).toHaveBeenCalledTimes(1);
     expect(releaseEmergencyStop).not.toHaveBeenCalled();
+  });
+
+  it("shows the rover's answer and asks for fresh status after a recorded stop", async () => {
+    mockEstopState = undefined;
+    const onStopRecorded = jest.fn();
+    let renderer: any;
+    act(() => { renderer = TestRenderer.create(<EstopControls variant="mission" onStopRecorded={onStopRecorded} />); });
+    const stop = renderer.root.find((node: any) => node.props.accessibilityLabel === "Emergency stop");
+    await act(async () => { await stop.props.onPress(); });
+    expect(Alert.alert).toHaveBeenCalledWith("E-STOP RECORDED", "Stop recorded");
+    expect(onStopRecorded).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report a stop or ask for status when the rover refuses", async () => {
+    mockEstopState = undefined;
+    (emergencyStop as jest.Mock).mockResolvedValueOnce({ success: false, message: "refused" });
+    const onStopRecorded = jest.fn();
+    let renderer: any;
+    act(() => { renderer = TestRenderer.create(<EstopControls variant="mission" onStopRecorded={onStopRecorded} />); });
+    const stop = renderer.root.find((node: any) => node.props.accessibilityLabel === "Emergency stop");
+    await act(async () => { await stop.props.onPress(); });
+    expect(Alert.alert).toHaveBeenCalledWith("E-STOP NOT CONFIRMED", "refused");
+    expect(onStopRecorded).not.toHaveBeenCalled();
+  });
+
+  it("shows the latch only when the rover reports it, and Stop stays available", () => {
+    mockEstopState = undefined;
+    const hasBadge = (latched: boolean) => {
+      let renderer: any;
+      act(() => { renderer = TestRenderer.create(<EstopControls variant="mission" stopLatched={latched} />); });
+      expect(renderer.root.findAll((node: any) => node.type === "TouchableOpacity" && node.props.accessibilityLabel === "Emergency stop")).toHaveLength(1);
+      return renderer.root.findAll((node: any) => node.type === "View" && node.props.accessibilityLabel === "A stop is latched on the rover").length === 1;
+    };
+    expect(hasBadge(true)).toBe(true);
+    expect(hasBadge(false)).toBe(false);
   });
 });

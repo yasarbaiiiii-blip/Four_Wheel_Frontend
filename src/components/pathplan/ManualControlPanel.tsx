@@ -232,10 +232,14 @@ export const ManualControlPanel: React.FC<ManualControlPanelProps> = ({
     sendManualControl();
     
     try {
-      await services.emergencyStop();
-      Alert.alert('EMERGENCY STOP', 'PX4 emergency stop sent.');
+      const response = await services.emergencyStop();
+      if (response?.success) {
+        Alert.alert('E-STOP RECORDED', response.message || 'Emergency stop recorded. Physical stop is not confirmed.');
+      } else {
+        Alert.alert('E-STOP NOT CONFIRMED', response?.message || 'The rover did not confirm the emergency stop.');
+      }
     } catch (error) {
-      Alert.alert('Error', 'Failed to send PX4 emergency stop');
+      Alert.alert('E-STOP FAILED', 'Could not send the emergency stop.');
       console.error('[ManualControl] Emergency stop failed:', error);
     }
   }, [services, sendManualControl]);

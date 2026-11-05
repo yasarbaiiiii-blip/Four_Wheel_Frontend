@@ -1266,6 +1266,38 @@ None changed. The helper sends no arm, start, motion or spray command. `stop` es
 
 ---
 
+## Entry 027 — Mission Controls Execution Plan (No Code)
+- **Date & Time:** 2026-11-04
+- **Working Branch:** `client_` at `9f37614`; backend `Beacon-and-Telemetry-updation` at `99134fc`
+- **Agent / Contributor:** Claude Code (Opus 5.5)
+
+### 1. Objective & Scope
+Operator asked for an execution plan to make Start, Stop and the other mission controls work on the C++ backend. Source reading only.
+
+### 2. Changes Implemented
+- Created `D:\tmp\DYX_Mission_Controls_Execution_Plan.md`, outside both repos. No app or backend source changed.
+- Operator committed and pushed entry 024's work: backend `99134fc`, frontend `9f37614` (remote `four_wheel`). This replaces "uncommitted" in entries 024 and 026. Not yet built or run on the rover.
+
+### 3. Key Architecture & Design Decisions
+- Adding routes cannot make the controls work: every stage is deliberately locked (no public routes, decision-only native commands, executor denial, tick forced E-stop on and motion off, bridge `B3_LOCKOUT`, hardcoded hardware evidence, observe-only spray).
+- Plan: Phase 0 prerequisites; Phase 1 Stop and E-stop; Phase 2 all buttons with truthful refusal; Phase 3 off-rover dry run; Phases 4 to 6 commissioning, motion and spray, needing the owner's signed hardware safety plan.
+- Newly confirmed in code: Stop latches until a restart; C++ Skip works only in `approaching` and Pause not in `await_next`, unlike Python; native Next and Skip have no HTTP route; `mission_manager_node` and the bridge have no arm command; upload does not visibly reach `rpp_controller`; compatibility layer always sends `mission_mode` automatic.
+- `git merge-tree` reports `99134fc` merges with `81f3cb2` with no conflicts. Not built.
+
+### 4. Hardware Safety & Safety Interlocks
+- **Confirmed still open (entry 008):** no Emergency Stop on the main mission screen. `QuickNtripStartCard` is behind `!useMissionActivityExperience`, hardcoded true (`MissionReportScreen.tsx:2484`, `:5473`). This corrects entry 025, which called reachability unproven. `ManualDrivePanel` and `ManualControlPanel` reachability during a mission is unconfirmed.
+- No gate or lock changed.
+
+### 5. Verification & Testing
+Source reading only. Tests, `tsc` and Metro not run because no source changed. `backend_android_mission_controls.hpp` was only skimmed and is flagged in the plan.
+
+### 6. Current Repository State & Open Items
+- `HANDOVER.md` has this uncommitted entry.
+- Operator's decision, 2026-11-04: the team builds Phases 0 to 3 and pushes; then upload and mission controls are tested together on the rover, upload first. Spray is on hold, and Phases 4 to 6 wait. Both plan files in `D:\tmp` were updated to match, with a joint test section and new decision D8 (running with the sprayer disabled). The installer checks in the bundle are unchanged.
+- Open: decisions D1, D4 and D5 before Phases 1 to 3, the rest before Phase 4. Whether the team has app repo access is unconfirmed. The optional indoor `rover.sh prepare` and `build` have not been run.
+
+---
+
 ## Entry 027 — Commit Messages and Commands for Entry 024's Work
 - **Date & Time:** 2026-11-04
 - **Working Branch:** `client_` (backend `D:\projects\4WD_Backend`, `Beacon-and-Telemetry-updation`)
@@ -1361,3 +1393,110 @@ Run the code tests for Entry 028's uncommitted work, including the complete fron
 ### 6. Current Repository State & Open Items
 - Frontend still holds Entry 028's uncommitted changes plus the corrected map test and this handover entry. Backend still holds Entry 028's three uncommitted files. No commit, push, or merge.
 - Frontend tests, type check, and Metro pass locally. Backend C++ compilation and the off-rover e2e harness need a Linux environment with nlohmann-json, Drogon, Boost, SQLite, OpenSSL, and the required ROS dependencies; later Jetson acceptance remains open.
+---
+## Entry 028 — Beacon and Drogon Merge Trial (Branch Deleted)
+- **Date & Time:** 2026-11-04
+- **Working Branch:** `client_`; backend `D:\projects\4WD_Backend`, checkout left on `Beacon-and-Telemetry-updation` at `99134fc`
+- **Agent / Contributor:** Claude Code (Opus 5.5)
+
+### 1. Objective & Scope
+Operator asked for a new branch merging `Beacon-and-Telemetry-updation` and `DROGON_CPP17_BACKEND_MIGRATION`, then asked for it to be deleted because the Drogon branch's owner has not pushed their latest code yet.
+
+### 2. Changes Implemented
+- Created local branch `Beacon-Drogon-Integration` (`78822b7`, parents `99134fc` and `81f3cb2`), never pushed, then deleted it. Both source branches are unchanged.
+- This entry only in the frontend. No app or backend source changed.
+
+### 3. Key Architecture & Design Decisions
+- Redo the merge from the latest `origin/` refs once the Drogon code is pushed. The local `DROGON_CPP17_BACKEND_MIGRATION` is 2 commits behind `origin`.
+- `git merge-tree` at `99134fc` and `81f3cb2` reported no conflicts; `src/rover_backend/src/rover_backend.cpp` is the only file both changed. New Drogon commits can change this.
+- Findings from source reading, not from a run, to re-check on the next attempt:
+  - `/api/rtk/status` always sends `runtime.manager: null`, which `deriveRtkHeadline` maps to `start_requested`, so the RTK icon should stay on "Starting".
+  - `/api/rtk/status` hardcodes `gnss_solution` to `NO_GPS` while Beacon's telemetry sends the real fix. Reusing that data needs a lock, because `telemetry_` is only safe on the executor thread.
+  - The backend never sends the `rtk_status` socket event; the app's REST poll covers it.
+  - Drogon's `{status:{...}}` and `{correction_source:...}` shapes match the app's types.
+
+### 4. Hardware Safety & Safety Interlocks
+None changed. Drogon's bridge change from rate to attitude setpoints affects motion commands and needs a real `colcon build` and bench test when merged. Beacon's `0.0.0.0` bind makes `PUT /api/rtk/source` reachable over the LAN; it is behind `rtk_guard` login checks, not yet tested on a running server.
+
+### 5. Verification & Testing
+The merged code was never built or run. Tests, `tsc` and Metro not run because no source changed.
+
+### 6. Current Repository State & Open Items
+- Frontend: `HANDOVER.md` has uncommitted entries. Backend: local refs were fetched and the checkout is clean.
+- Next: when the Drogon owner has pushed, fetch, merge again, build with the WSL stand-ins in `~/dyx_backend_test`, re-run the mission and Socket.IO tests, test the RTK routes, then decide on the two RTK fixes.
+
+---
+
+## Entry 030 — Verification of the Team's Mission Controls Push
+- **Date & Time:** 2026-11-04
+- **Working Branch:** local `client_` at `9f37614` (team's `9885af2` is fetched, not pulled); backend `Beacon-and-Telemetry-updation` at `9356978`
+- **Agent / Contributor:** Claude Code (Opus 5.5)
+- **Numbering:** `9885af2` adds its own entries 028 and 029, which collide with local entry 028. This one is 030 to avoid a third collision.
+
+### 1. Objective & Scope
+Operator asked to verify the team's work against `D:\tmp\DYX_Mission_Controls_Execution_Plan.md`: backend `9356978` and app `9885af2`, both "mission control". No team code was changed.
+
+### 2. Changes Implemented
+This entry only. Test copies are in the session scratchpad and in WSL `~/verify` (safe to delete). The local `client_` was not pulled.
+
+### 3. Key Architecture & Design Decisions
+Verdict: Phase 1 partial, Phase 2 app side only, Phase 0 and Phase 3 not done. Do not treat the plan as complete.
+- **Works:** `/api/mission/stop`, `/api/estop`, `/api/estop/release` (always 423). Stop and E-stop latch without claiming a physical stop, answer in under 15 ms including during a pending upload, refuse bad tokens, and return 503 with the manager down. App: truthful Stop wording, no silent E-stop release in Start, confirmed Start states, late-reply fencing, Skip confirmation.
+- **Missing:** routes for start, pause, resume, next-point, skip-point, execution-mode and clear (all 404); native Next and Skip; stop recovery (D4); Pause lease (D5); stage mapping; `pause_available`, `skip_available`; socket `mission_status`; Phase 3 dry run; Drogon merge.
+- **Bug, app, from code, not run:** the stop fence in `MissionReportScreen.tsx` clears only when `setBackendMission` receives STOPPED, ERROR or FAULT. `refreshBackendMission` returns early while the fence is set, and the backend sends no socket `mission_status`, so only the single status request inside `handleStop` can clear it. If Stop fails or that request fails, the deck stays in its starting phase and status stops updating until another Stop succeeds or the screen state resets. After a manager restart status is EMPTY, which the fence also drops. No test renders this code.
+- **Gaps against Phase 1:** `PathPlanScreen`, where upload and load run, has no always-visible E-stop; its only one is inside the Manual Control panel, which reports "PX4 emergency stop sent" although nothing confirms PX4 received it. `HeaderBar` also has E-stop but nothing renders it. On the mission screen, a successful E-stop shows no message, and neither the badge nor the status field reports the latch. Stop's response has no `mission` object (plan 4.3). The app handles its absence.
+- **Test edit to review:** `NativeMapLayers.test.tsx` changed the long-failing `field-trajectory` assertion to match current behaviour. This removes the known failure by changing the expectation; confirm that hiding the route line on an idle preview is intended.
+- **Stale text:** team's entries 028 and 029 say nothing was committed, but both were pushed.
+
+### 4. Hardware Safety & Safety Interlocks
+The team's backend diff is 3 files and does not touch `enable_motion`, `observe_only`, the bridge, the mission tick or spray. The stop latch is not reset. Removing the E-stop release from Start implements D1's recommendation; D1, D4 and D5 are still not recorded as decided.
+
+### 5. Verification & Testing
+All backend runs use real Drogon 1.8.7 with stand-ins for ROS and PX4, on an idle machine.
+- **Backend `9356978`:** builds; `compat_test` 109/109; `e2e_mission.py` 63/63; `test_socketio_gateway.py` 18/18. The team could not run these.
+- **Stop probe (session scratch):** 14/16. The 2 failures are the missing `mission` object and the missing latch field. Stop then immediate status was terminal in 10 of 10 runs.
+- **Baseline `99134fc`:** same tests pass. A first run of `9356978` showed 61/63 and a Socket.IO failure while jest was using the CPU; both passed when re-run idle, so these were timing failures in that run.
+- **Trial merge `9356978` + `81f3cb2` (tree `a3332ed`, no branch created):** no conflicts, builds, same test results. RTK routes were not exercised.
+- **App `9885af2`:** `npx jest --ci --silent` 967/967, 79 suites; `npx tsc --noEmit` 0 errors.
+- **Metro:** not re-run; team reports HTTP 200.
+- **Not tested:** real ROS build, Jetson, real `mission_manager_node`, PX4, tablet, button layout on screen, Stop during a pending load or Start.
+
+### 6. Current Repository State & Open Items
+- Frontend: `HANDOVER.md` uncommitted (entries 027, 028, 030). `git pull` of `client_` will be blocked by it and then conflict with the team's entries.
+- Backend: clean at `9356978`.
+- Next: team fixes the stop fence, adds E-stop to `PathPlanScreen` and E-stop feedback, then builds Phase 2 routes. Operator and owner record D1, D4, D5. Joint test items 1 to 4 can run after that; items 5 to 8 cannot pass until recovery and the routes exist.
+
+---
+
+## Entry 031 — Front and Backend Verification of Telemetry, Upload, Load and Mission Controls
+- **Date & Time:** 2026-11-04 16:55 IST
+- **Working Branch:** Frontend `client_` at `9885af2`; backend `Beacon-and-Telemetry-updation` at `9356978`; both with uncommitted work
+- **Agent / Contributor:** Claude Code (Opus 5.5)
+
+### 1. Objective & Scope
+Operator asked whether telemetry, upload, load, extension, start, stop, pause, resume, next and skip will work, with nothing applied. Verified the current working trees, including uncommitted changes.
+
+### 2. Changes Implemented
+This entry only. Probes are in the session scratchpad and WSL `~/verify/probe`. A stray `build.txt` that my failed compile wrote to `src/dyx_rpp_cpp17_core/include/dyx_rpp_cpp17_core/` in the backend repo was removed.
+
+### 3. Key Architecture & Design Decisions
+No decisions taken. Verdict:
+- **Off-rover pass:** telemetry, upload, replace, extension set before Load, Load, Stop and E-stop as recorded decisions.
+- **Absent (HTTP 404):** start, pause, resume, next-point, skip-point, execution-mode, clear, prepare, restore, `DELETE /api/mission/file`, report, history, and `GET`/`PUT /api/mission/extension`. Release returns 423.
+- **New, by probe of the real `NativeControlOwner` with the node's tick arguments:** one tick after Load, the stage goes `ready` to `fault` and stays there, because `mission_manager_node.cpp:490` and `:579` hardcode E-stop true and `mission_sequence.hpp:209` faults READY on E-stop. `build_mission_state` reads only ingress status, so the app still shows READY and loaded. Plan joint test item 2 cannot detect this; `native_harness` never ticks the owner. Afterwards load returns `MISSION_ALREADY_INSTALLED`, which the layer treats as success, and a new upload is refused until restart.
+- **New, from code, not run:** `telemetry_fault_` is set at `mission_manager_node.cpp:310` and never cleared, so one rejected PX4 sample makes upload and load refuse as `PX4_DISARM_REQUIRED` until restart. The harness hardcodes it false.
+- **App, from code, not run:** Start enables after Load (`MissionReportScreen.tsx:5664` ignores `ready: false`), then fails on the `execution-mode` 404. Mission edit always fails because `handleCommitMissionEdit` first reads the 404 extension route (`:3798`).
+- **Handover gap:** the stop fence, `PathPlanScreen` E-stop, `missionStopFence.ts` and backend `emergency_stop` changes, dated after entry 030, had no entry until this one. Their authorship is not recorded.
+
+### 4. Hardware Safety & Safety Interlocks
+None changed. Stop and E-stop latch the mission manager only and command nothing in PX4, so a physical stop remains required. No hardware command was sent.
+
+### 5. Verification & Testing
+- **App:** `npx jest --ci --silent`: 989/991 in 80 suites. Both failures were 5 s timeouts in `missionReport.test.ts` while WSL builds ran; rerun idle with `missionStopFence` and `EstopControlsMission`, 41/41 passed. `npx tsc --noEmit`: 0 errors.
+- **Metro:** not run; no source changed.
+- **Backend:** rebuilt binaries in `~/verify/patched`; source matches the working tree (`diff -rq --strip-trailing-cr` clean for the 4 mission packages). `compat_test` 112/112 on a fresh database; 111/112 on the old one because its fixture session expired. `e2e_mission.py` 64/64. `test_socketio_gateway.py` 18/18. Uses stand-ins for ROS and PX4, Drogon 1.8.7.
+- **Not tested:** Jetson, real `mission_manager_node`, PX4, tablet, on-screen behaviour. `192.168.1.41:5001` did not answer (HTTP 000), so what the rover runs is unconfirmed.
+
+### 6. Current Repository State & Open Items
+- Frontend: uncommitted files as listed by `git status`, unchanged by this entry except `HANDOVER.md`. Backend: 3 uncommitted files, unchanged.
+- Next: owner decides how Load should behave while E-stop evidence is hardcoded, and how status should report the owner's real stage. Then correct joint test item 2, make Start respect `ready`, and fix mission edit.

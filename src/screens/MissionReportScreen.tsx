@@ -51,6 +51,12 @@ import {
 } from "../utils/reportRefreshScheduler";
 import { QuickNtripStartCard } from "../components/missionreport/QuickNtripStartCard";
 import { EstopControls } from "../components/shared/EstopControls";
+import {
+  admitMissionStatus,
+  isStopTerminalState,
+  runStopCommand,
+  type StopFencePhase,
+} from "../utils/missionStopFence";
 import { ManualDrivePanel } from "../components/manual/ManualDrivePanel";
 import MissionControlCard from "../components/missionreport/MissionControlCard";
 import { WaypointsTable } from "../components/missionreport/WaypointsTable";
@@ -379,7 +385,7 @@ export default function MissionReportScreen({
   const [stopAwaitingTerminal, setStopAwaitingTerminal] = useState(false);
   const backendMissionRef = useRef<MissionRuntimeState | null>(null);
   const commandGenerationRef = useRef(0);
-  const stopFenceRef = useRef(false);
+  const stopFencePhaseRef = useRef<StopFencePhase>("idle");
   // When the current backendMission object was accepted. Lets a newer
   // Socket.IO lifecycle push win over an older REST snapshot and vice versa.
   const backendMissionReceivedAtRef = useRef<number | null>(null);
@@ -425,13 +431,22 @@ export default function MissionReportScreen({
   }, []);
 
   const setBackendMission = useCallback(
-    (mission: MissionRuntimeState | null | undefined) => {
+    (
+      mission: MissionRuntimeState | null | undefined,
+      options?: { fresh?: boolean },
+    ) => {
       const incoming = mission ?? null;
-      const incomingState = String(incoming?.state ?? "").trim().toUpperCase();
-      if (stopFenceRef.current && !["STOPPED", "ERROR", "FAULT"].includes(incomingState)) return;
-      if (stopFenceRef.current) {
-        stopFenceRef.current = false;
+      const fencePhase = stopFencePhaseRef.current;
+      if (!admitMissionStatus(fencePhase, incoming?.state, options?.fresh === true)) return;
+      if (fencePhase !== "idle") {
+        stopFencePhaseRef.current = "idle";
         setStopAwaitingTerminal(false);
+        if (isStopTerminalState(incoming?.state)) {
+          setCurrentIndex(null);
+          setIsMissionActive(false);
+          setWaitingForManual(false);
+          preserveCurrentMission.current();
+        }
       }
       setBackendMissionState((prev) => {
         // A compact mission_lifecycle@1 packet carries no point_results or
@@ -476,7 +491,7 @@ export default function MissionReportScreen({
     const handleMissionStatus = (raw: unknown) => {
       if (!raw || typeof raw !== "object") return;
       const incoming = raw as MissionRuntimeState;
-      if (stopFenceRef.current && !["STOPPED", "FAULT", "ERROR"].includes(String(incoming.state ?? "").trim().toUpperCase())) return;
+      if (!admitMissionStatus(stopFencePhaseRef.current, incoming.state, true)) return;
       const current = backendMissionRef.current;
       const incomingId = String(incoming.mission_id ?? "").trim();
       const currentId = String(current?.mission_id ?? "").trim();
@@ -486,7 +501,7 @@ export default function MissionReportScreen({
         (currentRun && incomingRun && currentRun !== incomingRun))) return;
 
       lastSocketMissionStatusAtRef.current = Date.now();
-      setBackendMission(incoming);
+      setBackendMission(incoming, { fresh: true });
       const state = String(incoming.state ?? "").trim().toUpperCase();
       const executionMode = mapBackendMissionModeToUiMode(incoming.execution_mode);
       if (executionMode) setMode(executionMode);
@@ -1648,7 +1663,12 @@ export default function MissionReportScreen({
       const requestStartedAt = Date.now();
       const generation = commandGenerationRef.current;
       const response = await getMissionStatus();
-      if (generation !== commandGenerationRef.current || stopFenceRef.current) return;
+      if (
+        generation !== commandGenerationRef.current ||
+        stopFencePhaseRef.current === "request_in_flight"
+      ) {
+        return;
+      }
 
       if (!response?.success || !response?.mission) {
         return;
@@ -1668,7 +1688,7 @@ export default function MissionReportScreen({
         return;
       }
 
-      setBackendMission(mission);
+      setBackendMission(mission, { fresh: true });
 
       const state = String(mission.state ?? "")
         .trim()
@@ -1705,7 +1725,9 @@ export default function MissionReportScreen({
         state === "PREPARING" ||
         state === "EMPTY" ||
         state === "COMPLETED" ||
-        state === "ERROR"
+        state === "ERROR" ||
+        state === "STOPPED" ||
+        state === "FAULT"
       ) {
         setIsMissionActive(false);
       }
@@ -3577,50 +3599,40 @@ export default function MissionReportScreen({
   };
 
   const handleStop = async () => {
-    const generation = ++commandGenerationRef.current;
-    stopFenceRef.current = true;
     setStopAwaitingTerminal(true);
-    try {
-      console.log("[MissionReportScreen] Stopping mission...");
+    console.log("[MissionReportScreen] Stopping mission...");
 
-      const response = await stopMission();
-      if (generation !== commandGenerationRef.current) return response;
-      if (!response.success) {
+    const { result } = await runStopCommand({
+      generationRef: commandGenerationRef,
+      phaseRef: stopFencePhaseRef,
+      stop: stopMission,
+      fetchStatus: getMissionStatus,
+      applyFreshStatus: (mission: MissionRuntimeState) => {
+        setBackendMission(mission, { fresh: true });
+      },
+      shouldContinue: () => mountedRef.current,
+      onRecorded: () => {
+        showNotification("info", "Stop recorded", "Stop request recorded. Physical stop is not confirmed.", 6000);
+      },
+      onRefused: (response) => {
         showNotification("error", "Stop Not Confirmed", response.message || response.mission?.message || "The rover refused Stop.", 6000);
-        return response;
-      }
+      },
+      onFailed: (error) => {
+        const message =
+          error instanceof Error ? error.message : "Failed to stop mission.";
 
-      showNotification("info", "Stop recorded", "Stop request recorded. Physical stop is not confirmed.", 6000);
-      try {
-        const status = await getMissionStatus();
-        if (generation === commandGenerationRef.current && status.success && status.mission) {
-          setBackendMission(status.mission);
-          const state = String(status.mission.state ?? "").trim().toUpperCase();
-          if (["STOPPED", "ERROR", "FAULT"].includes(state)) {
-            setCurrentIndex(null);
-            setIsMissionActive(false);
-            setWaitingForManual(false);
-            preserveCurrentMission.current();
-          }
-        }
-      } catch (statusError) {
-        console.warn("[MissionReportScreen] Stop status refresh failed:", statusError);
-      }
+        console.error("[MissionReportScreen] Stop failed:", error);
 
-      return response;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to stop mission.";
+        showNotification("error", "Stop Failed", message, 5000);
 
-      console.error("[MissionReportScreen] Stop failed:", error);
+        return {
+          success: false,
+          message,
+        };
+      },
+    });
 
-      showNotification("error", "Stop Failed", message, 5000);
-
-      return {
-        success: false,
-        message,
-      };
-    }
+    return result;
   };
 
   const handleNext = async () => {
@@ -5657,6 +5669,8 @@ export default function MissionReportScreen({
           pauseAvailable={effectiveLifecycle.pauseAvailable}
           skipAvailable={effectiveLifecycle.skipAvailable}
           canChangeMode={effectiveLifecycle.state === "READY" && backendMission?.accepted_for_start === false}
+          stopLatched={backendMission?.emergency_stop === true}
+          onEmergencyStopRecorded={() => { void refreshBackendMission(); }}
           mode={mode === "MANUAL" ? "manual" : "auto"}
           onSetMode={(nextMode) =>
             handleSetExecutionMode(nextMode === "manual" ? "MANUAL" : "AUTO")
@@ -5977,6 +5991,8 @@ interface MissionActivityExperienceProps {
   pauseAvailable?: boolean;
   skipAvailable?: boolean;
   canChangeMode?: boolean;
+  stopLatched?: boolean;
+  onEmergencyStopRecorded?: () => void;
   mode?: "auto" | "manual";
   onSetMode?: (mode: "auto" | "manual") => Promise<unknown> | void;
   onSkip?: DeckAction;
@@ -6150,7 +6166,7 @@ function MissionActivityExperience({
   hasMissionLoaded, onClearMission, onOpenPlan,
   onStart, onPause, onResume, onStop,
   canStart, isPreparing, isMissionPaused, missionState, isStarting,
-  pauseAvailable, skipAvailable, canChangeMode,
+  pauseAvailable, skipAvailable, canChangeMode, stopLatched, onEmergencyStopRecorded,
   mode, onSetMode, onSkip, onNext, waitingForManual,
   onExport, onExportReport, onClearLogs, clearLogsBlockedReason,
   pauseReason, rtkReason, resumeAvailable,
@@ -6625,7 +6641,7 @@ function MissionActivityExperience({
           <View style={[fieldExperienceStyles.homeStatusBlock, telemetry.satellites != null && telemetry.satellites >= 8 ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, telemetry.satellites != null && telemetry.satellites >= 8 ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name="satellite-variant" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: telemetry.satellites != null && telemetry.satellites >= 8 ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>SATELLITES</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, telemetry.satellites != null && telemetry.satellites >= 8 ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{telemetry.satellites == null ? "—" : `${telemetry.satellites} used`}</Text></View></View>
           <View style={[fieldExperienceStyles.homeStatusBlock, isMissionActive ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeInfo : fieldExperienceStyles.homeWatchBadgeInfoDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, isMissionActive ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconInfo]}><MaterialCommunityIcons name="robot-industrial" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: isMissionActive ? "#16B980" : "#1475EE" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>MODE</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, isMissionActive ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueInfo : fieldExperienceStyles.homeStatusValueInfoDark)]} numberOfLines={1}>{String(telemetry.mode)}</Text></View></View>
         </View>
-        <View style={[fieldExperienceStyles.homeControls, !isLightHeader && fieldExperienceStyles.homeControlsDark]}><EstopControls variant="mission" /><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeThemeButton, !isLightHeader && fieldExperienceStyles.homeThemeButtonDark]} onPress={() => setIsLightHeader((value) => !value)} accessibilityRole="button" accessibilityLabel="Toggle light and dark top bar"><MaterialCommunityIcons name={isLightHeader ? "weather-night" : "white-balance-sunny"} size={19} color="#FFFFFF" /><Text style={fieldExperienceStyles.homeControlLabel}>THEME</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeSettingsButton, !isLightHeader && fieldExperienceStyles.homeControlDark]} onPress={() => setShowSettings(true)} accessibilityRole="button" accessibilityLabel="Open settings"><MaterialCommunityIcons name="tune-variant" size={19} color={isLightHeader ? "#173563" : "#F8FAFC"} /><Text style={[fieldExperienceStyles.homeSettingsLabel, !isLightHeader && fieldExperienceStyles.homeSettingsLabelDark]}>SETTINGS</Text></TouchableOpacity></View>
+        <View style={[fieldExperienceStyles.homeControls, !isLightHeader && fieldExperienceStyles.homeControlsDark]}><EstopControls variant="mission" stopLatched={stopLatched} onStopRecorded={onEmergencyStopRecorded} /><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeThemeButton, !isLightHeader && fieldExperienceStyles.homeThemeButtonDark]} onPress={() => setIsLightHeader((value) => !value)} accessibilityRole="button" accessibilityLabel="Toggle light and dark top bar"><MaterialCommunityIcons name={isLightHeader ? "weather-night" : "white-balance-sunny"} size={19} color="#FFFFFF" /><Text style={fieldExperienceStyles.homeControlLabel}>THEME</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeSettingsButton, !isLightHeader && fieldExperienceStyles.homeControlDark]} onPress={() => setShowSettings(true)} accessibilityRole="button" accessibilityLabel="Open settings"><MaterialCommunityIcons name="tune-variant" size={19} color={isLightHeader ? "#173563" : "#F8FAFC"} /><Text style={[fieldExperienceStyles.homeSettingsLabel, !isLightHeader && fieldExperienceStyles.homeSettingsLabelDark]}>SETTINGS</Text></TouchableOpacity></View>
       </View>
       <View style={fieldExperienceStyles.homeHeadingCard}>
         <View style={fieldExperienceStyles.homeHeadingDial}><MaterialCommunityIcons name="navigation-variant" size={20} color="#1475EE" style={{ transform: [{ rotate: `${headingRotation}deg` }] }} /></View>
@@ -6838,7 +6854,7 @@ function MissionActivityExperience({
               )}
             </View>
 
-            <EstopControls variant="mission" />
+            <EstopControls variant="mission" stopLatched={stopLatched} onStopRecorded={onEmergencyStopRecorded} />
             {/* Right: Close Button */}
             <TouchableOpacity style={fieldExperienceStyles.deckCloseBtn} onPress={closeProgressScreen} activeOpacity={0.82} accessibilityRole="button" accessibilityLabel="Close mission operations deck">
               <MaterialCommunityIcons name="close" size={18} color="#64748B" />
