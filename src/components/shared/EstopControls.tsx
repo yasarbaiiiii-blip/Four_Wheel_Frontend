@@ -28,10 +28,16 @@ const HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 };
 type EstopControlsProps = {
   /** Header keeps redundant STOP access; the Manual bar swaps STOP for RELEASE. */
   variant?: "header" | "vertical" | "mission";
+  /** The rover reports a latched stop. Mission variant only. */
+  stopLatched?: boolean;
+  /** The rover answered success, so the caller can fetch fresh status. */
+  onStopRecorded?: () => void;
 };
 
 export const EstopControls: React.FC<EstopControlsProps> = ({
   variant = "header",
+  stopLatched = false,
+  onStopRecorded,
 }) => {
   const { missionLifecycle } = useTelemetryControl();
   const view = estopControlsView(missionLifecycle.emergency_stop);
@@ -46,6 +52,9 @@ export const EstopControls: React.FC<EstopControlsProps> = ({
       const response = await emergencyStop();
       if (!response?.success) {
         Alert.alert("E-STOP NOT CONFIRMED", response?.message || "The rover did not confirm the emergency stop.");
+      } else {
+        Alert.alert("E-STOP RECORDED", response.message || "Emergency stop recorded. Physical stop is not confirmed.");
+        onStopRecorded?.();
       }
     } catch (error) {
       Alert.alert("E-STOP FAILED", errorText(error, "Could not send the emergency stop."));
@@ -92,6 +101,12 @@ export const EstopControls: React.FC<EstopControlsProps> = ({
       {view.showLatchedBadge && variant === "header" && (
         <View style={styles.latchedBadge} accessibilityLabel="Emergency stop is on">
           <Text style={styles.latchedText}>E-STOP ON</Text>
+        </View>
+      )}
+
+      {stopLatched && variant === "mission" && (
+        <View style={styles.latchedBadge} accessibilityLabel="A stop is latched on the rover">
+          <Text style={styles.latchedText}>STOP LATCHED</Text>
         </View>
       )}
 
