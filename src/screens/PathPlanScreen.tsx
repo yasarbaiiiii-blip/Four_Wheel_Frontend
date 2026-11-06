@@ -54,6 +54,7 @@ import {
   DEFAULT_EXTENSION_CHOICE,
   choiceFromSettings,
   extensionPointFeatures,
+  extensionErrorDetail,
   extensionSummary,
   type ExtensionChoice,
 } from "../utils/missionExtension";
@@ -879,9 +880,6 @@ export default function PathPlanScreen({
   // is the plan on screen; otherwise it is the choice held for the next upload.
   const [heldExtensionChoice, setHeldExtensionChoice] =
     useState<ExtensionChoice>(DEFAULT_EXTENSION_CHOICE);
-  // Until the operator applies a choice, the dialog opens with the rover's
-  // saved defaults.
-  const [heldChoiceTouched, setHeldChoiceTouched] = useState(false);
   const missionExtensionRef = useRef<ExtensionChoice>(DEFAULT_EXTENSION_CHOICE);
   const missionExtension = useMissionExtension({
     missionId: preview.missionId,
@@ -901,25 +899,14 @@ export default function PathPlanScreen({
       return choiceFromSettings(
         roverExtensionSettings,
         missionExtension.bounds,
-        missionExtension.defaults,
       );
     }
-    if (!heldChoiceTouched && missionExtension.defaults) {
-      return {
-        ...heldExtensionChoice,
-        distanceM: missionExtension.defaults.distance_m,
-        triggerDistanceM: missionExtension.defaults.trigger_distance_m,
-      };
-    }
-    // A new upload starts with no skipped row ends.
-    return { ...heldExtensionChoice, skipRowEnds: [] };
+    return heldExtensionChoice;
   }, [
     roverExtensionSettings,
     planNeedsUpload,
     missionExtension.bounds,
-    missionExtension.defaults,
     heldExtensionChoice,
-    heldChoiceTouched,
   ]);
   const extensionPanelLabel =
     roverExtensionSettings && !planNeedsUpload
@@ -927,19 +914,24 @@ export default function PathPlanScreen({
       : extensionSummary({
           enabled: heldExtensionChoice.enabled,
           distance_m: heldExtensionChoice.distanceM,
-          trigger_distance_m: heldExtensionChoice.triggerDistanceM,
+          trigger_m: heldExtensionChoice.triggerDistanceM,
           source: "OPERATOR",
-          revision: 0,
         });
   const extensionPointsGeoJSON = useMemo(
-    () =>
-      planNeedsUpload
-        ? null
-        : extensionPointFeatures(
-            missionExtension.decisions,
-            missionExtension.decisionsCurrent,
-          ),
-    [planNeedsUpload, missionExtension.decisions, missionExtension.decisionsCurrent],
+    () => {
+      if (planNeedsUpload) return null;
+      const pending = showMissionExtensionDistanceDialog && missionExtension.previewState?.mission_id === preview.missionId
+        ? missionExtension.previewState.points : null;
+      if (pending) return extensionPointFeatures(pending);
+      if (missionExtension.missionId !== preview.missionId) return null;
+      const typed = preview.points.some((point) => point.type != null);
+      const points = typed
+        ? preview.points
+        : missionExtension.rowEnds.flatMap((row) => row.result === "ADDED" && row.extension_point
+          ? [{ ...row.extension_point, type: "extension" as const }] : []);
+      return extensionPointFeatures(points);
+    },
+    [planNeedsUpload, showMissionExtensionDistanceDialog, missionExtension.previewState, missionExtension.missionId, missionExtension.rowEnds, preview.missionId, preview.points],
   );
   const [showSolarTableDialog, setShowSolarTableDialog] = useState(false);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
@@ -2563,6 +2555,10 @@ export default function PathPlanScreen({
   }
 
   async function applyMissionExtension(choice: ExtensionChoice): Promise<void> {
+    if (!planNeedsUpload && preview.missionId && missionExtension.availability !== "available") {
+      showPathPlanToast("error", "Row Extension", missionExtension.message ?? "Could not read rover settings.", 6000);
+      return;
+    }
     // The rover's mission is the plan on screen: change it in place (PUT).
     // The rover keeps the mission, clears the path and prepares it again.
     if (
@@ -2573,16 +2569,21 @@ export default function PathPlanScreen({
       const outcome = await missionExtension.apply(choice);
       if (!mountedRef.current) return;
       if (outcome.status === "applied") {
+        if (outcome.changed) {
+          invalidateForUpload();
+          void refreshNow();
+        }
         missionExtensionRef.current = choice;
         setHeldExtensionChoice(choice);
-        setHeldChoiceTouched(true);
         showPathPlanToast(
-          "success",
+          outcome.changed ? "success" : "info",
           "Row Extension",
-          "Applied. The rover is preparing the path again; Load the mission once the preview is back.",
+          outcome.message,
           5000,
         );
       } else {
+        if (outcome.status === "restored") { invalidateForUpload(); void refreshNow(); }
+        if (outcome.status === "cleared") clearTrajectory();
         showPathPlanToast(
           outcome.status === "conflict" ? "info" : "error",
           "Row Extension",
@@ -2594,12 +2595,10 @@ export default function PathPlanScreen({
     }
 
     // Otherwise the choice rides on the upload: the next automatic one if the
-    // plan has unsent edits, or one now if the plan is unchanged. Skipped row
-    // ends belong to one mission and are never carried into an upload.
-    const uploadChoice = { ...choice, skipRowEnds: [] };
+    // plan has unsent edits, or one now if the plan is unchanged.
+    const uploadChoice = choice;
     missionExtensionRef.current = uploadChoice;
     setHeldExtensionChoice(uploadChoice);
-    setHeldChoiceTouched(true);
 
     const current = waypointsRef.current;
     if (roverUploadBlockedReason || current.length < 2 || planNeedsUpload) return;
@@ -2658,6 +2657,9 @@ export default function PathPlanScreen({
         return;
       }
 
+      if (!missionExtension.missionId || missionExtension.missionId !== preview.missionId) {
+        throw new Error("Wait for the rover's current mission settings and path before loading it.");
+      }
       const response = await loadMission(preview.missionId ?? undefined);
       if (!response.success) {
         throw new Error(response.message || "The rover rejected Load Mission.");
@@ -2673,7 +2675,14 @@ export default function PathPlanScreen({
     } catch (error) {
       pendingReloadMissionIdRef.current = null;
       setIsReloadPreparing(false);
-      const message = error instanceof Error ? error.message : String(error);
+      const detail = extensionErrorDetail(error);
+      if (detail.code === "MISSION_CHANGED") {
+        void missionExtension.refresh();
+        void refreshNow();
+      }
+      const message = detail.code === "MISSION_CHANGED"
+        ? "The mission changed on the rover. Wait for the current path and try again."
+        : detail.message;
       Alert.alert("Load Failed", message);
     }
   }
@@ -3724,6 +3733,7 @@ export default function PathPlanScreen({
             <PathPlanMap
               waypoints={displayedWaypoints}
               extensionPoints={extensionPointsGeoJSON}
+              extensionPreviewPath={showMissionExtensionDistanceDialog && missionExtension.previewState?.mission_id === preview.missionId ? missionExtension.previewState.points : null}
               dxfEntities={dxfMapEntities}
               onMapPress={showPrecisePathDialog ? undefined : handleMapPress}
               onWaypointDrag={
@@ -3790,6 +3800,7 @@ export default function PathPlanScreen({
               <PathPlanMap
                 waypoints={displayedWaypoints}
                 extensionPoints={extensionPointsGeoJSON}
+                extensionPreviewPath={showMissionExtensionDistanceDialog && missionExtension.previewState?.mission_id === preview.missionId ? missionExtension.previewState.points : null}
                 dxfEntities={dxfMapEntities}
                 onMapPress={showPrecisePathDialog ? undefined : handleMapPress}
                 onWaypointDrag={
@@ -3945,6 +3956,8 @@ export default function PathPlanScreen({
                   roverUploadBlockedReason={roverUploadBlockedReason}
                   loadEnabled={
                     !planNeedsUpload &&
+                    !missionExtension.applying &&
+                    missionExtension.missionId === preview.missionId &&
                     (canLoadBackendPreview(preview) ||
                       (preview.acceptedForStart && preview.missionId !== null))
                   }
@@ -4880,16 +4893,24 @@ export default function PathPlanScreen({
         initialChoice={extensionDialogChoice}
         bounds={missionExtension.bounds}
         settings={planNeedsUpload ? null : roverExtensionSettings}
-        decisions={missionExtension.decisions}
-        decisionsCurrent={missionExtension.decisionsCurrent && !planNeedsUpload}
-        unusedSkips={planNeedsUpload ? [] : missionExtension.unusedSkips}
+        rowEnds={planNeedsUpload ? [] : missionExtension.rowEnds}
+        editable={missionExtension.editable}
+        lockedReason={missionExtension.lockedReason}
+        lockMessage={missionExtension.message}
+        blockedReason={preview.acceptedForStart
+          ? "The mission is already loaded. Its row extension cannot be changed."
+          : !planNeedsUpload && preview.missionId && missionExtension.availability !== "available"
+            ? missionExtension.message ?? "Wait for the rover's row extension settings."
+            : null}
+        previewState={missionExtension.previewState}
+        previewError={missionExtension.previewError}
+        previewPending={missionExtension.previewPending}
+        onPreview={missionExtension.preview}
+        onClearPreview={missionExtension.clearPreview}
         applying={missionExtension.applying}
-        onSaveDefaults={missionExtension.saveDefaults}
         onCancel={() => setShowMissionExtensionDistanceDialog(false)}
         onApply={(choice) => {
-          void applyMissionExtension(choice).finally(() => {
-            if (mountedRef.current) setShowMissionExtensionDistanceDialog(false);
-          });
+          void applyMissionExtension(choice);
         }}
       />
 

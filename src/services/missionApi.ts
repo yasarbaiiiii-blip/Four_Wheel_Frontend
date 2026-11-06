@@ -29,7 +29,8 @@ import {
   FALLBACK_EXTENSION_BOUNDS,
   validateChoice,
   type ExtensionChoice,
-  type ExtensionDefaultsResponse,
+  type ExtensionApplyResponse,
+  type ExtensionPreviewResponse,
   type MissionExtensionResponse,
 } from "../utils/missionExtension";
 
@@ -198,6 +199,13 @@ export interface MissionRuntimeState {
 
   extension_mode?:
     MissionExtensionMode;
+  extension?: {
+    enabled: boolean;
+    distance_m: number | null;
+    trigger_m: number;
+    source: string | null;
+  };
+  extension_editable?: boolean;
 
   execution_mode?: MissionExecutionMode;
   marking_tool?: MissionMarkingTool;
@@ -487,12 +495,17 @@ export interface LoadedPathPoint {
   y?: number;
   latitude?: number;
   longitude?: number;
+  type?: "marking" | "extension" | "path";
+  marking_index?: number;
+  label?: string;
 
   [key: string]: unknown;
 }
 
 export interface LoadedPathResponse {
   success: boolean;
+  mission_id?: string | null;
+  signature?: string | null;
 
   frame_id:
     string | null;
@@ -601,7 +614,7 @@ export async function uploadMissionCsv(
       distanceM: dummyPointDistanceM,
       triggerDistanceM:
         triggerDistanceM ??
-        FALLBACK_EXTENSION_BOUNDS.trigger_distance_m.default,
+        FALLBACK_EXTENSION_BOUNDS.default_trigger_m,
     });
     const problem = validation.distanceError ?? validation.triggerError;
     if (problem) {
@@ -670,42 +683,40 @@ export async function uploadMissionCsv(
   );
 }
 
-/** Row-extension settings, limits and row-end decisions of the loaded mission. */
+/** Row-extension settings, limits and row-end geometry of the staged mission. */
 export async function getMissionExtension(): Promise<MissionExtensionResponse> {
   return apiGet<MissionExtensionResponse>(PX4_MISSION.EXTENSION);
 }
 
-/**
- * Change the loaded mission's row extension. The rover keeps the mission,
- * bumps the revision, clears the path and prepares it again. It refuses with
- * 409 REVISION_CONFLICT when expectedRevision is not the stored one.
- */
-export async function updateMissionExtension(
+/** Preview changes without mutating the staged mission. */
+export async function previewMissionExtension(
   choice: ExtensionChoice,
-  expectedRevision: number,
-): Promise<MissionExtensionResponse> {
-  return apiPut<MissionExtensionResponse>(
-    PX4_MISSION.EXTENSION,
+  missionId: string,
+): Promise<ExtensionPreviewResponse> {
+  return apiPost<ExtensionPreviewResponse>(
+    PX4_MISSION.EXTENSION_PREVIEW,
     {
       enabled: choice.enabled,
-      distance_m: choice.enabled ? choice.distanceM : null,
-      trigger_distance_m: choice.enabled ? choice.triggerDistanceM : null,
-      skip_row_ends: choice.enabled ? choice.skipRowEnds ?? [] : [],
-      expected_revision: expectedRevision,
+      ...(choice.enabled ? { distance_m: choice.distanceM, trigger_m: choice.triggerDistanceM } : {}),
+      mission_id: missionId,
     },
-    { timeoutMs: 60_000 },
   );
 }
 
-/** Save the dialog's starting values on the rover. Changes no mission. */
-export async function saveExtensionDefaults(
-  distanceM: number,
-  triggerDistanceM: number,
-): Promise<ExtensionDefaultsResponse> {
-  return apiPost<ExtensionDefaultsResponse>(PX4_MISSION.EXTENSION_DEFAULTS, {
-    distance_m: distanceM,
-    trigger_distance_m: triggerDistanceM,
-  });
+/** A changed apply rebuilds the staged mission under a new ID. */
+export async function applyMissionExtension(
+  choice: ExtensionChoice,
+  missionId: string,
+): Promise<ExtensionApplyResponse> {
+  return apiPut<ExtensionApplyResponse>(
+    PX4_MISSION.EXTENSION,
+    {
+      enabled: choice.enabled,
+      ...(choice.enabled ? { distance_m: choice.distanceM, trigger_m: choice.triggerDistanceM } : {}),
+      mission_id: missionId,
+    },
+    { timeoutMs: 60_000 },
+  );
 }
 
 export async function loadMission(missionId?: string): Promise<MissionControlResponse> {

@@ -50,6 +50,9 @@ export interface TrajectoryPreviewPoint {
   longitude: number;
   x?: number;
   y?: number;
+  type?: "marking" | "extension" | "path";
+  marking_index?: number;
+  label?: string;
 }
 
 export interface TrajectoryPreviewState {
@@ -250,6 +253,9 @@ export function filterLoadedPathPoints(
     }
 
     const point: TrajectoryPreviewPoint = { latitude, longitude };
+    if (record.type === "marking" || record.type === "extension" || record.type === "path") point.type = record.type;
+    if (typeof record.marking_index === "number") point.marking_index = record.marking_index;
+    if (typeof record.label === "string") point.label = record.label;
     const x = Number(record.x);
     const y = Number(record.y);
     if (Number.isFinite(x)) {

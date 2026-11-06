@@ -1,103 +1,59 @@
-/** Row-extension requests must match the rover's GET/PUT contract. */
-
+/** Extension JSON is strict; multipart upload retains its legacy fields. */
 jest.mock("../apiClient", () => ({
-  apiDelete: jest.fn(),
-  apiGet: jest.fn(),
-  apiPost: jest.fn(),
-  apiPostMultipart: jest.fn(),
-  apiPut: jest.fn(),
+  apiDelete: jest.fn(), apiGet: jest.fn(), apiPost: jest.fn(), apiPostMultipart: jest.fn(), apiPut: jest.fn(),
 }));
 
 import { apiGet, apiPost, apiPostMultipart, apiPut } from "../apiClient";
-import {
-  getMissionExtension,
-  saveExtensionDefaults,
-  updateMissionExtension,
-  uploadMissionCsv,
-} from "../missionApi";
+import { applyMissionExtension, getMissionExtension, previewMissionExtension, uploadMissionCsv } from "../missionApi";
 
 const get = apiGet as jest.Mock;
+const post = apiPost as jest.Mock;
 const put = apiPut as jest.Mock;
 const upload = apiPostMultipart as jest.Mock;
-const post = apiPost as jest.Mock;
 
 beforeEach(() => {
-  get.mockReset().mockResolvedValue({ success: true });
-  put.mockReset().mockResolvedValue({ success: true });
-  upload.mockReset().mockResolvedValue({ success: true });
-  post.mockReset().mockResolvedValue({ success: true });
+  for (const mock of [get, post, put, upload]) mock.mockReset().mockResolvedValue({ success: true });
 });
 
-it("reads the loaded mission's extension", async () => {
+it("reads the staged mission extension", async () => {
   await getMissionExtension();
   expect(get).toHaveBeenCalledWith("/api/mission/extension");
 });
 
-it("sends the operator's values with the revision it edited", async () => {
-  await updateMissionExtension(
-    { enabled: true, distanceM: 5.5, triggerDistanceM: 2.5, skipRowEnds: ["P0004"] },
-    3,
-  );
-  expect(put).toHaveBeenCalledWith(
-    "/api/mission/extension",
-    {
-      enabled: true,
-      distance_m: 5.5,
-      trigger_distance_m: 2.5,
-      skip_row_ends: ["P0004"],
-      expected_revision: 3,
-    },
-    { timeoutMs: 60_000 },
-  );
-});
-
-it("sends no distance or trigger when turning it off", async () => {
-  await updateMissionExtension({ enabled: false, distanceM: 5.5, triggerDistanceM: 2.5 }, 4);
-  expect(put.mock.calls[0][1]).toEqual({
-    enabled: false,
-    distance_m: null,
-    trigger_distance_m: null,
-    skip_row_ends: [],
-    expected_revision: 4,
+it("previews without old keys and pins the mission identity", async () => {
+  await previewMissionExtension({ enabled: true, distanceM: 0.5, triggerDistanceM: 2.5 }, "app_1");
+  expect(post).toHaveBeenCalledWith("/api/mission/extension/preview", {
+    enabled: true, distance_m: 0.5, trigger_m: 2.5, mission_id: "app_1",
   });
 });
 
-it("saves defaults without touching the mission", async () => {
-  await saveExtensionDefaults(6, 2.5);
-  expect(post).toHaveBeenCalledWith("/api/mission/extension/defaults", {
-    distance_m: 6,
-    trigger_distance_m: 2.5,
-  });
-  expect(put).not.toHaveBeenCalled();
+it("applies with the new contract and omits irrelevant disabled values", async () => {
+  await applyMissionExtension({ enabled: true, distanceM: 4, triggerDistanceM: 2 }, "app_1");
+  expect(put).toHaveBeenCalledWith("/api/mission/extension", {
+    enabled: true, distance_m: 4, trigger_m: 2, mission_id: "app_1",
+  }, { timeoutMs: 60_000 });
+  await applyMissionExtension({ enabled: false, distanceM: Number.NaN, triggerDistanceM: 9 }, "app_1");
+  expect(put.mock.calls[1][1]).toEqual({ enabled: false, mission_id: "app_1" });
 });
 
-describe("upload", () => {
+describe("legacy multipart upload", () => {
   const file = { uri: "file:///m.csv", name: "m.csv", mimeType: "text/csv" } as never;
-
   function sentFields(): Record<string, string> {
     const form = upload.mock.calls[0][1] as FormData & { _parts?: [string, unknown][] };
-    // React Native's FormData keeps _parts; the Jest (Node) one has entries().
-    const parts: [string, unknown][] =
-      form._parts ?? Array.from((form as unknown as { entries(): Iterable<[string, unknown]> }).entries());
-    return Object.fromEntries(
-      parts.filter(([, value]) => typeof value === "string") as [string, string][],
-    );
+    const parts: [string, unknown][] = form._parts ?? Array.from((form as unknown as { entries(): Iterable<[string, unknown]> }).entries());
+    return Object.fromEntries(parts.filter(([, value]) => typeof value === "string") as [string, string][]);
   }
 
-  it("marks operator values and sends the trigger", async () => {
-    await uploadMissionCsv({ file, extensionMode: "ENABLE", dummyPointDistanceM: 6, triggerDistanceM: 2 });
+  it("keeps the operator marker, upload distance and trigger", async () => {
+    await uploadMissionCsv({ file, extensionMode: "ENABLE", dummyPointDistanceM: 0.5, triggerDistanceM: 2 });
     expect(sentFields()).toMatchObject({
-      extension_mode: "ENABLE",
-      dummy_point_distance_m: "6",
-      trigger_distance_m: "2",
-      extension_distance_source: "OPERATOR",
+      extension_mode: "ENABLE", dummy_point_distance_m: "0.5", trigger_distance_m: "2", extension_distance_source: "OPERATOR",
     });
   });
 
-  it("refuses a distance under the rover's 1.0 m minimum", async () => {
-    await expect(
-      uploadMissionCsv({ file, extensionMode: "ENABLE", dummyPointDistanceM: 0.5 }),
-    ).rejects.toThrow(/1\.0 and 20\.0/);
+  it("rejects values outside backend bounds before upload", async () => {
+    await expect(uploadMissionCsv({ file, extensionMode: "ENABLE", dummyPointDistanceM: 0.05 })).rejects.toThrow(/0\.1 and 20\.0/);
+    await expect(uploadMissionCsv({ file, extensionMode: "ENABLE", dummyPointDistanceM: 4, triggerDistanceM: 9 })).rejects.toThrow(/1\.0 and 5\.0/);
     expect(upload).not.toHaveBeenCalled();
   });
 });

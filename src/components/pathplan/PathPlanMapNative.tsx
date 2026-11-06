@@ -45,6 +45,7 @@ export const PathPlanMapNative: React.FC<any> = ({
   isVisible: _isVisible = true,
   // GeoJSON of the rover's row-extension points (current revision only).
   extensionPoints = null,
+  extensionPreviewPath = null,
 }) => {
   const {
     usingFallback,
@@ -112,9 +113,10 @@ export const PathPlanMapNative: React.FC<any> = ({
 
   const showTrajectory = canDrawBackendLine(preview);
   const trajectoryGeoJSON = useMemo(() => {
+    if (extensionPreviewPath?.length >= 2) return buildBackendTrajectoryCollection(extensionPreviewPath, BACKEND_LINE_RENDER);
     if (!showTrajectory) return null;
     return buildBackendTrajectoryCollection(preview.points, BACKEND_LINE_RENDER);
-  }, [showTrajectory, preview.points]);
+  }, [extensionPreviewPath, showTrajectory, preview.points]);
 
   const waypointGeoJSON = useMemo(() => {
     if (!waypoints || waypoints.length === 0) return null;
@@ -200,7 +202,7 @@ export const PathPlanMapNative: React.FC<any> = ({
           />
         )}
 
-        {extensionPoints && showTrajectory && (
+        {extensionPoints && (showTrajectory || extensionPreviewPath?.length >= 2) && (
           <NativeExtensionPointLayer
             sourceId="extension-point-source"
             layerId="extension-point-layer"

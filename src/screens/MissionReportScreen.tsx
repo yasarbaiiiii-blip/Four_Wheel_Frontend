@@ -190,6 +190,8 @@ import { buildMissionCsvFromWaypoints } from "../utils/missionCsv";
 import {
   choiceFromSettings,
   DEFAULT_EXTENSION_CHOICE,
+  extensionErrorDetail,
+  extensionPointFeatures,
   type ExtensionChoice,
 } from "../utils/missionExtension";
 import { canLoadBackendPreview } from "../utils/backendTrajectoryPreview";
@@ -343,6 +345,7 @@ export default function MissionReportScreen({
     authoringChanged,
     invalidateForUpload,
     resumePreviewAfterFailedUpload,
+    clearTrajectory,
     refreshNow,
     markLoadAccepted,
   } = useBackendTrajectory();
@@ -368,16 +371,24 @@ export default function MissionReportScreen({
         ? choiceFromSettings(
             missionExtension.settings,
             missionExtension.bounds,
-            missionExtension.defaults,
           )
         : heldExtensionChoice,
     [
       missionExtension.settings,
       missionExtension.bounds,
-      missionExtension.defaults,
       heldExtensionChoice,
     ],
   );
+  const extensionMapPreview = showExtensionDialog && missionExtension.previewState?.mission_id === preview.missionId
+    ? missionExtension.previewState.points : null;
+  const extensionMapPoints = useMemo(() => {
+    if (extensionMapPreview) return extensionPointFeatures(extensionMapPreview);
+    if (missionExtension.missionId !== preview.missionId) return null;
+    const typed = preview.points.some((point) => point.type != null);
+    const points = typed ? preview.points : missionExtension.rowEnds.flatMap((row) =>
+      row.result === "ADDED" && row.extension_point ? [{ ...row.extension_point, type: "extension" as const }] : []);
+    return extensionPointFeatures(points);
+  }, [extensionMapPreview, missionExtension.missionId, missionExtension.rowEnds, preview.missionId, preview.points]);
 
   // 4WD verified mission hooks
   const verifiedCtx = useVerifiedMissionContext();
@@ -3832,6 +3843,9 @@ export default function MissionReportScreen({
     homeMissionRequestRef.current = true;
     setIsLoadingHomeMission(true);
     try {
+      if (!missionExtension.missionId || missionExtension.missionId !== preview.missionId) {
+        throw new Error("Wait for the rover's current mission settings and path before loading it.");
+      }
       const response = await loadMission(preview.missionId ?? undefined);
       if (!response.success) {
         throw new Error(response.message || "The rover rejected Load Mission.");
@@ -3846,10 +3860,18 @@ export default function MissionReportScreen({
         console.warn("[MissionReport] Preview refresh after Load failed:", error),
       );
     } catch (error) {
+      const detail = extensionErrorDetail(error);
+      if (detail.code === "MISSION_CHANGED") {
+        void missionExtension.refresh();
+        void refreshBackendMission();
+        void refreshNow();
+      }
       showNotification(
         "error",
         "Load Failed",
-        error instanceof Error ? error.message : "The rover rejected Load Mission.",
+        detail.code === "MISSION_CHANGED"
+          ? "The mission changed on the rover. Wait for the current path and try again."
+          : detail.message,
         6000,
       );
     } finally {
@@ -3866,17 +3888,28 @@ export default function MissionReportScreen({
     setIsApplyingHomeExtension(true);
     let temporaryFileUri: string | null = null;
     try {
+      if (missionExtension.availability === "error" ||
+          (preview.missionId && missionExtension.availability !== "available")) {
+        showNotification("error", "Row Extension", missionExtension.message ?? "Wait for the rover's row extension settings.", 6000);
+        return;
+      }
       if (missionExtension.settings) {
         const outcome = await missionExtension.apply(choice);
         if (outcome.status === "applied") {
+          if (outcome.changed) {
+            invalidateForUpload();
+            void refreshNow();
+          }
           setHeldExtensionChoice(choice);
           showNotification(
-            "success",
+            outcome.changed ? "success" : "info",
             "Row Extension",
-            "Applied. The rover is preparing the path again; Load the mission once it is ready.",
+            outcome.message,
             5000,
           );
         } else {
+          if (outcome.status === "restored") { invalidateForUpload(); void refreshNow(); }
+          if (outcome.status === "cleared") clearTrajectory();
           showNotification(
             outcome.status === "conflict" ? "info" : "error",
             "Row Extension",
@@ -3900,8 +3933,7 @@ export default function MissionReportScreen({
         return;
       }
 
-      // Skipped row ends belong to one mission and never ride on an upload.
-      const uploadChoice: ExtensionChoice = { ...choice, skipRowEnds: [] };
+      const uploadChoice: ExtensionChoice = choice;
       const cacheDirectory = FileSystem.cacheDirectory;
       if (!cacheDirectory) throw new Error("Temporary storage is unavailable.");
       temporaryFileUri = `${cacheDirectory}mission-extension-${Date.now()}.csv`;
@@ -4002,10 +4034,16 @@ export default function MissionReportScreen({
             "Could not read the rover's row-extension settings. Nothing was changed.",
         };
       }
+      if (!extension.available || !extension.mission_id) {
+        return { success: false, message: "The rover has no staged mission to edit. Upload the mission again." };
+      }
+      if (extension.mission_id !== preview.missionId) {
+        void refreshNow();
+        return { success: false, message: "The mission changed on the rover. Wait for the current path before editing it." };
+      }
       const choice = choiceFromSettings(
         extension.extension ?? null,
-        extension.bounds,
-        extension.defaults ?? null,
+        extension.limits,
       );
 
       const csv = buildMissionCsvFromWaypoints(edited);
@@ -5680,6 +5718,8 @@ export default function MissionReportScreen({
         {embedMap && (
         <LiveMissionMap
           waypoints={displayData.waypoints}
+          extensionPreviewPath={extensionMapPreview}
+          extensionPoints={extensionMapPoints}
           activeWaypointIndex={effectiveCurrentIndex}
           statusMap={displayData.statusMap}
           edgeToEdge
@@ -5850,16 +5890,24 @@ export default function MissionReportScreen({
         initialChoice={extensionDialogChoice}
         bounds={missionExtension.bounds}
         settings={missionExtension.settings}
-        decisions={missionExtension.decisions}
-        decisionsCurrent={missionExtension.decisionsCurrent}
-        unusedSkips={missionExtension.unusedSkips}
+        rowEnds={missionExtension.rowEnds}
+        editable={missionExtension.editable}
+        lockedReason={missionExtension.lockedReason}
+        lockMessage={missionExtension.message}
+        blockedReason={preview.acceptedForStart || effectiveMissionActive
+          ? "The mission is loaded or active. Its row extension cannot be changed."
+          : preview.missionId && missionExtension.availability !== "available"
+            ? missionExtension.message ?? "Wait for the rover's row extension settings."
+            : null}
+        previewState={missionExtension.previewState}
+        previewError={missionExtension.previewError}
+        previewPending={missionExtension.previewPending}
+        onPreview={missionExtension.preview}
+        onClearPreview={missionExtension.clearPreview}
         applying={missionExtension.applying || isApplyingHomeExtension}
-        onSaveDefaults={missionExtension.saveDefaults}
         onCancel={() => setShowExtensionDialog(false)}
         onApply={(choice) => {
-          void handleApplyHomeExtension(choice).finally(() =>
-            setShowExtensionDialog(false),
-          );
+          void handleApplyHomeExtension(choice);
         }}
       />
 

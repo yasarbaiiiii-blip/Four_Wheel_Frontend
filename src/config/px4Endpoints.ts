@@ -63,9 +63,9 @@ export const PX4_MISSION = {
   // Recalculate trajectory from the stored mission.csv.
   PREPARE: "/api/mission/prepare",
 
-  // Row-extension settings of the loaded mission (GET, PUT).
+  // Row-extension settings of the staged mission (GET, PUT) and dry-run preview.
   EXTENSION: "/api/mission/extension",
-  EXTENSION_DEFAULTS: "/api/mission/extension/defaults",
+  EXTENSION_PREVIEW: "/api/mission/extension/preview",
 
   // Mission information.
   STATUS: "/api/mission/status",

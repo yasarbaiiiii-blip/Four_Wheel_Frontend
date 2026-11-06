@@ -1500,3 +1500,142 @@ None changed. Stop and E-stop latch the mission manager only and command nothing
 ### 6. Current Repository State & Open Items
 - Frontend: uncommitted files as listed by `git status`, unchanged by this entry except `HANDOVER.md`. Backend: 3 uncommitted files, unchanged.
 - Next: owner decides how Load should behave while E-stop evidence is hardcoded, and how status should report the owner's real stage. Then correct joint test item 2, make Start respect `ready`, and fix mission edit.
+
+---
+
+## Entry 032 — Read-Only Review of Row-End Extension API Wiring Plan
+- **Date & Time:** 2026-11-06 15:36 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Codex (GPT-6)
+
+### 1. Objective & Scope
+Verify `C:\Users\DYX_D\Downloads\row-end-extension-api-wiring-plan.md` against the available frontend and backend source. This was a review, not an implementation or rover test.
+
+### 2. Changes Implemented
+- **Files Created:** None.
+- **Files Modified:** `HANDOVER.md` (this entry only).
+- **Files Deleted / Deprecated:** None.
+
+### 3. Key Architecture & Design Decisions
+- Plan is not ready to implement as written: its target backend `D:\projects\4WD_Backend` is absent here. The available `D:\DYX_4WD_JETSON_DDS` backend has no extension GET/preview/PUT routes and still enforces a fixed 3 m upload trigger (`EXTENSION_TRIGGER_FIXED`). The plan's new API contract remains unverified against its stated target.
+- `apiClient.ts` owns a private AbortController and exposes no request signal, contrary to D4/T2. Add signal support or use request-token staleness only.
+- Plan says every apply changes mission ID, but its own §2.5 says `changed:false` returns null ID. T3 must preserve the current ID on a no-op response. The home Load flow still targets `preview.missionId`; a hook-local ID update alone cannot update it.
+- Plan T3 clears state when GET returns `available:false`, but planner still needs its pre-upload held choice; retain separate local draft behavior. T6's applied-mission freshness gate must permit a preview overlay tied to the current mission ID and keep committed geometry separate.
+
+### 4. Hardware Safety & Safety Interlocks
+- No rover commands, arming, speed gates, solenoid, AUX, E-stop, or safety code touched. The plan's rover QA checklist was not executed.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** `npm test -- --runInBand --silent --cacheDirectory D:\Four_Wheel_Frontend\.jest-cache --testPathPattern="missionExtension"` — 23/23 passed in 2 suites. Initial run without a workspace cache failed before tests due sandbox temp cache EPERM.
+- **Type Check:** `npx tsc --noEmit` — passed, zero errors.
+- **Metro Bundler Check:** `curl.exe` of Android index bundle at `127.0.0.1:8081` returned HTTP 000; no Metro server was running. No app code changed.
+- **Manual Verification:** Read the plan, frontend extension and trajectory code, and available backend route and trigger code. No target backend checkout or rover was available.
+
+### 6. Current Repository State & Open Items
+- Frontend started clean; only this handover entry is modified. Backend working tree is clean. Temporary Jest cache was removed.
+- Obtain and inspect the exact target backend working tree, correct the plan's signal/no-op-ID/Load integration, and re-check backend contract and tests before implementation or deployment.
+
+---
+
+## Entry 033 — Follow-up Review of Row-End Extension Wiring Plan
+- **Date & Time:** 2026-11-06 15:48 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Codex (GPT-6)
+
+### 1. Objective & Scope
+Verify the attached row-end extension API wiring plan and identify changes needed. This was a source review; no feature implementation or rover command was requested.
+
+### 2. Changes Implemented
+- **Files Created:** None.
+- **Files Modified:** `HANDOVER.md` (this entry only; Entry 032 already existed at session start).
+- **Files Deleted / Deprecated:** None.
+
+### 3. Key Architecture & Design Decisions
+- The plan's named backend checkout `D:\projects\4WD_Backend` is absent. A separate source copy at `D:\DYX_4WD_JETSON_DDS` contains extension routes and editable trigger code, but it is not a Git worktree or the named release target, so it cannot certify the proposed deployment contract.
+- Correct the plan's no-op response: the available backend's `reply_extension` returns the current `mission.run_id` when `changed:false`, while the plan claims a null mission ID. The frontend should preserve the known ID in either case and refresh status/trajectory after a changed apply before Load.
+- `apiClient.ts` creates its own AbortController and has no caller signal option. Preview cancellation needs transport support or a request-generation guard, with timeout behavior retained.
+- Current planner and home Load actions use `preview.missionId`; changing only `useMissionExtension` state will leave those actions pointing to the previous mission after a successful rebuild.
+- Current `validateChoice` skips all bounds validation when extension is off. The plan's claim that a trigger of 9 m is always refused before send needs conditional validation at every send path, especially if PUT includes `trigger_m` while disabled.
+- The available backend preview handler has no loaded-mission edit lock. Update the plan's wording: GET/PUT gate editing; a preview can still be a read-only dry run after Load. The UI can disable preview controls for operator clarity.
+- Retain planner-local held choice when GET says `available:false`; it controls a future upload. Keep pending preview geometry separate from the committed trajectory and do not let stale preview points affect Load eligibility.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4 arming, motion, E-stop, solenoid, AUX, speed gate, or actuator logic changed. No hardware command was sent.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** `npm test -- --runInBand --silent --cacheDirectory D:\Four_Wheel_Frontend\.jest-cache --testPathPattern=missionExtension` — 23/23 passed, 2/2 suites.
+- **Type Check:** `npx tsc --noEmit` — passed with zero errors.
+- **Metro Bundler Check:** Started Expo Metro in CI mode; `curl.exe` to `127.0.0.1:8081/index.bundle?platform=android&dev=true&minify=false` returned HTTP 000 because loopback connection was denied by this sandbox. Metro process stopped. Bundle HTTP 200 remains unverified in this session.
+- **Manual Verification:** Read plan, frontend hook/API/dialog/Load flow, and available backend extension source. No rover or tablet test.
+
+### 6. Current Repository State & Open Items
+- `HANDOVER.md` was already modified at session start and is the only intended tracked change after this review. No app or backend source was edited.
+- Obtain the exact backend release worktree, confirm its response fixtures and tests, amend plan for ID propagation, no-op semantics, cancellation, draft/preview separation, and disabled-trigger validation, then implement and run Metro/rover acceptance in a reachable environment.
+
+---
+
+## Entry 034 — Backend Row-End Extension Execution Plan and Frontend Handoff
+- **Date & Time:** 2026-11-06 16:08 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Codex (GPT-6)
+
+### 1. Objective & Scope
+Create an actionable backend execution plan for the new row-end extension contract, with the context and frontend changes needed for a coordinated release. This was planning and source review, not feature implementation or deployment.
+
+### 2. Changes Implemented
+- **Files Created:** `ROW_END_EXTENSION_BACKEND_EXECUTION_PLAN.md` — contract freeze, backend work packages B0–B3, backend test matrix, frontend handoff, rollout and release blockers.
+- **Files Modified:** `.gitignore` — allow the new plan to appear in Git status despite the repository's blanket `*.md` ignore; `HANDOVER.md` — this entry.
+- **Files Deleted / Deprecated:** None. Temporary Jest and Expo export directories were removed after verification.
+
+### 3. Key Architecture & Design Decisions
+- The named backend target `D:\projects\4WD_Backend` is absent. The available `D:\DYX_4WD_JETSON_DDS` source copy is useful for review but is not the release worktree. The plan begins with a mandatory exact-release checkout, build, and response-fixture gate.
+- A changed apply must propagate its new mission ID to shared trajectory state before either screen can Load. A no-op must preserve the current ID. Failed apply with successful restore must publish the restored ID; failed restore must clear mission state.
+- Available source copy has a missing semicolon after `resolved_choice` and compares `request.choice` instead of resolved `choice` for no-op detection. Both are explicit checks for the authoritative backend checkout.
+- Preview remains dry-run state, separate from the committed rover path. The existing multipart upload fields remain during old-tablet transition; strict extension JSON uses `trigger_m`.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4 arming, rover motion, E-stop, solenoid, AUX, speed gate, or actuator code changed. No rover command was sent. The plan requires Stop/E-stop responsiveness during apply and a stationary, no-spray bench acceptance phase.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** `npm test -- --runInBand --silent --cacheDirectory D:\Four_Wheel_Frontend\.jest-cache --testPathPattern=missionExtension` — 23/23 passed, 2/2 suites.
+- **Type Check:** `npx tsc --noEmit` — passed with zero errors.
+- **Metro Bundler Check:** `curl.exe` to `127.0.0.1:8081/index.bundle?platform=android&dev=true&minify=false` returned HTTP 000 (sandbox loopback denied). `npx expo export --platform android --output-dir .metro-plan-check` first failed because Hermes could not write to the sandbox Temp directory; rerun with `TEMP` and `TMP` set to a workspace scratch directory succeeded, bundling 1769 modules and producing an Android Hermes bundle. Scratch output was removed.
+- **Manual Verification:** Reviewed the input plan, frontend mission API/hook/dialog/Load flow, available backend compatibility service, parser, trajectory and native validation sources. `git diff --check` passed before handover; no backend build or rover test was performed.
+
+### 6. Current Repository State & Open Items
+- Intended changes: `.gitignore`, `HANDOVER.md`, and the new plan file. The plan is untracked but visible after the ignore exception; Git index writes are restricted here, so no staging or commit was attempted. No unwanted scratch files remain.
+- Next: obtain the exact backend release worktree, verify/fix build and response fixtures, execute B0–B3, implement the frontend section, then complete off-rover, Jetson, and tablet acceptance. HTTP 200 Metro check remains to be run where loopback is permitted.
+
+---
+
+## Entry 035 — Frontend Row-End Extension Contract Wiring
+- **Date & Time:** 2026-11-06 16:31 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Codex (GPT-6)
+
+### 1. Objective & Scope
+Apply the frontend changes described in `ROW_END_EXTENSION_BACKEND_EXECUTION_PLAN.md` for the new rover row-end extension GET/preview/apply contract. No backend implementation, deployment, rover command, or tablet operation was performed.
+
+### 2. Changes Implemented
+- **Files Created:** `src/hooks/pathplan/__tests__/useMissionExtension.test.tsx` — hook tests for changed/no-op/restore IDs, GET failure distinction, and stale preview replies.
+- **Files Modified:** `src/utils/missionExtension.ts` (new settings/limits/geometry/row-end/point types, bounds, error details, typed X markers); `src/services/missionApi.ts` and `src/config/px4Endpoints.ts` (strict preview/apply JSON; removed revision, skip and defaults calls; retained legacy multipart upload fields; typed loaded path/status); `src/hooks/pathplan/useMissionExtension.ts` (GET availability, debounced preview, request-token stale fencing, apply mutex, new/restored/cleared identity outcomes); `src/components/pathplan/MissionExtensionDistanceDialog.tsx` (field-white accessible 48 dp controls, server limits/rule/counts, live preview, lock/error copy; removed skip/default controls); `src/components/pathplan/PathPlanMapNative.tsx` and `src/components/missionreport/MissionMapNative.tsx` (pending path and X marker overlays); `src/screens/PathPlanScreen.tsx` and `src/screens/MissionReportScreen.tsx` (held pre-upload choice, preview wiring, Load ID gates, apply recovery, safe mission edit); `src/context/BackendTrajectoryContext.tsx` and `src/utils/backendTrajectoryPreview.ts` (loaded-path ID guard and point type preservation); `src/hooks/useBackendMissionStatus.ts` (new extension editability/trigger mapping); focused API/model tests; `ROW_END_EXTENSION_BACKEND_EXECUTION_PLAN.md` (local implementation status); `HANDOVER.md` (this entry).
+- **Files Deleted / Deprecated:** No files deleted. Old revision/skip/default extension code was removed in-place. No unreferenced component or service file was deleted.
+
+### 3. Key Architecture & Design Decisions
+- JSON preview/apply sends only `enabled`, enabled distance and trigger, and the current `mission_id`. Disabled requests omit irrelevant numeric fields. Multipart upload retains its operator-marked legacy fields until backend/tablet rollout is coordinated.
+- The planner's held choice survives `available:false`; a failed GET is a separate `availability:error` state and cannot trigger the home upload fallback. Preview is debounced and held apart from committed trajectory. Stale replies are ignored by request generation and mission ID.
+- A changed apply invalidates the old trajectory and triggers status/path refresh; Load requires extension GET identity to match the committed path identity. No-op keeps the ID. Restored failure publishes the restored ID and refreshes; failed restore clears the trajectory. Backend response messages are shown without claiming success for failures.
+- Maps derive X points from typed preview/loaded-path points. Where an older trajectory push lacks point types, the current mission's server-reported `row_ends.extension_point` supplies marker positions, gated by mission ID.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4, arming, motion, spray, solenoid, AUX, speed gate, or E-stop code changed. No rover command was sent. Apply has a synchronous in-flight mutex. Controls are locked after backend Load confirmation; the existing E-stop controls remain in the screens.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** Full `npm test -- --runInBand --silent --cacheDirectory D:\Four_Wheel_Frontend\.jest-cache` — 980/980 passed, 81/81 suites after core wiring. After the availability guard and final hook test, focused extension/trajectory tests passed 76/76 (5 suites), and the final hook suite passed 5/5. No final full-suite rerun was needed for those localized changes.
+- **Type Check:** `npx tsc --noEmit` — zero errors after the availability guard and map work.
+- **Metro Bundler Check:** Android `npx expo export --platform android --output-dir .metro-frontend-check` succeeded with workspace TEMP/TMP, 1769 modules and a Hermes bundle. Metro HTTP request to `127.0.0.1:8081` returned HTTP 000 because sandbox loopback access was denied; server stopped. HTTP 200 remains unverified here.
+- **Manual Verification:** `git diff --check` passed. Read new contract and examined both screen Load/apply flows. No actual backend, Jetson, or tablet exercised.
+
+### 6. Current Repository State & Open Items
+- Prior local `.gitignore`, `HANDOVER.md`, and plan changes remain; this entry adds the listed frontend source/test edits. No commit, staging, push, or merge. Temporary Jest/Expo outputs are to be removed before final handoff.
+- The backend plan's authoritative checkout `D:\projects\4WD_Backend` remains unavailable, so JSON response and hardware behavior are not integration verified. Next: build the exact backend release candidate, run joint upload → preview → changed apply → new-ID Load → locked dialog, no-op and both restore outcomes; verify UI on the Android tablet and Metro HTTP 200 outside this sandbox.

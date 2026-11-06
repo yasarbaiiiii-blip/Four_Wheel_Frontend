@@ -65,6 +65,7 @@ Tasks/
 !AGENTS.md
 !AGENT_RULES.md
 !HANDOVER.md
+!ROW_END_EXTENSION_BACKEND_EXECUTION_PLAN.md
 !Todos/*.md
 
 # Build logs and test scripts

@@ -248,6 +248,12 @@ export function BackendTrajectoryProvider({
       if (!previewResponse?.success) {
         return;
       }
+      // A mission may be replaced while this GET is in flight. Never label
+      // points from that other mission with the earlier STATUS identity.
+      if (previewResponse.mission_id != null && previewResponse.mission_id !== mission.mission_id) {
+        pathRefreshRequestedRef.current = true;
+        return;
+      }
 
       apply({
         type: "PREVIEW",

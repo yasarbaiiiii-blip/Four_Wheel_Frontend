@@ -10,7 +10,7 @@ import {
   isErrorWaypointStatus,
   type WaypointUiStatus,
 } from "../../types/missionWaypointStatus";
-import { NativeTrajectoryLayer, NativeWaypointLayer } from "../shared/NativeMapLayers";
+import { NativeExtensionPointLayer, NativeTrajectoryLayer, NativeWaypointLayer } from "../shared/NativeMapLayers";
 import { TrajectoryStatusBanner } from "../shared/TrajectoryStatusBanner";
 import { OfflineMapStatusBadge } from "../shared/OfflineMapStatusBadge";
 import {
@@ -21,6 +21,7 @@ import { MapBottomControlsBar } from "../shared/MapBottomControlsBar";
 import type { MapStyleMode } from "../shared/MapBottomControlsBar";
 import type { Waypoint } from "./types";
 import type { LoadedPathPoint } from "../../services/missionApi";
+import type { ExtensionPoint, ExtensionPointFeatureCollection } from "../../utils/missionExtension";
 import { useMapboxSurface } from "../../hooks/useMapboxSurface";
 import { useBackendTrajectory } from "../../context/BackendTrajectoryContext";
 import { useFieldMap } from "../../context/FieldMapContext";
@@ -36,6 +37,8 @@ interface Props {
   roverLon?: number;
   waypoints?: Waypoint[];
   trajectoryPoints?: LoadedPathPoint[];
+  extensionPreviewPath?: ExtensionPoint[] | null;
+  extensionPoints?: ExtensionPointFeatureCollection | null;
   heading?: number | null;
   activeWaypointIndex?: number | null;
   armed?: boolean;
@@ -74,6 +77,8 @@ const MissionMapNativeBase: React.FC<Props> = ({
   edgeToEdge = false,
   isVisible = true,
   statusMap,
+  extensionPreviewPath = null,
+  extensionPoints = null,
 }) => {
   const cameraRef = useRef<React.ElementRef<typeof Camera>>(null);
   const zoomRef = useRef(DEFAULT_ZOOM);
@@ -176,9 +181,10 @@ const MissionMapNativeBase: React.FC<Props> = ({
 
   const showTrajectory = !authoringChanged && canDrawBackendLine(preview);
   const trajectoryCollection = useMemo(() => {
+    if (extensionPreviewPath && extensionPreviewPath.length >= 2) return buildBackendTrajectoryCollection(extensionPreviewPath, BACKEND_LINE_RENDER);
     if (!showTrajectory) return null;
     return buildBackendTrajectoryCollection(preview.points, BACKEND_LINE_RENDER);
-  }, [showTrajectory, preview.points]);
+  }, [extensionPreviewPath, showTrajectory, preview.points]);
 
   const handleToggleMapStyle = useCallback(() => {
     if (usingFallback) return;
@@ -317,6 +323,14 @@ const MissionMapNativeBase: React.FC<Props> = ({
             sourceId="generated-trajectory"
             layerId="generated-trajectory-line"
             shape={trajectoryCollection as any}
+          />
+        )}
+
+        {extensionPoints && trajectoryCollection && (
+          <NativeExtensionPointLayer
+            sourceId="mission-extension-points"
+            layerId="mission-extension-points-layer"
+            shape={extensionPoints as any}
           />
         )}
 

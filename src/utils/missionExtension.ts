@@ -1,131 +1,123 @@
-/**
- * Row extension: rover-owned settings and the decisions the rover reports.
- *
- * The rover computes every extension point (trajectory_generator). The tablet
- * only edits the settings and shows what the rover returns, and it never keeps
- * a copy of either beyond the current screen (Upgrade Extension plan, rover_ws
- * docs/UPGRADE_EXTENSION_PLAN.md, sections 6.1-6.5).
- */
-
+/** Rover-owned row-end extension contract. Geometry is never computed here. */
 import { ApiError } from "../services/apiError";
 
 export interface ExtensionSettings {
   enabled: boolean;
   distance_m: number | null;
-  trigger_distance_m: number | null;
-  source: "OPERATOR" | "DEFAULT" | null;
-  revision: number;
-  /** Row ends (marking point IDs) where the operator turned it off. */
-  skip_row_ends?: string[];
+  trigger_m: number;
+  source: string | null;
 }
 
-export interface ExtensionBounds {
-  distance_m: { min: number; max: number; warn_above: number; default: number };
-  trigger_distance_m: { min: number; max: number; default: number };
+export interface ExtensionLimits {
+  min_distance_m: number;
+  max_distance_m: number;
+  default_distance_m: number;
+  min_trigger_m: number;
+  max_trigger_m: number;
+  default_trigger_m: number;
+  trigger_rule: string;
 }
 
-export type ExtensionDecisionCode =
-  | "ADDED"
-  | "SKIPPED_OPERATOR"
-  | "SKIPPED_GAP"
-  | "DISABLED";
-
-/** Another marking point within 0.30 m of an extension leg (warn only). */
-export interface ExtensionClearanceWarning {
-  point: string;
-  distance_m: number;
+export interface ExtensionPoint {
+  x: number;
+  y: number;
+  latitude: number;
+  longitude: number;
+  type: "marking" | "extension" | "path";
+  marking_index?: number;
+  label?: string;
 }
 
-export interface ExtensionDecision {
-  from_point: string;
-  to_point: string;
+export interface ExtensionRowEnd {
+  from_marking_index: number;
+  to_marking_index: number;
+  from_label: string;
+  to_label: string;
   gap_m: number;
-  transfer_deg: number;
-  reversal_deg: number;
-  decision: ExtensionDecisionCode;
-  /** lat/lon for GPS missions, x/y for local ones; ADDED only. */
-  point: { lat: number; lon: number } | { x: number; y: number } | null;
-  warnings?: ExtensionClearanceWarning[];
-  revision: number | null;
+  sideways_angle_deg: number;
+  next_row_angle_deg: number;
+  result: "ADDED" | "SKIPPED_GAP" | "DISABLED" | "SKIPPED_OPERATOR";
+  extension_point: Omit<ExtensionPoint, "type"> | null;
+  extra_length_m: number;
 }
 
-export interface ExtensionDefaults {
-  distance_m: number;
-  trigger_distance_m: number;
+export interface ExtensionGeometry {
+  dummy_point_count: number;
+  row_end_count: number;
+  row_ends_extended: number;
+  row_ends_skipped_gap: number;
+  navigation_point_count: number;
+  path_length_m: number;
+  extra_length_m: number;
+  signature: string;
+  row_ends: ExtensionRowEnd[];
+  points?: ExtensionPoint[];
 }
 
-export interface MissionExtensionResponse {
+export interface MissionExtensionResponse extends Partial<ExtensionGeometry> {
   success: boolean;
+  available: boolean;
   mission_id: string | null;
-  extension: ExtensionSettings | null;
-  bounds: ExtensionBounds;
-  decisions_current?: boolean;
-  decisions?: ExtensionDecision[];
-  /** Skipped row ends that no longer match an extendable row end. */
-  unused_skips?: string[];
-  defaults?: ExtensionDefaults;
-  defaults_source?: "saved" | "factory";
+  editable: boolean;
+  locked_reason: string | null;
+  message?: string;
+  extension: ExtensionSettings;
+  limits: ExtensionLimits;
 }
 
-export interface ExtensionDefaultsResponse {
+export interface ExtensionPreviewResponse extends ExtensionGeometry {
   success: boolean;
-  defaults: ExtensionDefaults;
-  defaults_source: "saved" | "factory";
+  preview: true;
+  applied: false;
+  mission_id: string;
+  extension: ExtensionSettings;
+  current_extension: ExtensionSettings;
+  changes_path: boolean;
+  limits: ExtensionLimits;
+  points: ExtensionPoint[];
 }
 
-/** What the operator applies from the dialog. */
+export interface ExtensionApplyResponse extends ExtensionGeometry {
+  success: boolean;
+  changed: boolean;
+  mission_id: string | null;
+  previous_mission_id: string | null;
+  editable: boolean;
+  message: string;
+  extension: ExtensionSettings;
+  limits: ExtensionLimits;
+  mission: unknown;
+  points: ExtensionPoint[];
+}
+
 export interface ExtensionChoice {
   enabled: boolean;
   distanceM: number;
   triggerDistanceM: number;
-  /**
-   * Row ends to skip. Only sent when changing a loaded mission in place; a
-   * new upload always starts with none.
-   */
-  skipRowEnds?: string[];
 }
 
-/** Used only until the rover has answered (same values the rover enforces). */
-export const FALLBACK_EXTENSION_BOUNDS: ExtensionBounds = {
-  distance_m: { min: 1.0, max: 20.0, warn_above: 8.0, default: 4.0 },
-  trigger_distance_m: { min: 1.0, max: 5.0, default: 3.0 },
+export const FALLBACK_EXTENSION_BOUNDS: ExtensionLimits = {
+  min_distance_m: 0.1,
+  max_distance_m: 20,
+  default_distance_m: 4,
+  min_trigger_m: 1,
+  max_trigger_m: 5,
+  default_trigger_m: 3,
+  trigger_rule: "Added only where the two row-end points are less than the trigger distance apart.",
 };
 
 export const DEFAULT_EXTENSION_CHOICE: ExtensionChoice = {
   enabled: false,
-  distanceM: FALLBACK_EXTENSION_BOUNDS.distance_m.default,
-  triggerDistanceM: FALLBACK_EXTENSION_BOUNDS.trigger_distance_m.default,
+  distanceM: FALLBACK_EXTENSION_BOUNDS.default_distance_m,
+  triggerDistanceM: FALLBACK_EXTENSION_BOUNDS.default_trigger_m,
 };
 
-/** Dialog values from the rover's settings; defaults where a value is absent. */
-export function choiceFromSettings(
-  settings: ExtensionSettings | null,
-  bounds: ExtensionBounds = FALLBACK_EXTENSION_BOUNDS,
-  defaults?: ExtensionDefaults | null,
-): ExtensionChoice {
+export function choiceFromSettings(settings: ExtensionSettings | null, limits: ExtensionLimits = FALLBACK_EXTENSION_BOUNDS): ExtensionChoice {
   return {
     enabled: settings?.enabled === true,
-    distanceM:
-      settings?.distance_m ?? defaults?.distance_m ?? bounds.distance_m.default,
-    triggerDistanceM:
-      settings?.trigger_distance_m ??
-      defaults?.trigger_distance_m ??
-      bounds.trigger_distance_m.default,
-    skipRowEnds: [...(settings?.skip_row_ends ?? [])],
+    distanceM: settings?.distance_m ?? limits.default_distance_m,
+    triggerDistanceM: settings?.trigger_m ?? limits.default_trigger_m,
   };
-}
-
-/** Row ends the operator may skip or un-skip: the ones that would extend. */
-export function isSkippable(decision: ExtensionDecision): boolean {
-  return decision.decision === "ADDED" || decision.decision === "SKIPPED_OPERATOR";
-}
-
-/** One line per clearance warning, for the reason list. */
-export function describeWarnings(decision: ExtensionDecision): string[] {
-  return (decision.warnings ?? []).map(
-    (warning) =>
-      `passes ${warning.distance_m.toFixed(2)} m from ${warning.point}`,
-  );
 }
 
 export interface ChoiceValidation {
@@ -134,127 +126,65 @@ export interface ChoiceValidation {
   distanceWarning: string | null;
 }
 
-function rangeError(
-  label: string,
-  value: number,
-  min: number,
-  max: number,
-): string | null {
-  if (!Number.isFinite(value)) {
-    return `Enter a valid ${label.toLowerCase()}.`;
-  }
-  if (value < min || value > max) {
-    return `${label} must be between ${min.toFixed(1)} and ${max.toFixed(1)} m.`;
-  }
+function rangeError(label: string, value: number, min: number, max: number): string | null {
+  if (!Number.isFinite(value)) return `Enter a valid ${label.toLowerCase()}.`;
+  if (value < min || value > max) return `${label} must be between ${min.toFixed(1)} and ${max.toFixed(1)} m.`;
   return null;
 }
 
-/** Same limits the rover enforces; a disabled choice is always valid. */
-export function validateChoice(
-  choice: ExtensionChoice,
-  bounds: ExtensionBounds = FALLBACK_EXTENSION_BOUNDS,
-): ChoiceValidation {
-  if (!choice.enabled) {
-    return { distanceError: null, triggerError: null, distanceWarning: null };
-  }
-  const distanceError = rangeError(
-    "Extension distance",
-    choice.distanceM,
-    bounds.distance_m.min,
-    bounds.distance_m.max,
-  );
+/** Distance and trigger are sent only while enabled. */
+export function validateChoice(choice: ExtensionChoice, limits: ExtensionLimits = FALLBACK_EXTENSION_BOUNDS): ChoiceValidation {
+  if (!choice.enabled) return { distanceError: null, triggerError: null, distanceWarning: null };
+  const distanceError = rangeError("Extension distance", choice.distanceM, limits.min_distance_m, limits.max_distance_m);
   return {
     distanceError,
-    triggerError: rangeError(
-      "Trigger distance",
-      choice.triggerDistanceM,
-      bounds.trigger_distance_m.min,
-      bounds.trigger_distance_m.max,
-    ),
-    distanceWarning:
-      !distanceError && choice.distanceM > bounds.distance_m.warn_above
-        ? `Over ${bounds.distance_m.warn_above.toFixed(0)} m past every row end. ` +
-          "Check the ground there is clear."
-        : null,
+    triggerError: rangeError("Trigger distance", choice.triggerDistanceM, limits.min_trigger_m, limits.max_trigger_m),
+    distanceWarning: !distanceError && choice.distanceM > 8 ? "Over 8 m past every row end. Check the ground there is clear." : null,
   };
 }
 
-/** Plain-language reason for one row-end decision. */
-export function describeDecision(
-  decision: ExtensionDecision,
-  settings: ExtensionSettings | null,
-): string {
-  const pair = `${decision.from_point} → ${decision.to_point}`;
-  if (decision.decision === "ADDED") {
-    const distance = settings?.distance_m;
-    return distance != null
-      ? `${pair}: extension added, ${distance.toFixed(1)} m past the row end`
-      : `${pair}: extension added`;
-  }
-  if (decision.decision === "SKIPPED_OPERATOR") {
-    return `${pair}: skipped by operator`;
-  }
-  if (decision.decision === "SKIPPED_GAP") {
-    const trigger = settings?.trigger_distance_m;
-    return trigger != null
-      ? `${pair}: no extension, rows ${decision.gap_m.toFixed(2)} m apart ` +
-          `(trigger ${trigger.toFixed(2)} m)`
-      : `${pair}: no extension, rows ${decision.gap_m.toFixed(2)} m apart`;
-  }
+export function describeDecision(row: ExtensionRowEnd, settings: ExtensionSettings | null): string {
+  const pair = `${row.from_label} → ${row.to_label}`;
+  if (row.result === "ADDED") return `${pair}: extension added${settings?.distance_m != null ? `, ${settings.distance_m.toFixed(1)} m past the row end` : ""}`;
+  if (row.result === "SKIPPED_GAP") return `${pair}: no extension, rows ${row.gap_m.toFixed(2)} m apart (trigger ${(settings?.trigger_m ?? 3).toFixed(2)} m)`;
+  if (row.result === "SKIPPED_OPERATOR") return `${pair}: skipped by operator`;
   return `${pair}: row end, extension is off`;
 }
 
-/** Panel label: OFF, or ON with distance and trigger. */
 export function extensionSummary(settings: ExtensionSettings | null): string {
   if (!settings) return "—";
   if (!settings.enabled) return "OFF";
-  const distance = settings.distance_m?.toFixed(1) ?? "?";
-  const trigger = settings.trigger_distance_m?.toFixed(1) ?? "?";
-  const skipped = settings.skip_row_ends?.length ?? 0;
-  const suffix = skipped > 0 ? ` · ${skipped} skipped` : "";
-  return `ON · ${distance} m · trigger ${trigger} m${suffix}`;
+  return `ON · ${settings.distance_m?.toFixed(1) ?? "?"} m · trigger ${settings.trigger_m.toFixed(1)} m`;
 }
 
 export interface ExtensionPointFeatureCollection {
   type: "FeatureCollection";
-  features: Array<{
-    type: "Feature";
-    geometry: { type: "Point"; coordinates: [number, number] };
-    properties: { label: string };
-  }>;
+  features: Array<{ type: "Feature"; geometry: { type: "Point"; coordinates: [number, number] }; properties: { label: string } }>;
 }
 
-/**
- * Map features for ADDED decisions with lat/lon. Returns null unless the rover
- * marked the decisions current, so stale points are never drawn.
- */
-export function extensionPointFeatures(
-  decisions: ExtensionDecision[],
-  decisionsCurrent: boolean,
-): ExtensionPointFeatureCollection | null {
-  if (!decisionsCurrent) return null;
+export function extensionPointFeatures(points: Array<Pick<ExtensionPoint, "latitude" | "longitude"> & Partial<ExtensionPoint>>): ExtensionPointFeatureCollection | null {
   const features: ExtensionPointFeatureCollection["features"] = [];
-  for (const decision of decisions) {
-    const point = decision.point;
-    if (decision.decision !== "ADDED" || !point || !("lat" in point)) continue;
-    if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) continue;
-    features.push({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [point.lon, point.lat] },
-      properties: { label: "X" },
-    });
+  for (const point of points) {
+    if (point.type !== "extension" || !Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) continue;
+    features.push({ type: "Feature", geometry: { type: "Point", coordinates: [point.longitude, point.latitude] }, properties: { label: "X" } });
   }
-  return features.length > 0 ? { type: "FeatureCollection", features } : null;
+  return features.length ? { type: "FeatureCollection", features } : null;
 }
 
-/** The rover's refusal code (e.g. REVISION_CONFLICT), when it sent one. */
-export function extensionErrorCode(error: unknown): string | null {
-  if (!(error instanceof ApiError) || !error.responseBody) return null;
+export function extensionErrorDetail(error: unknown): { code: string | null; message: string; missionId: string | null; missionCleared: boolean } {
+  const fallback = error instanceof Error ? error.message : "The rover did not accept the change.";
+  if (!(error instanceof ApiError) || !error.responseBody) return { code: null, message: fallback, missionId: null, missionCleared: false };
   try {
-    const parsed = JSON.parse(error.responseBody);
-    const code = parsed?.detail?.code;
-    return typeof code === "string" ? code : null;
+    const detail = JSON.parse(error.responseBody)?.detail;
+    return {
+      code: typeof detail?.code === "string" ? detail.code : null,
+      message: typeof detail?.message === "string" ? detail.message : fallback,
+      missionId: typeof detail?.mission_id === "string" ? detail.mission_id : null,
+      missionCleared: detail?.mission_cleared === true,
+    };
   } catch {
-    return null;
+    return { code: null, message: fallback, missionId: null, missionCleared: false };
   }
 }
+
+export function extensionErrorCode(error: unknown): string | null { return extensionErrorDetail(error).code; }

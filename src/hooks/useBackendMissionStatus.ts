@@ -110,6 +110,7 @@ export interface BackendMissionStatus {
   extensionMode:
     | MissionExtensionMode
     | null;
+  extensionEditable: boolean | null;
 
   dummyPointDistanceM:
     | number
@@ -176,6 +177,7 @@ const EMPTY_MISSION: BackendMissionStatus = {
 
   coordinateMode: null,
   extensionMode: null,
+  extensionEditable: null,
 
   pauseReason: null,
   resumeAvailable: false,
@@ -545,6 +547,10 @@ function mergeMissionPayload(
         : previous.coordinateMode,
 
     extensionMode,
+    extensionEditable:
+      source.extension_editable !== undefined
+        ? toBoolean(source.extension_editable)
+        : previous.extensionEditable,
 
     dummyPointDistanceM:
       source.dummy_point_distance_m !== undefined
@@ -554,10 +560,8 @@ function mergeMissionPayload(
         : previous.dummyPointDistanceM,
 
     rowTransitionThresholdM:
-      source.row_transition_threshold_m !== undefined
-        ? toFiniteNumberOrNull(
-            source.row_transition_threshold_m,
-          )
+      asRecord(source.extension)?.trigger_m !== undefined
+        ? toFiniteNumberOrNull(asRecord(source.extension)?.trigger_m)
         : previous.rowTransitionThresholdM,
 
     state,
