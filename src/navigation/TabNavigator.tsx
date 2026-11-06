@@ -57,6 +57,8 @@ function OperationsWorkspace() {
             </ErrorBoundary>
           </View>
 
+          {/* OLD PLANNER PANELS: disabled, code kept. The home screen now runs Load and
+              Row Extension, and PathPlanScreen still runs hidden below for file upload.
           {isPlannerVisible ? (
             <View style={styles.overlayScreen} pointerEvents="box-none" collapsable={false}>
               <ErrorBoundary componentName="Route Planning">
@@ -79,6 +81,7 @@ function OperationsWorkspace() {
               </ErrorBoundary>
             </View>
           ) : (
+          END OF OLD PLANNER PANELS */}
             <View style={styles.overlayScreen} pointerEvents="box-none" collapsable={false}>
               <ErrorBoundary componentName="Mission Progress">
                 <MemoMissionReportScreen
@@ -91,7 +94,6 @@ function OperationsWorkspace() {
                 />
               </ErrorBoundary>
             </View>
-          )}
 
           {isDirectMissionUpload && (
             <View style={styles.hiddenMissionUploader} pointerEvents="none" collapsable={false}>
