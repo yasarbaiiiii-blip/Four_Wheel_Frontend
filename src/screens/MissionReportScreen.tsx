@@ -1203,7 +1203,11 @@ export default function MissionReportScreen({
       previewMissionId,
     ],
   );
-  const canStartMission = startEligibility.canPressStart;
+  // The C++ backend now exposes the complete Start decision path, but keeps
+  // `ready` false until physical motion authority is commissioned. Do not let
+  // the tablet turn a merely loaded mission into an apparent Start grant.
+  const canStartMission =
+    startEligibility.canPressStart && backendMission?.ready === true;
 
   /**
    * Single authoritative lifecycle view for the control buttons: the
@@ -6312,16 +6316,18 @@ function finiteOrNull(value: unknown): number | null {
 }
 
 /**
- * Top-bar / progress-deck telemetry. When the rover link is down every value
- * is null so the UI shows "—" instead of a stale or default-zero reading.
+ * Top-bar / progress-deck telemetry. Display-only cached readings are labelled
+ * stale until they expire; connectionState remains the real socket state.
  */
 function selectCommandTelemetry(snapshot: LiveTelemetrySnapshot) {
-  const telemetry = snapshot.telemetry;
+  const telemetry = snapshot.displayTelemetry ?? snapshot.telemetry;
   const connected = snapshot.connectionState === "connected";
+  const displayState = snapshot.displayState ?? (connected ? "live" : "offline");
 
-  if (!connected) {
+  if (displayState === "offline") {
     return {
       connected,
+      displayState,
       battery: null as number | null,
       voltage: null as number | null,
       current: null as number | null,
@@ -6343,6 +6349,7 @@ function selectCommandTelemetry(snapshot: LiveTelemetrySnapshot) {
 
   return {
     connected,
+    displayState,
     battery:
       percentage !== null && (percentage > 0 || voltage !== null)
         ? percentage
@@ -6562,7 +6569,7 @@ function MissionActivityExperience({
   const expandedPointCardWidth = Math.max(240, Math.floor((expandedPanelWidth - 34) / 2));
   // Green only for a true RTK fixed solution. 3D Fix, DGPS or RTK float is not
   // centimetre-grade, so it must not look "good".
-  const rtkIsFixed = telemetry.fixType === 6;
+  const rtkIsFixed = telemetry.displayState === "live" && telemetry.fixType === 6;
   const headingRotation = typeof telemetry.heading === "number" && Number.isFinite(telemetry.heading)
     ? ((telemetry.heading % 360) + 360) % 360
     : 0;
@@ -6922,6 +6929,7 @@ function MissionActivityExperience({
         <View style={[fieldExperienceStyles.homeHeader, !isLightHeader && fieldExperienceStyles.homeHeaderDark]}>
         <View style={fieldExperienceStyles.homeBrand}><View style={fieldExperienceStyles.homeBrandIcon}><MaterialCommunityIcons name="map-marker-path" size={22} color="#FFFFFF" /></View><Text style={[fieldExperienceStyles.homeBrandTitle, !isLightHeader && fieldExperienceStyles.homeBrandTitleDark]}>Way To Mark</Text></View>
         <View style={fieldExperienceStyles.homeStatusGroup}>
+          {telemetry.displayState !== "live" && <Text accessibilityRole="alert" style={{ color: "#C86412", fontWeight: "bold" }}>TELEMETRY {telemetry.displayState.toUpperCase()}</Text>}
           <View style={[fieldExperienceStyles.homeStatusBlock, telemetry.connected ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, telemetry.connected ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name="lan-connect" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: telemetry.connected ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>LINK</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, telemetry.connected ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{telemetry.connected ? "Connected" : "Offline"}</Text></View></View>
           <View style={[fieldExperienceStyles.homeStatusBlock, rtkIsFixed ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, rtkIsFixed ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name="satellite-uplink" size={17} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: rtkIsFixed ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>RTK</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, rtkIsFixed ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{commandRtkLabel(telemetry.fixType)}</Text></View></View>
           <View style={[fieldExperienceStyles.homeStatusBlock, telemetry.battery != null && telemetry.battery >= 20 ? (isLightHeader ? fieldExperienceStyles.homeWatchBadgeGood : fieldExperienceStyles.homeWatchBadgeGoodDark) : (isLightHeader ? fieldExperienceStyles.homeWatchBadgeAlert : fieldExperienceStyles.homeWatchBadgeAlertDark)]}><View style={[fieldExperienceStyles.homeStatusIconCircle, telemetry.battery != null && telemetry.battery >= 20 ? fieldExperienceStyles.homeStatusIconGood : fieldExperienceStyles.homeStatusIconAlert]}><MaterialCommunityIcons name={telemetry.battery != null && telemetry.battery < 20 ? "battery-alert-variant-outline" : telemetry.battery != null && telemetry.battery < 60 ? "battery-medium" : "battery-high"} size={18} color="#FFFFFF" /></View><View><View style={fieldExperienceStyles.homeStatusHeading}><View style={[fieldExperienceStyles.homeStatusDot, { backgroundColor: telemetry.battery != null && telemetry.battery >= 20 ? "#16B980" : "#F97316" }]} /><Text style={[fieldExperienceStyles.homeStatusLabelText, !isLightHeader && fieldExperienceStyles.homeStatusLabelTextDark]}>BATTERY</Text></View><Text style={[fieldExperienceStyles.homeStatusValue, telemetry.battery != null && telemetry.battery >= 20 ? (isLightHeader ? fieldExperienceStyles.homeStatusValueGood : fieldExperienceStyles.homeStatusValueGoodDark) : (isLightHeader ? fieldExperienceStyles.homeStatusValueAlert : fieldExperienceStyles.homeStatusValueAlertDark)]}>{commandValue(telemetry.battery, "%", 0)}</Text></View></View>
@@ -6985,6 +6993,7 @@ function MissionActivityExperience({
           <Animated.View style={[fieldExperienceStyles.deckTopbar, { transform: [{ translateY: progressScreenAnim.interpolate({ inputRange: [0, 1], outputRange: [-80, 0] }) }] }]}>
             {/* Left: Mission Brand & Live Sensor Telemetry */}
             <View style={fieldExperienceStyles.topHudLeftGroup}>
+              {telemetry.displayState !== "live" && <Text accessibilityRole="alert" style={{ color: "#C86412", fontWeight: "bold" }}>TELEMETRY {telemetry.displayState.toUpperCase()}</Text>}
               {/* Module 1: Brand / Mission Info (Interactive) */}
               <TouchableOpacity
                 style={fieldExperienceStyles.topHudBrandWrap}

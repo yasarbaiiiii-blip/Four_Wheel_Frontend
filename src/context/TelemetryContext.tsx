@@ -207,6 +207,16 @@ export function TelemetryProvider({
   const rover = useRoverTelemetry();
   const isRoverConnected = rover.connectionState === "connected";
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const lastDisplayRef = useRef<{ telemetry: RoverTelemetry; receivedAt: number } | null>(null);
+  const receiveAge = socketTelemetryPacketAgeMs();
+  if (isRoverConnected && rover.hasLiveTelemetry && receiveAge !== null) {
+    lastDisplayRef.current = { telemetry: rover.telemetry, receivedAt: Date.now() - receiveAge };
+  }
+  const displayAge = lastDisplayRef.current === null
+    ? null : Math.max(0, nowMs - lastDisplayRef.current.receivedAt);
+  const displayState = displayAge === null || displayAge >= 2500
+    ? "offline" : isRoverConnected && displayAge <= 1000 ? "live" : "stale";
+  const displayTelemetry = displayState === "offline" ? null : lastDisplayRef.current?.telemetry ?? null;
 
   /**
    * Freshness is based on the tablet's actual Socket.IO telemetry receive time,
@@ -235,6 +245,8 @@ export function TelemetryProvider({
       telemetry: visibleTelemetry,
       roverPosition: visibleRoverPosition,
       connectionState: rover.connectionState,
+      displayTelemetry,
+      displayState,
     });
   }
   const liveStore = storeRef.current;
@@ -244,8 +256,10 @@ export function TelemetryProvider({
       telemetry: visibleTelemetry,
       roverPosition: visibleRoverPosition,
       connectionState: rover.connectionState,
+      displayTelemetry,
+      displayState,
     });
-  }, [liveStore, visibleTelemetry, visibleRoverPosition, rover.connectionState]);
+  }, [liveStore, visibleTelemetry, visibleRoverPosition, rover.connectionState, displayTelemetry, displayState]);
 
   const [gpsFailsafeMode, setGpsFailsafeModeState] =
     useState<GpsFailsafeMode>("disable");
@@ -265,7 +279,7 @@ export function TelemetryProvider({
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    const timer = setInterval(() => setNowMs(Date.now()), 250);
     return () => clearInterval(timer);
   }, []);
 

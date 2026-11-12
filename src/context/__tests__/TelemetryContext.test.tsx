@@ -20,6 +20,7 @@ import {
   type MissionLifecycleSlice,
   type TelemetryContextValue,
 } from "../TelemetryContext";
+import { useLiveTelemetryStore, type LiveTelemetryStore } from "../liveTelemetryStore";
 
 const mockUseRoverTelemetry = useRoverTelemetry as jest.MockedFunction<typeof useRoverTelemetry>;
 let rover: ReturnType<typeof useRoverTelemetry>;
@@ -159,4 +160,45 @@ it("retains staleness updates, GPS abort delivery and disconnected state clearin
   act(() => renderer!.unmount());
   renderer = undefined;
   expect(jest.getTimerCount()).toBe(0);
+});
+
+it("retains display-only values through a short disconnect and expires them without fresh packets", () => {
+  let store: LiveTelemetryStore;
+  let control: TelemetryContextValue;
+  function Probe() {
+    store = useLiveTelemetryStore();
+    control = useTelemetry();
+    return null;
+  }
+  const original = { ...rover.telemetry, battery: { percentage: 73 } };
+  rover = { ...rover, telemetry: original };
+  const tree = () => React.createElement(TelemetryProvider, null, React.createElement(Probe));
+  act(() => { renderer = TestRenderer.create(tree()); });
+  expect(store!.getSnapshot().displayState).toBe("live");
+
+  clearSocketTelemetryPacket();
+  rover = { ...rover, connectionState: "disconnected", hasLiveTelemetry: false };
+  act(() => renderer!.update(tree()));
+  expect(store!.getSnapshot().displayState).toBe("stale");
+  expect(store!.getSnapshot().displayTelemetry?.battery.percentage).toBe(73);
+  expect(control!.connectionState).toBe("disconnected");
+  expect(control!.telemetry.state.system_status).toBe("DISCONNECTED");
+
+  rover = { ...rover, connectionState: "error" };
+  act(() => renderer!.update(tree()));
+  expect(store!.getSnapshot().displayState).toBe("stale");
+  expect(control!.connectionState).toBe("error");
+
+  rover = { ...rover, connectionState: "connected" };
+  act(() => renderer!.update(tree()));
+  expect(store!.getSnapshot().displayState).toBe("stale");
+  act(() => jest.advanceTimersByTime(2500));
+  expect(store!.getSnapshot().displayState).toBe("offline");
+  expect(store!.getSnapshot().displayTelemetry).toBeNull();
+
+  markSocketTelemetryPacket(Date.now());
+  rover = { ...rover, hasLiveTelemetry: true, telemetry: { ...original, battery: { ...original.battery, percentage: 68 } } };
+  act(() => renderer!.update(tree()));
+  expect(store!.getSnapshot().displayState).toBe("live");
+  expect(store!.getSnapshot().displayTelemetry?.battery.percentage).toBe(68);
 });

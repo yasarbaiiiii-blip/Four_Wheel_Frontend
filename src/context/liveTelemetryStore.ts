@@ -6,9 +6,8 @@
  * subscribe through `useLiveTelemetrySelector`, which re-renders the caller
  * only when the selected slice changes (compared with `isEqual`).
  *
- * The store holds exactly what TelemetryContext exposes (the same visible,
- * connection-gated snapshot); it is a delivery mechanism, not a second
- * source of truth.
+ * The optional display snapshot is presentation only; command consumers must
+ * continue to use connectionState and telemetry for current authority.
  */
 
 import { createContext, useCallback, useContext, useRef, useSyncExternalStore } from "react";
@@ -18,6 +17,8 @@ export interface LiveTelemetrySnapshot {
   telemetry: RoverTelemetry;
   roverPosition: { lat: number; lng: number; timestamp: number } | null;
   connectionState: ConnectionState;
+  displayTelemetry?: RoverTelemetry | null;
+  displayState?: "live" | "stale" | "offline";
 }
 
 export interface LiveTelemetryStore {
@@ -43,7 +44,9 @@ export function createLiveTelemetryStore(
       if (
         snapshot.telemetry === current.telemetry &&
         snapshot.roverPosition === current.roverPosition &&
-        snapshot.connectionState === current.connectionState
+        snapshot.connectionState === current.connectionState &&
+        snapshot.displayTelemetry === current.displayTelemetry &&
+        snapshot.displayState === current.displayState
       ) {
         return;
       }

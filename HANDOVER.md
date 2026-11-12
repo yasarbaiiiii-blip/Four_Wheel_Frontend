@@ -1639,3 +1639,62 @@ Apply the frontend changes described in `ROW_END_EXTENSION_BACKEND_EXECUTION_PLA
 ### 6. Current Repository State & Open Items
 - Prior local `.gitignore`, `HANDOVER.md`, and plan changes remain; this entry adds the listed frontend source/test edits. No commit, staging, push, or merge. Temporary Jest/Expo outputs are to be removed before final handoff.
 - The backend plan's authoritative checkout `D:\projects\4WD_Backend` remains unavailable, so JSON response and hardware behavior are not integration verified. Next: build the exact backend release candidate, run joint upload → preview → changed apply → new-ID Load → locked dialog, no-op and both restore outcomes; verify UI on the Android tablet and Metro HTTP 200 outside this sandbox.
+
+---
+
+## Entry 036 — Mission Controls Decision Path Wiring
+- **Date & Time:** 2026-11-11 IST
+- **Working Branch:** `client_` (frontend), `Extension` (backend)
+- **Agent / Contributor:** Codex
+
+### 1. Objective & Scope
+Execute the non-actuating mission-controls phase of the approved plan: connect Start, Pause, Resume, Next, and Skip from the tablet API through the C++ backend to the ROS mission owner, while retaining every physical-motion and spray commissioning lockout.
+
+### 2. Changes Implemented
+- **Frontend:** `src/screens/MissionReportScreen.tsx` now requires the backend's explicit `mission.ready === true` before either Start presentation can become enabled. A loaded/accepted mission alone is not shown as startable.
+- **Backend:** Added authenticated canonical control routes, legacy Next/Skip aliases, loaded-run/session binding, server-generated monotonic command sequences, correlated ROS-owner outcomes, native-stage status mapping, and explicit operator-facing denial codes. Native load status now preserves `mission_run_id`, so command binding is checked against the installed mission rather than cached frontend state.
+- **ROS owner/audit:** Command decisions now record queued, accepted, denied, blocker, and stage-eligibility states. Pause can be accepted only by the ROS mission owner in an eligible stage. Positive commands remain on the production fail-closed executor and report the real authority blocker.
+- **Tests:** Updated native executor/audit/load tests, mission compatibility state tests, the non-ROS native harness, and the mission compatibility E2E expectations.
+
+### 3. Key Architecture & Design Decisions
+- The upload lease proves authenticated process-local mission ownership only; it is not a permission-to-drive capability. Start/Resume/Next/Skip still cannot dispatch motion because the trusted motion lease, safety evidence adapters, PX4 motion interface, and hardware commissioning remain absent.
+- Public requests wait for the matching ROS-owner decision instead of treating an HTTP 202 queue result as success. `CONTROL_LEASE_INVALID` is returned as a truthful commissioning refusal; wrong-stage actions return a conflict.
+- Status can reflect native RUNNING/PAUSED/WAITING/terminal stages, but continues to report `ready:false`, `mission_commands_enabled:false`, and `motor_commands_enabled:false` in this build.
+
+### 4. Hardware Safety & Safety Interlocks
+- No rover, Jetson, PX4, motor, spray, AUX, E-stop release, or physical command was operated. The production executor remains `drain()` (fail-closed), not the integration-only positive dispatcher. Motion and spray flags remain false.
+- Stop retains mailbox priority and its existing disarm lifecycle. E-stop release remains unavailable pending the approved recovery design.
+
+### 5. Verification & Testing
+- C++ unit executables: native command audit, load ingress, mission command executor, positive executor simulation, and mission dispatch passed.
+- Mission compatibility logic: 222/222 checks passed with a fresh test session database.
+- Native non-ROS harness rebuilt successfully; compatibility service header passed C++17 syntax checking. Existing constructor-order warnings in `NativeHttpServer` remain unrelated.
+- Frontend focused Jest suite: 21/21 passed. `npx tsc --noEmit` passed with zero errors.
+- Existing STOP/disarm/recovery source guards all passed. `git diff --check` passed.
+
+### 6. Current Repository State & Open Items
+- Changes are local only; no commit, push, deployment, stack restart, or hardware test was performed.
+- Before physical mission execution can be enabled, separately implement and commission the trusted motion lease, fresh safety evidence, PX4 command/feedback adapters, Stop recovery, and field validation. Do not change the current false authority flags merely to make Start succeed.
+
+---
+
+## Entry 037 — Telemetry Display Grace Period
+- **Date:** 2026-11-12 IST
+- **Working Branch:** `client_`
+- **Agent:** Codex
+
+### 1. Objective & Scope
+Reduce visible telemetry flicker on brief connection interruptions. The rover and tablet were unavailable.
+
+### 2. Changes Implemented
+- Added a separate, display-only last telemetry snapshot in `TelemetryContext` and `liveTelemetryStore`.
+- Mission home and progress views label the snapshot STALE after a disconnect or one second without a packet, and OFFLINE after 2.5 seconds without a packet; the display then clears. The receive time uses the tablet clock.
+- Added a focused provider test for disconnect, error, reconnect without a packet, expiry, and fresh data.
+
+### 3. Architecture and Safety
+- Existing real socket connection state and connection-gated telemetry remain unchanged for command and safety consumers. Existing manual reconnect and watchdog remain the sole retry path; no native retry was enabled.
+- No backend, PX4, arming, E-stop, motion or spray changes; no rover command sent.
+
+### 4. Verification and Open Items
+- `git diff --check` passed. Jest and TypeScript commands were attempted but stalled without output and were stopped; results are unverified. Metro and tablet tests were not run.
+- The pre-existing changes to this handover and the Start readiness gate in `MissionReportScreen.tsx` were preserved. Re-run focused tests and TypeScript, then validate the labels and timing on the tablet; collect socket diagnostics on the rover to identify the original interruption.
