@@ -147,6 +147,7 @@ export function shouldSkipExecutionModePost(
  */
 export type MissionStartOutcome =
   | { kind: "running" }
+  | { kind: "starting" }
   | { kind: "paused"; pauseReason: string | null }
   | { kind: "waiting" }
   | { kind: "other"; state: string };
@@ -159,6 +160,10 @@ export function classifyMissionStartOutcome(input: {
   if (state === "PAUSED") {
     const reason = normalizeState(input.pauseReason);
     return { kind: "paused", pauseReason: reason || null };
+  }
+  if (state === "STARTING" || state === "ARMING" ||
+      state === "PRIMING_OFFBOARD" || state === "SWITCHING_OFFBOARD") {
+    return { kind: "starting" };
   }
   if (state === "RUNNING") {
     return { kind: "running" };

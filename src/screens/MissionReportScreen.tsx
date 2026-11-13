@@ -556,7 +556,7 @@ export default function MissionReportScreen({
       const executionMode = mapBackendMissionModeToUiMode(incoming.execution_mode);
       if (executionMode) setMode(executionMode);
       setWaitingForManual(state === "WAITING_FOR_NEXT");
-      setIsMissionActive(["RUNNING", "PAUSED", "WAITING_FOR_NEXT", "ARMING", "PREPARING"].includes(state));
+      setIsMissionActive(["RUNNING", "PAUSED", "WAITING_FOR_NEXT", "STARTING", "ARMING", "PREPARING"].includes(state));
     };
     socket.on("mission_status", handleMissionStatus);
     return () => {
@@ -1242,7 +1242,7 @@ export default function MissionReportScreen({
     )
       .trim()
       .toUpperCase();
-    if (["RUNNING", "PAUSED", "WAITING_FOR_NEXT"].includes(state)) {
+    if (["RUNNING", "PAUSED", "WAITING_FOR_NEXT", "STARTING", "ARMING"].includes(state)) {
       setIsPreparingMission(false);
     }
   }, [
@@ -3497,7 +3497,10 @@ export default function MissionReportScreen({
         lon: startPosition?.lng ?? 0,
       };
 
-      if (startOutcome.kind === "paused") {
+      if (startOutcome.kind === "starting") {
+        showNotification("info", "Mission Starting",
+          "START accepted. Waiting for PX4 OFFBOARD and ARM confirmations.", 5000);
+      } else if (startOutcome.kind === "paused") {
         showNotification(
           "info",
           "Mission Started — Paused",
@@ -5940,6 +5943,7 @@ export default function MissionReportScreen({
           isStarting={isStartingMission || stopAwaitingTerminal}
           pauseAvailable={effectiveLifecycle.pauseAvailable}
           skipAvailable={effectiveLifecycle.skipAvailable}
+          nextAvailable={backendMission?.next_available === true}
           canChangeMode={effectiveLifecycle.state === "READY" && backendMission?.accepted_for_start === false}
           stopLatched={backendMission?.emergency_stop === true}
           onEmergencyStopRecorded={() => { void refreshBackendMission(); }}
@@ -6265,6 +6269,7 @@ interface MissionActivityExperienceProps {
   isStarting?: boolean;
   pauseAvailable?: boolean;
   skipAvailable?: boolean;
+  nextAvailable?: boolean;
   canChangeMode?: boolean;
   stopLatched?: boolean;
   onEmergencyStopRecorded?: () => void;
@@ -6444,7 +6449,7 @@ function MissionActivityExperience({
   hasMissionLoaded, onClearMission, onOpenPlan, onLoadMission, loadBusy, onOpenExtension,
   onStart, onPause, onResume, onStop,
   canStart, isPreparing, isMissionPaused, missionState, isStarting,
-  pauseAvailable, skipAvailable, canChangeMode, stopLatched, onEmergencyStopRecorded,
+  pauseAvailable, skipAvailable, nextAvailable, canChangeMode, stopLatched, onEmergencyStopRecorded,
   mode, onSetMode, onSkip, onNext, waitingForManual,
   onExport, onExportReport, onClearLogs, clearLogsBlockedReason,
   pauseReason, rtkReason, resumeAvailable,
@@ -6887,6 +6892,7 @@ function MissionActivityExperience({
     isStarting,
     pauseAvailable,
     skipAvailable,
+    nextAvailable,
     resumeAvailable,
     canChangeMode,
     mode: mode ?? "auto",
