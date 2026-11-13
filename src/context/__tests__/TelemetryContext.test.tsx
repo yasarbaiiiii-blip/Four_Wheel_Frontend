@@ -170,7 +170,7 @@ it("retains display-only values through a short disconnect and expires them with
     control = useTelemetry();
     return null;
   }
-  const original = { ...rover.telemetry, battery: { percentage: 73 } };
+  const original = { ...rover.telemetry, battery: { ...rover.telemetry.battery, percentage: 73 } };
   rover = { ...rover, telemetry: original };
   const tree = () => React.createElement(TelemetryProvider, null, React.createElement(Probe));
   act(() => { renderer = TestRenderer.create(tree()); });
@@ -190,7 +190,9 @@ it("retains display-only values through a short disconnect and expires them with
   expect(control!.connectionState).toBe("error");
 
   rover = { ...rover, connectionState: "connected" };
-  act(() => renderer!.update(tree()));
+  act(() => {
+    jest.advanceTimersByTime(1250);
+  });
   expect(store!.getSnapshot().displayState).toBe("stale");
   act(() => jest.advanceTimersByTime(2500));
   expect(store!.getSnapshot().displayState).toBe("offline");

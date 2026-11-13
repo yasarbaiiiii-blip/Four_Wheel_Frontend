@@ -24,7 +24,7 @@ export interface ConnectionContextValue {
   reconnect: () => void;
 }
 
-const ConnectionContext = createContext<ConnectionContextValue | null>(null);
+export const ConnectionContext = createContext<ConnectionContextValue | null>(null);
 
 interface ConnectionProviderProps {
   children: ReactNode;

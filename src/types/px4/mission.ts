@@ -207,6 +207,16 @@ export interface SetModeResponse {
 export interface EstopResponse {
   success: boolean;
   message?: string;
+  operation?: string;
+  code?: string;
+  recovery_epoch?: number;
+  estop_latched?: boolean;
+  mission_stop_latched?: boolean;
+  px4_disarmed?: boolean;
+  physical_estop_clear?: boolean;
+  decision_only?: boolean;
+  physical_stop_confirmed?: boolean;
+  px4_stop_confirmed?: boolean;
 }
 
 // ── GPS safety abort ──────────────────────────────────────────────────────────

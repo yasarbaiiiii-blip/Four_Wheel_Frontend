@@ -6,9 +6,9 @@ export interface RecoveryUiInput {
   resumeAvailable: boolean;
   batteryLockout: boolean;
   /**
-   * Rover-reported E-stop latch. The backend boots with E-stop asserted, and
-   * Mission Manager withholds resume_available while it is set, so a
-   * recovered mission would otherwise never offer Resume.
+   * Rover-reported E-stop latch. Deliberate release must be completed through
+   * the recovery/E-Stop control before Resume is permitted; Resume must never
+   * silently attempt release itself.
    */
   emergencyStopActive: boolean;
 }
@@ -36,7 +36,8 @@ export function canResumeRecoveredMission(
     input.recoveryAvailable &&
     input.recoveryState.trim().toUpperCase() === "READY" &&
     input.missionState.trim().toUpperCase() === "PAUSED" &&
-    (input.resumeAvailable || input.emergencyStopActive) &&
+    input.resumeAvailable &&
+    !input.emergencyStopActive &&
     !input.batteryLockout
   );
 }

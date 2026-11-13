@@ -1698,3 +1698,176 @@ Reduce visible telemetry flicker on brief connection interruptions. The rover an
 ### 4. Verification and Open Items
 - `git diff --check` passed. Jest and TypeScript commands were attempted but stalled without output and were stopped; results are unverified. Metro and tablet tests were not run.
 - The pre-existing changes to this handover and the Start readiness gate in `MissionReportScreen.tsx` were preserved. Re-run focused tests and TypeScript, then validate the labels and timing on the tablet; collect socket diagnostics on the rover to identify the original interruption.
+
+
+---
+
+## Entry 038 — Review of Double-Tap E-Stop Release Plan
+- **Date & Time:** 2026-11-13 16:48 IST
+- **Working Branch:** `client_` (frontend), `Extension` (available backend checkout)
+- **Agent / Contributor:** Codex
+
+### 1. Objective & Scope
+Review the operator-supplied double-tap E-Stop release and legacy-release-removal plan against the current frontend and `D:\DYX_4WD_JETSON_DDS` backend source. This was analysis only; no release or rover command was issued.
+
+### 2. Changes Implemented
+- **Files Created:** None.
+- **Files Modified:** `HANDOVER.md` (this review entry only).
+- **Files Deleted / Deprecated:** None. Temporary local Metro export and TEMP directories were removed after verification.
+
+### 3. Key Architecture & Design Decisions
+- The plan's `HeaderBar.tsx` target has no application call site. Active controls are in `src/components/shared/EstopControls.tsx`, used by Path Plan, Mission Report, and Quick NTRIP. `HeaderBar` already renders a RELEASE button, contrary to the plan's description, but does not appear in the running app.
+- The proposed `telemetry.emergency_stop || mission.status === 'EMERGENCY_STOP' || telemetry.state.includes('STOP')` predicate is unsupported by the current telemetry types and conflates mission STOP with confirmed E-Stop. The actual UI uses `missionLifecycle.emergency_stop`; the backend currently maps a shared native Stop latch to that field.
+- The public release route currently returns authenticated HTTP 423 `STOP_RECOVERY_NOT_COMMISSIONED`. The native manager has no release endpoint; Stop latches the mailbox, upload ingress, and command audit. The lower-level `release_emergency_stop` helper is not wired to the native HTTP/ROS owner route. A public handler that merely clears an E-Stop boolean cannot recover these independent latches.
+- The active app also calls `releaseEmergencyStop()` from `MissionRecoveryNotice` before Resume. A single-control policy must address that caller and the other UI variants. The service already uses `apiPost` token injection and sends no generation payload; no current generation-matching release implementation was found to remove.
+- Recommended revision: define a single authoritative stop/recovery state and explicit disarmed recovery transaction across native components, with fresh PX4 disarm and physical E-Stop evidence, stale-request fencing, idempotency, truthful acknowledgement and telemetry confirmation. Preserve an immediately available STOP action while a release sequence is pending. Keep mission and motion authority disabled until separately commissioned.
+
+### 4. Hardware Safety & Safety Interlocks
+- No solenoid, AUX, PX4 arming, motion, or speed gate changed. Current backend Stop is decision-only and explicitly reports `physical_stop_confirmed:false`; neither a successful physical brake nor zero wheel speed can be inferred from its HTTP response. No physical release was attempted.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** `npm test -- --runInBand --watch=false --testPathPattern=EstopControlsMission` — 6/6 passed (1 suite); renderer deprecation warnings only.
+- **Type Check:** `npx tsc --noEmit` — failed on two existing `TelemetryContext.test.tsx` fixture errors (battery object missing `voltage` and `current` at lines 174 and 200). No source was changed in this review.
+- **Metro Bundler Check:** `curl.exe` to `127.0.0.1:8081/index.bundle?platform=android&dev=true` returned HTTP `000` (no listening Metro server). `npx expo export --platform android --output-dir .metro-plan-review` succeeded, 1769 modules, Android Hermes bundle. Export directory removed.
+- **Manual Verification:** Read the pasted plan, frontend `README.md`/`AGENTS.md`/handover, and traced frontend callers and backend route/latch source. No Jetson, tablet, or hardware test.
+
+### 6. Current Repository State & Open Items
+- Both checkouts were clean before review. The only intended frontend change is this handover entry; backend source was not modified.
+- Revise the plan before implementation: target the active controls, separate Stop from E-Stop state, retain emergency STOP access, specify native recovery evidence and all latch resets, cover auto-release caller, and add off-rover/Jetson/tablet acceptance. Type fixture errors and Metro HTTP 200 remain open verification items.
+
+---
+
+## Entry 039 — Revised E-Stop Release Execution Plan
+- **Date & Time:** 2026-11-13 16:57 IST
+- **Working Branch:** `client_` (frontend), `Extension` (available backend checkout)
+- **Agent / Contributor:** Codex
+
+### 1. Objective & Scope
+Provide a revised, implementation-ready plan for double-tap E-Stop release, including the operator-requested confirmation popup after the second tap. Planning only; no runtime release code or rover command.
+
+### 2. Changes Implemented
+- **Files Created:** `ESTOP_RELEASE_EXECUTION_PLAN.md` — current-source facts, interaction table, native recovery contract, frontend work, verification and rollout gates.
+- **Files Modified:** `.gitignore` (allow the new plan to appear in Git status), `HANDOVER.md` (this entry).
+- **Files Deleted / Deprecated:** None.
+
+### 3. Key Architecture & Design Decisions
+- Confirm Release is the only popup action that sends the release request. Keep Stopped sends nothing; STOP NOW reasserts E-Stop. A single latched tap only prompts, and the second tap opens the popup.
+- Recovery eligibility must come from fresh authoritative backend state. The native mission manager must coordinate mailbox, upload, audit and safety latches with a server-owned stale-request fence and fresh disarm/physical-input evidence before public HTTP can report success.
+- Remove the silent pre-Resume release caller when implementing the UI. Keep STOP prioritized, including during a pending release. Preserve false motion and spray commissioning flags.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4, arming, motion, solenoid, AUX, or speed gate changed. The plan explicitly requires independently verified physical stop/disarm evidence and prevents release from auto-starting a mission.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** No source implementation changed; the focused E-Stop suite run during Entry 038 passed 6/6.
+- **Type Check:** No new source changes; Entry 038 `npx tsc --noEmit` failed on two pre-existing `TelemetryContext.test.tsx` battery fixture errors.
+- **Metro Bundler Check:** Entry 038 Android export succeeded (1769 modules); HTTP check returned `000` with no server listening. HTTP 200 remains open.
+- **Manual Verification:** Compared the revised plan to the current frontend/backend source review from Entry 038; `git diff --check` and status reviewed below.
+
+### 6. Current Repository State & Open Items
+- Intended frontend changes: `.gitignore`, this handover, and the new plan file. Backend checkout unchanged. No staging, commit, deployment, or hardware test.
+- Next: confirm the backend deployment source, implement native recovery and evidence contracts, then the active frontend controls, and execute the plan's off-rover and field gates. Existing type fixture errors and Metro HTTP 200 remain open.
+
+---
+
+## Entry 040 — Existing-Feature Impact of E-Stop Release Plan
+- **Date & Time:** 2026-11-13 17:02 IST
+- **Working Branch:** `client_` (frontend), `Extension` (available backend checkout)
+- **Agent / Contributor:** Codex
+
+### 1. Objective & Scope
+Answer whether the revised plan affects existing features and supply a bounded implementation prompt for Antigravity Gemini Flash 3.8. This was planning and impact analysis only.
+
+### 2. Changes Implemented
+- **Files Created:** None.
+- **Files Modified:** `HANDOVER.md` (this entry only).
+- **Files Deleted / Deprecated:** None.
+
+### 3. Key Architecture & Design Decisions
+- The plan necessarily changes current E-Stop release UI, the recovery screen's pre-Resume release attempt, public release API behavior, native Stop/recovery state, and status presentation. It is therefore not feature-neutral. Preserve all unrelated mission, spray, joystick, RTK, and Stop functionality with regression checks.
+- The implementation prompt directs the agent to use the revised plan, confirm the actual backend release source, build native recovery before enabling public success, and retain immediate STOP access and existing commissioning lockouts.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4, arming, motion, solenoid, AUX, or speed gate changed. No rover command was sent. The prompt requires physical-input and fresh disarm evidence before release and forbids auto-arm, auto-resume, and authority-flag changes.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** No source implementation changed; focused 6/6 E-Stop tests from Entry 038 remain the last run.
+- **Type Check:** No source implementation changed; Entry 038's two pre-existing telemetry fixture errors remain open.
+- **Metro Bundler Check:** No source implementation changed; Entry 038 Android export passed, HTTP `000` with no server listening.
+- **Manual Verification:** Rechecked the revised plan and current status; `git diff --check` and intended-file status review performed.
+
+### 6. Current Repository State & Open Items
+- Existing intended frontend changes remain `.gitignore`, `HANDOVER.md`, and untracked `ESTOP_RELEASE_EXECUTION_PLAN.md`; backend checkout is unchanged. No staging, commit, deployment, or hardware test.
+- The next implementing agent must validate backend checkout identity, execute native and frontend test gates, resolve or document the existing type-fixture errors, and perform off-rover and field acceptance before enabling release.
+
+---
+
+## Entry 041 — Double-Tap E-Stop Release & Native Recovery Transaction
+- **Date & Time:** 2026-11-13 17:37 IST
+- **Working Branch:** `client_` (frontend), `Extension` (backend checkout `D:\DYX_4WD_JETSON_DDS`)
+- **Agent / Contributor:** Antigravity AI Agent (Gemini 3.8 Flash)
+
+### 1. Objective & Scope
+Implement the approved revised double-tap E-Stop release plan (`ESTOP_RELEASE_EXECUTION_PLAN.md`) across the active frontend controls and C++ backend:
+- Active `EstopControls` component implementation across `header`, `vertical`, and `mission` variants.
+- Immediate 1-tap STOP assertion when unlatched or during unknown/stale/disconnected states.
+- 2-tap gesture when confirmed latched: first tap prompts "Tap again to release", second tap within 450 ms opens deliberate confirmation popup with "Keep Stopped", "STOP NOW", and "Confirm Release".
+- Removal of silent pre-Resume release from `MissionRecoveryNotice`.
+- Truthful release confirmation requiring fresh disarmed unlatched backend status.
+- Authenticated native recovery transaction in `dyx_mission_manager` coordinating command mailbox, upload ingress, load ingress, and command audit with server-side epoch fencing and disarmed/physical evidence gating.
+- Public route preservation of 423 `STOP_RECOVERY_NOT_COMMISSIONED` by default until physical commissioning.
+
+### 2. Changes Implemented
+- **Frontend (`D:\Four_Wheel_Frontend`):**
+  - `src/utils/estopControlsView.ts`: Updated to require authoritative latch and active healthy connection (`isConnected && !isStale`); unknown, undefined, or disconnected states strictly disallow release (`showRelease: false, canRelease: false`).
+  - `src/utils/__tests__/estopControlsView.test.ts`: Added tests for latched fresh, clear, unknown, disconnected, and stale states (5/5 passed).
+  - `src/components/shared/EstopControls.tsx`: Implemented three-state interaction, 450 ms gesture window, AppState background & unmount timer clearing, high-contrast accessible modal dialog ($\ge 48\,\text{dp}$ touch targets, field-white tokens) offering Keep Stopped, STOP NOW, and Confirm Release. Added fresh status polling verification and priority abort on concurrent STOP.
+  - `src/components/shared/__tests__/EstopControlsMission.test.tsx`: Updated mocks for `Modal`, `ActivityIndicator`, and `AppState`; verified STOP stays active across all latch states (6/6 passed).
+  - `src/components/shared/__tests__/EstopControlsDoubleTapRelease.test.tsx`: Added comprehensive new test suite for double-tap gesture, expiration, Keep Stopped, STOP NOW, Confirm Release, in-flight guard, status verification, background gesture cancellation, and concurrent STOP priority (10/10 passed).
+  - `src/utils/missionRecoveryUi.ts`: Removed silent release pre-condition from `canResumeRecoveredMission`; `emergencyStopActive` now explicitly blocks Resume until deliberate recovery is performed.
+  - `src/__tests__/missionRecoveryUi.test.ts`: Updated tests to verify active E-stop blocks Resume (4/4 passed).
+  - `src/components/recovery/MissionRecoveryNotice.tsx`: Removed `releaseEmergencyStop` import and silent release attempt from `handleResume`; added operator warning banner when E-Stop is active directing to deliberate recovery controls; updated button text to static `"Resume Mission"`.
+  - `src/context/ConnectionContext.tsx`: Exported `ConnectionContext` for safe fallback consumption in isolated tests.
+  - `src/context/__tests__/TelemetryContext.test.tsx`: Resolved pre-existing type errors on battery fixtures and timer tick (15/15 passed).
+  - `src/types/px4/mission.ts`: Enriched `EstopResponse` with typed backend recovery fields (`recovery_epoch`, `estop_latched`, `px4_disarmed`, `physical_estop_clear`, `decision_only`).
+
+- **Backend (`D:\DYX_4WD_JETSON_DDS`):**
+  - `src/dyx_mission_manager/include/dyx_mission_manager/native_command_mailbox.hpp`: Added distinct `estop_latched_`, `mission_stop_latched_`, `stop_epoch_`, `recovery_epoch_`, and atomic `reset_after_recovery(expected_stop_epoch)` fence preventing an older release from clearing a newer Stop.
+  - `src/dyx_mission_manager/include/dyx_mission_manager/native_upload_ingress.hpp`: Added `reset_after_recovery()` to invalidate previous mission upload and clear operator lease.
+  - `src/dyx_mission_manager/include/dyx_mission_manager/native_load_ingress.hpp`: Added `reset_after_recovery()` to invalidate installed load.
+  - `src/dyx_mission_manager/include/dyx_mission_manager/native_command_decision_audit.hpp`: Added `reset_after_recovery()` to clear previous decisions and blockers.
+  - `src/dyx_mission_manager/include/dyx_mission_manager/native_stop_recovery.hpp`: Created native stop recovery transaction component coordinating preconditions (commissioning flag, active latch, fresh PX4 disarm evidence, fresh physical E-Stop contact evidence, busy lock) and executing atomic epoch-fenced recovery.
+  - `src/dyx_mission_manager/include/dyx_mission_manager/native_http_server.hpp`: Wired `/api/native/mission/recovery/estop-release` (POST) and `/api/native/mission/recovery/status` (GET).
+  - `src/dyx_mission_manager/CMakeLists.txt`: Registered `native_stop_recovery_test`.
+  - `src/dyx_mission_manager/tests/native_stop_recovery_test.cpp`: Added unit tests covering uncommissioned 423, unauthenticated 401, inactive latch 409, stale/armed PX4 409, engaged/stale physical E-Stop 409, successful transaction 200, repeated release 409, and concurrent Stop fence abort.
+  - `src/rover_backend/include/rover_backend/mission_compat_service.hpp`: Updated `refuse_release` to forward to native recovery route, relaying native decision while preserving 423 `STOP_RECOVERY_NOT_COMMISSIONED` by default.
+  - `src/rover_backend/include/rover_backend/mission_compat.hpp`: Exposed distinct `emergency_stop`, `estop_latched`, `mission_stop_latched`, `px4_disarmed`, `physical_estop_clear` in mission state.
+
+### 3. Key Architecture & Design Decisions
+- **Deliberate Operator Interaction:** A release requires two deliberate taps within 450 ms on the confirmed latched control to open the confirmation popup modal. Neither tap sends a release request. Only "Confirm Release" inside the modal issues `POST /api/estop/release`.
+- **STOP Priority Invariant:** STOP remains immediately available and one-tap unblocked at all times, including while a release popup is open or while a release request is in flight. A concurrent STOP cancels the release sequence immediately.
+- **Fail-Closed Evidence Gating:** Release cannot succeed on a local boolean toggle or client-claimed state. The native recovery transaction requires fresh (<0.5s) PX4 disarm evidence and physical E-Stop contact evidence, and advances a server-side recovery epoch.
+- **Old Mission Invalidation:** Successful recovery resets upload ingress, load ingress, and command decisions. Start and Resume remain locked out until a new mission is uploaded, loaded, and commissioned.
+- **No Commissioning Mutation:** `recovery_commissioned_` remains `false` by default, preserving HTTP 423 `STOP_RECOVERY_NOT_COMMISSIONED` for uncommissioned builds.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4 arming, motion, spray, AUX, solenoid, or hardware command was emitted.
+- All motion and spray authority flags (`mission_commands_enabled`, `motor_commands_enabled`, `spray_commands_enabled`) remain strictly `false`.
+- The physical rover and Jetson were not deployed or operated; zero wheel speed or physical stop cannot be inferred from an HTTP acknowledgement.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:**
+  - Full Frontend Jest: `npm test -- --runInBand --silent --cacheDirectory D:\Four_Wheel_Frontend\.jest-cache` -> **82/82 suites passed, 995/995 tests passed**.
+  - Focused E-Stop & Recovery Suites: `npm test -- --runInBand --silent --testPathPattern="Estop|missionRecovery|estopControlsView"` -> **25/25 tests passed (4 suites)**.
+- **Type Checking:**
+  - `npx tsc --noEmit` -> **0 errors** (clean TypeScript compilation across the entire project).
+- **Metro Bundler Check:**
+  - `npx expo export --platform android` -> Successfully compiled Hermes Android bundle (`_expo/static/js/android/index-*.hbc`, 1769 modules).
+- **Git Diff & Status Review:**
+  - `git diff --check` passed cleanly in both `D:\Four_Wheel_Frontend` and `D:\DYX_4WD_JETSON_DDS`.
+  - `git status` reviewed; only intended files modified/added; scratch `.jest-cache` removed.
+
+### 6. Current Repository State & Open Items
+- Frontend working tree clean of scratch files; changes uncommitted on `client_`.
+- Backend working tree clean of scratch files; changes uncommitted on `Extension`.
+- Field validation and bench testing with gloves on the physical Android tablet and rover are required before deploying to production.

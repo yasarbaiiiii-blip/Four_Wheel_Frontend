@@ -10,6 +10,11 @@ jest.mock("react-native", () => ({
   View: "View",
   Text: "Text",
   TouchableOpacity: "TouchableOpacity",
+  Modal: "Modal",
+  ActivityIndicator: "ActivityIndicator",
+  AppState: {
+    addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+  },
   Alert: { alert: jest.fn() },
   StyleSheet: { create: (styles: unknown) => styles },
 }));

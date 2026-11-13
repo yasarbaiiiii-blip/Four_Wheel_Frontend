@@ -14,7 +14,7 @@ describe("missionRecoveryUi", () => {
     expect(shouldShowRecovery(true, "RESYNCED")).toBe(false);
   });
 
-  test("resume requires backend READY + PAUSED and no battery lockout", () => {
+  test("resume requires backend READY + PAUSED, unlatched E-stop, and no battery lockout", () => {
     const base = {
       recoveryRequired: true,
       recoveryAvailable: true,
@@ -38,29 +38,29 @@ describe("missionRecoveryUi", () => {
         recoveryAvailable: false,
       }),
     ).toBe(false);
+    expect(
+      canResumeRecoveredMission({
+        ...base,
+        resumeAvailable: false,
+      }),
+    ).toBe(false);
   });
 
-  test("latched E-stop still offers Resume (released before RESUME)", () => {
-    const booted = {
+  test("active E-stop blocks Resume and requires deliberate recovery first", () => {
+    const latched = {
       recoveryRequired: true,
       recoveryAvailable: true,
       recoveryState: "READY",
       missionState: "PAUSED",
-      resumeAvailable: false,
+      resumeAvailable: true,
       batteryLockout: false,
       emergencyStopActive: true,
     };
 
-    expect(canResumeRecoveredMission(booted)).toBe(true);
+    expect(canResumeRecoveredMission(latched)).toBe(false);
     expect(
-      canResumeRecoveredMission({ ...booted, emergencyStopActive: false }),
-    ).toBe(false);
-    expect(
-      canResumeRecoveredMission({ ...booted, batteryLockout: true }),
-    ).toBe(false);
-    expect(
-      canResumeRecoveredMission({ ...booted, missionState: "RUNNING" }),
-    ).toBe(false);
+      canResumeRecoveredMission({ ...latched, emergencyStopActive: false }),
+    ).toBe(true);
   });
 
   test("discard is offered after recovery is ready or failed", () => {
