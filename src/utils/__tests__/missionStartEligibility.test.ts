@@ -151,6 +151,14 @@ describe("start HTTP skips", () => {
 
 });
 
+describe("PX4 START handshake acceptance", () => {
+  test.each(["STARTING", "PRIMING_OFFBOARD", "SWITCHING_OFFBOARD", "ARMING"])(
+    "%s is accepted but not yet driving", (state) => {
+      expect(classifyMissionStartOutcome({ state })).toEqual({ kind: "starting" });
+    },
+  );
+});
+
 describe("classifyMissionStartOutcome", () => {
   test("RUNNING is a normal start", () => {
     expect(classifyMissionStartOutcome({ state: "running" })).toEqual({

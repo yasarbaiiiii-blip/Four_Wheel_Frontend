@@ -26,6 +26,7 @@ export interface DeckControlInput {
   isStarting?: boolean;
   pauseAvailable?: boolean;
   skipAvailable?: boolean;
+  nextAvailable?: boolean;
   resumeAvailable?: boolean;
   canChangeMode?: boolean;
   mode: "auto" | "manual";
@@ -82,7 +83,7 @@ export function getDeckControlState(input: DeckControlInput): DeckControlState {
       : phase === "running" && knownMoving && input.pauseAvailable === true && !busy,
     skipEnabled: phase === "running" && knownMoving && input.skipAvailable === true && !busy,
     // The backend state (WAITING_FOR_NEXT) is the authority, not the local mode.
-    nextEnabled: phase === "waiting" && !busy,
+    nextEnabled: phase === "waiting" && input.nextAvailable === true && !busy,
     modeEnabled: phase === "idle" && input.canChangeMode === true && !busy && !input.isPreparing,
   };
 }

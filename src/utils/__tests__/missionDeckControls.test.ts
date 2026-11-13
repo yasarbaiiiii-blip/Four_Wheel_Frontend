@@ -15,6 +15,7 @@ const base: DeckControlInput = {
   isStopping: false,
   pauseAvailable: true,
   skipAvailable: true,
+  nextAvailable: true,
   resumeAvailable: true,
   canChangeMode: true,
   mode: "auto",
@@ -80,6 +81,13 @@ describe("paused", () => {
   });
   it("requires the backend resume flag", () => {
     expect(state({ state: "PAUSED", resumeAvailable: false }).secondaryEnabled).toBe(false);
+  });
+});
+
+describe("verified NEXT permission", () => {
+  it("never enables NEXT without a fresh backend permission", () => {
+    expect(state({ state: "WAITING_FOR_NEXT", nextAvailable: false }).nextEnabled).toBe(false);
+    expect(state({ state: "WAITING_FOR_NEXT", nextAvailable: true }).nextEnabled).toBe(true);
   });
 });
 
