@@ -146,10 +146,8 @@ import { verifiedProgressToLegacy } from "../adapters/verifiedTargetBridge";
 import { getMissionProgressRef } from "../utils/missionStatusPresentation";
 import { pauseNotice, pauseReasonText } from "../utils/pauseReasonPresentation";
 import {
-  getMissionStartEligibility,
   isMissionStoredOnRover,
   classifyMissionStartOutcome,
-  shouldSkipExecutionModePost,
 } from "../utils/missionStartEligibility";
 import { shouldAcceptCanonicalReport } from "../utils/missionReportRunGuard";
 import {
@@ -170,9 +168,7 @@ import {
   getMissionReport,
   uploadMissionCsv,
   loadMission,
-  restoreMission,
   setMissionExecutionMode,
-  prepareMission,
   startMission,
   pauseMission,
   resumeMission,
@@ -342,7 +338,6 @@ export default function MissionReportScreen({
   const { setMissionSnapshot } = useFieldMap();
   const {
     preview,
-    authoringChanged,
     invalidateForUpload,
     resumePreviewAfterFailedUpload,
     clearTrajectory,
@@ -1184,30 +1179,16 @@ export default function MissionReportScreen({
    * If mission-manager dropped `ready`, Start prepares
    * that CSV instead of forcing a Path Plan re-upload.
    */
-  const startEligibility = useMemo(
-    () =>
-      getMissionStartEligibility({
-        connected: connectionState === "connected",
-        loaded: hasUploadedMission,
-        state: backendMissionStored
-          ? backendMissionState
-          : retainedMission?.state ?? backendMissionState,
-      }),
-    [
-      connectionState,
-      hasUploadedMission,
-      backendMissionState,
-      backendMissionStored,
-      retainedMission?.state,
-      hasRetainedPreviewMission,
-      previewMissionId,
-    ],
-  );
-  // The C++ backend now exposes the complete Start decision path, but keeps
-  // `ready` false until physical motion authority is commissioned. Do not let
-  // the tablet turn a merely loaded mission into an apparent Start grant.
+  // Backend status describes the installed mission. The button only
+  // offers a START request; the native ROS owner grants or refuses execution.
+  // Do not gate on local authoringChanged or retained frontend waypoints.
   const canStartMission =
-    startEligibility.canPressStart && backendMission?.ready === true;
+    connectionState === "connected" &&
+    backendMission?.loaded === true &&
+    backendMission?.accepted_for_start === true &&
+    backendMissionState === "READY" &&
+    typeof backendMission?.mission_id === "string" &&
+    backendMission.mission_id.trim().length > 0;
 
   /**
    * Single authoritative lifecycle view for the control buttons: the
@@ -3052,95 +3033,6 @@ export default function MissionReportScreen({
     // trailPointsRef.current = [];
   };
 
-  /**
-   * A completed mission may be archived by the rover and leave the active
-   * mission status as EMPTY. Rehydrate that same mission transparently before
-   * Start so the operator does not have to upload or press Restore again.
-   */
-  const restoreRetainedMissionForStart = useCallback(async (): Promise<MissionRuntimeState> => {
-    const retained = retainedMissionRef.current;
-    const missionId = String(retained?.mission_id ?? "").trim();
-    if (!missionId) {
-      throw new Error("The completed mission identity is unavailable. Upload the mission again.");
-    }
-
-    const restoredResponse = await restoreMission(missionId);
-    if (!restoredResponse?.success || !restoredResponse.mission) {
-      throw new Error(
-        restoredResponse?.message || "The rover could not restore the completed mission.",
-      );
-    }
-
-    let restoredMission = restoredResponse.mission;
-    setBackendMission(restoredMission);
-
-    // Restore already waits for preparation on current rover backends. Prefer
-    // the live Socket.IO status if a slower rover still needs a little longer;
-    // REST is a sparse fallback only. The previous 400 ms polling delay made
-    // a repeat Start feel slow even when the restored path was already ready.
-    const deadline = Date.now() + 30_000;
-    const REST_FALLBACK_DELAY_MS = 250;
-    const REST_FALLBACK_INTERVAL_MS = 500;
-    const isReadyForLoad = (mission: MissionRuntimeState | null | undefined) =>
-      mission?.loaded === true && mission.trajectory_ready === true;
-    const isSameMission = (mission: MissionRuntimeState | null | undefined) =>
-      String(mission?.mission_id ?? "").trim() === missionId;
-    let nextRestFallbackAt = Date.now() + REST_FALLBACK_DELAY_MS;
-    while (
-      Date.now() < deadline &&
-      mountedRef.current &&
-      !isReadyForLoad(restoredMission)
-    ) {
-      const liveMission = backendMissionRef.current;
-      if (isSameMission(liveMission) && isReadyForLoad(liveMission)) {
-        restoredMission = liveMission!;
-        break;
-      }
-
-      if (Date.now() >= nextRestFallbackAt) {
-        const status = await getMissionStatus();
-        nextRestFallbackAt = Date.now() + REST_FALLBACK_INTERVAL_MS;
-        if (status?.success && status.mission) {
-          restoredMission = status.mission;
-          setBackendMission(restoredMission);
-          const state = String(restoredMission.state ?? "")
-            .trim()
-            .toUpperCase();
-          if (state === "ERROR") {
-            throw new Error(
-              restoredMission.error ||
-                restoredMission.message ||
-                "The rover failed to prepare the completed mission.",
-            );
-          }
-        }
-      }
-
-      if (isReadyForLoad(restoredMission)) {
-        break;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-
-    if (!isReadyForLoad(restoredMission)) {
-      throw new Error("The restored mission path is still preparing. Please try Start again shortly.");
-    }
-
-    // Restore intentionally leaves accepted_for_start false. Confirm the
-    // already restored preview in the same hidden step the user previously
-    // performed with Load Mission.
-    const loadResponse = await loadMission(missionId);
-    if (!loadResponse?.success || !loadResponse.mission) {
-      throw new Error(
-        loadResponse?.message || "The rover could not load the restored mission.",
-      );
-    }
-
-    setBackendMission(loadResponse.mission);
-    return loadResponse.mission;
-  }, [setBackendMission]);
-
   const handleSetExecutionMode = async (newMode: "AUTO" | "MANUAL") => {
     try {
       console.log("[MissionReportScreen] Setting execution mode:", newMode);
@@ -3195,42 +3087,31 @@ export default function MissionReportScreen({
     }
   };
 
+  // START is a request for the currently LOADed, signed mission on Jetson.
+  // The backend owns readiness, RPP installation and PX4 authorization. Neither
+  // locally edited waypoints nor stale trajectory-preview flags can grant or
+  // veto motion. Do not PREPARE, RESTORE, LOAD or change mode inside START.
   const handleStart = async () => {
     if (!mountedRef.current) {
-      return {
-        success: false,
-        message: "Mission screen is not active.",
-      };
+      return { success: false, message: "Mission screen is not active." };
     }
-
-    if (effectiveLifecycle.state !== "READY" || backendMission?.accepted_for_start !== true) {
-      const message = "Load a mission and wait for the rover to report READY before starting.";
-      showNotification("info", "Start Unavailable", message, 5000);
+    if (connectionState !== "connected") {
+      const message = "Connect to the rover before starting.";
+      showNotification("error", "Connect Rover", message, 5000);
       return { success: false, message };
     }
-
-    if (authoringChanged) {
-      const message =
-        "Wait for the automatic path update to finish before starting this mission.";
-      showNotification("info", "Path Updating", message, 4000);
-      return {
-        success: false,
-        message,
-      };
-    }
-
     if (startInFlightRef.current) {
-      return {
-        success: false,
-        message: "Mission start is already in progress.",
-      };
+      return { success: false, message: "Mission start is already in progress." };
     }
+
     startInFlightRef.current = true;
     setIsStartingMission(true);
     const generation = commandGenerationRef.current;
     const superseded = () => generation !== commandGenerationRef.current;
-    const stoppedDuringStart = () => ({ success: false, message: "Stop superseded the pending Start." });
-
+    const stoppedDuringStart = () => ({
+      success: false,
+      message: "Stop superseded the pending Start.",
+    });
     const attemptId = createMissionStartAttemptId();
     startTimingAttemptRef.current = attemptId;
     lastLoggedStartPhaseRef.current = null;
@@ -3238,210 +3119,54 @@ export default function MissionReportScreen({
     logMissionStartTiming(attemptId, "handle_enter");
 
     try {
-      console.log("[MissionReportScreen] Requesting mission start...");
-
-      // Use the last confirmed mission when a terminal status briefly omits
-      // its identity. If terminal cleanup archived the active slot, restore
-      // and confirm that same mission automatically before evaluating Start.
-      let latestMission = backendMission ?? retainedMissionRef.current;
-      const backendState = String(backendMission?.state ?? "")
-        .trim()
-        .toUpperCase();
-      const terminalStates = new Set([
-        "EMPTY",
-        "COMPLETED",
-        "STOPPED",
-        "FAILED",
-        "ERROR",
-      ]);
-      const retainedMissionId = String(
-        retainedMissionRef.current?.mission_id ?? previewMissionId,
-      ).trim();
-
-      // If Mission Progress was mounted only after the run completed, the
-      // shared retained preview is still enough to recover the mission ID.
-      // Seed the same snapshot used by the normal status path before restore.
-      if (!retainedMissionRef.current && previewMissionId) {
-        rememberMission({
-          mission_id: previewMissionId,
-          loaded: true,
-          state: backendState || "EMPTY",
-        });
+      // Never start a retained/archived mission or a route drawn only in the
+      // editor. Re-read status immediately before sending the control request.
+      // The backend will revalidate the identity atomically at POST START.
+      const displayedRunId = String(backendMissionRef.current?.mission_id ?? "").trim();
+      const status = await getMissionStatus();
+      if (superseded()) return stoppedDuringStart();
+      if (!status?.success || !status.mission) {
+        throw new Error("Could not confirm the rover's currently loaded mission.");
       }
 
-      if (
-        !backendMissionStored &&
-        retainedMissionId &&
-        terminalStates.has(backendState)
-      ) {
-        setIsPreparingMission(true);
-        logMissionStartTiming(attemptId, "backend_phase", "restore");
-        latestMission = await restoreRetainedMissionForStart();
-        if (superseded()) return stoppedDuringStart();
+      const loadedMission = status.mission;
+      const missionId = String(loadedMission.mission_id ?? "").trim();
+      const runId = String(loadedMission.mission_run_id ?? missionId).trim();
+      const state = String(loadedMission.state ?? "").trim().toUpperCase();
+      setBackendMission(loadedMission, { fresh: true });
+      if (loadedMission.execution_mode === "AUTO" ||
+          loadedMission.execution_mode === "MANUAL") {
+        // Display only. Execution mode was selected before LOAD; START must
+        // never mutate the installed signed mission's execution mode.
+        setMode(loadedMission.execution_mode);
       }
 
-      const eligibility = getMissionStartEligibility({
-        connected: connectionState === "connected",
-        loaded:
-          isMissionStoredOnRover(latestMission) ||
-          Boolean(retainedMissionRef.current),
-        state: latestMission?.state,
-      });
-
-      if (!eligibility.canPressStart) {
-        const message =
-          eligibility.reason ?? "Mission is not ready to start.";
-
-        showNotification("error", "Mission Not Ready", message, 4000);
-
-        return {
-          success: false,
-          message,
-        };
-      }
-
-      if (waypoints.length === 0) {
-        const message = "No marking points are available in the frontend.";
-
-        showNotification("error", "No Marking Points", message);
-
-        return {
-          success: false,
-          message,
-        };
-      }
-
-      const invalidWaypoints = waypoints.filter(
-        (waypoint) =>
-          !Number.isFinite(waypoint.lat) ||
-          !Number.isFinite(waypoint.lon) ||
-          waypoint.lat === 0 ||
-          waypoint.lon === 0,
-      );
-
-      if (invalidWaypoints.length > 0) {
-        const message =
-          `${invalidWaypoints.length} marking point(s) ` +
-          "have invalid coordinates.";
-
-        showNotification("error", "Invalid Marking Points", message);
-
-        return {
-          success: false,
-          message,
-        };
-      }
-
-      if (mode !== "AUTO" && mode !== "MANUAL") {
-        const message = "Select AUTO or MANUAL before starting.";
-
-        showNotification("error", "Invalid Mission Mode", message);
-
-        return {
-          success: false,
-          message,
-        };
-      }
-
-      const executionMode: "AUTO" | "MANUAL" =
-        mode === "MANUAL" ? "MANUAL" : "AUTO";
-
-      if (latestMission?.marking_tool === "LASER" && executionMode === "AUTO") {
-        const message = "Laser marking requires MANUAL execution. Select MANUAL before starting.";
-        showNotification("error", "Laser needs MANUAL", message, 5000);
+      if (!missionId || !runId || missionId !== runId ||
+          loadedMission.loaded !== true ||
+          loadedMission.accepted_for_start !== true || state !== "READY") {
+        const message = loadedMission.error || loadedMission.message ||
+          "The rover has not confirmed a loaded READY mission. Press LOAD first.";
+        showNotification("info", "Mission Not Ready", message, 5000);
         return { success: false, message };
       }
 
-      if (eligibility.needsPrepare) {
-        setIsPreparingMission(true);
-        logMissionStartTiming(attemptId, "backend_phase", "prepare");
-
-        const prepareResponse = await prepareMission();
-        if (superseded()) return stoppedDuringStart();
-        latestMission = prepareResponse.mission;
-        setBackendMission(prepareResponse.mission);
-
-        if (!prepareResponse.success) {
-          const message =
-            prepareResponse.mission?.message ||
-            "Failed to prepare the stored mission.";
-
-          showNotification("error", "Prepare Failed", message, 4000);
-
-          return {
-            success: false,
-            message,
-          };
-        }
-
-        if (prepareResponse.mission?.ready !== true) {
-          const deadline = Date.now() + 20_000;
-          let readyMission = prepareResponse.mission;
-
-          while (
-            Date.now() < deadline &&
-            readyMission?.ready !== true &&
-            mountedRef.current
-          ) {
-            const status = await getMissionStatus();
-            if (superseded()) return stoppedDuringStart();
-            if (status?.success && status.mission) {
-              readyMission = status.mission;
-              latestMission = status.mission;
-              setBackendMission(status.mission);
-              const prepState = String(status.mission.state ?? "")
-                .trim()
-                .toUpperCase();
-              if (prepState === "ERROR" || prepState === "EMPTY") {
-                break;
-              }
-            }
-            if (readyMission?.ready === true) {
-              break;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 100));
-          }
-
-          if (readyMission?.ready !== true) {
-            const message =
-              "The stored mission did not become ready after prepare.";
-
-            showNotification("error", "Mission Not Ready", message, 4000);
-
-            return {
-              success: false,
-              message,
-            };
-          }
-        }
+      // If the backend changed mission since this screen last displayed one,
+      // update the UI first. Do not silently execute a different signed path.
+      // This is a backend ID check, NOT a local waypoint/authoring gate.
+      if (displayedRunId && displayedRunId !== missionId) {
+        const message = "The rover's loaded mission changed. Review its updated " +
+          "mission ID and path before pressing START again.";
+        showNotification("info", "Mission Changed", message, 6000);
+        void refreshNow();
+        return { success: false, message };
       }
 
-      if (
-        !shouldSkipExecutionModePost(
-          latestMission?.execution_mode,
-          executionMode,
-        )
-      ) {
-        const modeResponse = await setMissionExecutionMode(executionMode);
-        if (superseded()) return stoppedDuringStart();
-        if (!modeResponse.success || modeResponse.mission?.execution_mode !== executionMode) {
-          const message = modeResponse.message || "The rover did not confirm the requested execution mode.";
-          showNotification("error", "Mode Change Failed", message, 5000);
-          return { success: false, message };
-        }
-        latestMission = modeResponse.mission;
-        setBackendMission(modeResponse.mission);
-        logMissionStartTiming(
-          attemptId,
-          "execution_mode",
-          String(modeResponse.mission?.execution_mode ?? mode),
-        );
-      } else {
-        logMissionStartTiming(attemptId, "execution_mode", "skipped");
-      }
-
+      // START is the only control request here. PX4, RTK, STOP state and RPP
+      // install acknowledgement are checked on Jetson, not in React state.
+      logMissionStartTiming(attemptId, "backend_phase", "loaded_ready");
       logMissionStartTiming(attemptId, "start_post_sent");
-      const response = await startMission(latestMission?.mission_id);
+      console.log("[MissionReportScreen] START for Jetson loaded mission", missionId);
+      const response = await startMission(missionId);
       if (superseded()) return stoppedDuringStart();
       logMissionStartTiming(
         attemptId,
@@ -3452,41 +3177,49 @@ export default function MissionReportScreen({
       );
 
       if (!response.success) {
-        const message =
-          response.mission?.message ||
-          "The backend rejected the mission start request.";
-
-        showNotification("error", "Start Failed", message, 4000);
-
-        return {
-          success: false,
-          message,
-        };
-      }
-
-      // Only a confirmed running, paused or waiting state counts as Start.
-      // An unexpected response triggers a fresh status request below.
-      const startedMission = response.mission;
-      const startOutcome = classifyMissionStartOutcome({
-        state: startedMission?.state,
-        pauseReason: startedMission?.pause_reason,
-      });
-      logMissionStartTiming(
-        attemptId,
-        "backend_phase",
-        `start_outcome=${startOutcome.kind}`,
-      );
-
-      if (startOutcome.kind === "other") {
-        const message = `Start was not confirmed (rover state: ${startOutcome.state || "unknown"}).`;
-        showNotification("error", "Start Not Confirmed", message, 6000);
+        const message = response.mission?.message || response.message ||
+          "The Jetson backend refused START.";
+        showNotification("error", "START Refused", message, 6000);
         void refreshBackendMission();
         return { success: false, message };
       }
 
-      clearCurrentMissionData();
-      setBackendMission(startedMission);
+      const startedMission = response.mission;
+      if (startedMission?.mission_id && startedMission.mission_id !== missionId) {
+        const message = "START response mission identity differs from the loaded path.";
+        showNotification("error", "Mission Identity Changed", message, 6000);
+        void refreshBackendMission();
+        return { success: false, message };
+      }
 
+      // A 200 can acknowledge an accepted ROS command while a subsequent
+      // status tick is still READY. Do not call it a START failure, or claim
+      // movement before OFFBOARD/ARM/RPP progress is actually reported.
+      const startOutcome = classifyMissionStartOutcome({
+        state: startedMission?.state,
+        pauseReason: startedMission?.pause_reason,
+      });
+      logMissionStartTiming(attemptId, "backend_phase",
+        `start_outcome=${startOutcome.kind}`);
+      if (startOutcome.kind === "other") {
+        const returnedState = String(startedMission?.state ?? "").trim().toUpperCase();
+        if (!returnedState || returnedState === "READY") {
+          showNotification("info", "START Accepted",
+            "Jetson accepted START. Waiting for PX4 OFFBOARD/ARM and RPP status.", 6000);
+          void refreshBackendMission();
+          return response;
+        }
+        const message = startedMission?.error || startedMission?.message ||
+          `START did not reach an executable phase (rover state: ${returnedState}).`;
+        showNotification("error", "START Not Confirmed", message, 6000);
+        void refreshBackendMission();
+        return { success: false, message };
+      }
+
+      // Only a backend-confirmed STARTING/RUNNING/PAUSED/WAITING state updates
+      // the live progress UI. Retained reports stay display-only.
+      clearCurrentMissionData();
+      if (startedMission) setBackendMission(startedMission, { fresh: true });
       setIsMissionActive(true);
       setMissionStartTime(new Date());
       setMissionEndTime(null);
@@ -3501,53 +3234,27 @@ export default function MissionReportScreen({
         showNotification("info", "Mission Starting",
           "START accepted. Waiting for PX4 OFFBOARD and ARM confirmations.", 5000);
       } else if (startOutcome.kind === "paused") {
-        showNotification(
-          "info",
-          "Mission Started — Paused",
+        showNotification("info", "Mission Started — Paused",
           startOutcome.pauseReason
-            ? `Rover paused (${startOutcome.pauseReason}). Press Resume when it is allowed.`
-            : "Rover paused. Press Resume when it is allowed.",
-          6000,
-        );
+            ? `Rover paused (${startOutcome.pauseReason}). Resume only when permitted.`
+            : "Rover paused. Resume only when permitted.", 6000);
       } else if (startOutcome.kind === "waiting") {
-        showNotification("info", "Waiting for Operator", "The rover is waiting for the next point command.", 6000);
+        showNotification("info", "Waiting for Operator",
+          "The rover is waiting for the NEXT command.", 6000);
       } else {
-        showNotification(
-          "success",
-          "Mission Started",
-          "The rover mission started successfully.",
-        );
+        showNotification("success", "Mission Started",
+          "Jetson reports RUNNING; mission progress is now live.");
       }
-
-      console.log("[MissionReportScreen] Mission start accepted:", {
-        state: startedMission?.state,
-        loaded: startedMission?.loaded,
-        ready: startedMission?.ready,
-        pause_reason: startedMission?.pause_reason,
-      });
-
       return response;
     } catch (error) {
       if (superseded()) return stoppedDuringStart();
-      const message =
-        error instanceof Error ? error.message : "Failed to start mission.";
-
-      console.error("[MissionReportScreen] Mission start failed:", error);
-
+      const message = error instanceof Error ? error.message :
+        "Jetson rejected START or its status could not be retrieved.";
+      console.error("[MissionReportScreen] START request failed:", error);
       void refreshBackendMission();
-
-      showNotification("error", "Mission Start Blocked", message, 8000);
-
-      Alert.alert("Mission Start Blocked", message, [
-        {
-          text: "OK",
-        },
-      ]);
-
-      return {
-        success: false,
-        message,
-      };
+      showNotification("error", "START Refused", message, 8000);
+      Alert.alert("START Refused", message, [{ text: "OK" }]);
+      return { success: false, message };
     } finally {
       startInFlightRef.current = false;
       setIsPreparingMission(false);
@@ -3858,6 +3565,10 @@ export default function MissionReportScreen({
         throw new Error(response.message || "The rover rejected Load Mission.");
       }
       markLoadAccepted();
+      // LOAD response already identifies the exact signed mission installed
+      // on Jetson. Synchronize Mission Progress immediately, not only through
+      // an eventually scheduled status poll.
+      if (response.mission) setBackendMission(response.mission, { fresh: true });
       showNotification("success", "Mission Loaded", "The rover has the mission. It has not started.", 4500);
       // Keep status in step, but a failed refresh must not undo a confirmed Load.
       void refreshBackendMission().catch((error: unknown) =>
@@ -5846,7 +5557,7 @@ export default function MissionReportScreen({
             waitingForManual={effectiveWaitingForManual}
             isMissionLoaded={hasUploadedMission}
             isMissionReady={canStartMission}
-            isPlanUpdateRequired={authoringChanged}
+            isPlanUpdateRequired={false}
             isPreparing={isPreparingMission}
             onClose={() => setPanelVisible("missionControls", false)}
           />
@@ -5936,7 +5647,7 @@ export default function MissionReportScreen({
           onPause={() => handlePause()}
           onResume={() => handleResume()}
           onStop={() => handleStop()}
-          canStart={canStartMission && effectiveLifecycle.state === "READY" && backendMission?.accepted_for_start === true}
+          canStart={canStartMission}
           isPreparing={isPreparingMission}
           isMissionPaused={isBackendMissionPaused}
           missionState={effectiveLifecycle.state}
