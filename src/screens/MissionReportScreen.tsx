@@ -141,6 +141,7 @@ import {
   pointIndexToSn,
 } from "../adapters/px4PointStatusBridge";
 import { useVerifiedMissionContext } from "../context/VerifiedMissionContext";
+import { useClearMission } from "../hooks/useClearMission";
 import { useVerifiedMissionProgress } from "../hooks/useVerifiedMissionProgress";
 import { verifiedProgressToLegacy } from "../adapters/verifiedTargetBridge";
 import { getMissionProgressRef } from "../utils/missionStatusPresentation";
@@ -175,7 +176,6 @@ import {
   nextMissionPoint,
   skipMissionPoint,
   stopMission,
-  clearMission,
   getMissionExtension,
   type MissionRuntimeState,
   type CanonicalMissionReport,
@@ -291,7 +291,6 @@ interface MissionReportScreenProps {
   missionUploadCompletedToken?: number;
   /** Lets the shell reveal mission tools before status polling catches up. */
   missionUploadConfirmed?: boolean;
-  onMissionCleared?: () => void;
   /** Opens the existing route-authoring tools inside the unified workspace. */
   onOpenPlan?: (intent?: PlanOpenIntent) => void;
 }
@@ -311,7 +310,6 @@ export default function MissionReportScreen({
   embedMap = false,
   missionUploadCompletedToken = 0,
   missionUploadConfirmed = false,
-  onMissionCleared,
   onOpenPlan,
 }: MissionReportScreenProps) {
   useRenderCounter("MissionReportScreen");
@@ -417,7 +415,6 @@ export default function MissionReportScreen({
   const {
     missionWaypoints,
     setMissionWaypoints,
-    clearMissionWaypoints,
     missionMode,
     setMissionMode,
   } = useMission();
@@ -620,16 +617,27 @@ export default function MissionReportScreen({
     [backendMission?.point_results, liveRunId],
   );
 
-  const clearRetainedMission = useCallback(() => {
-    retainedMissionRef.current = null;
-    setRetainedMission(null);
-  }, []);
-
   const [canonicalMissionReport, setCanonicalMissionReport] =
     useState<CanonicalMissionReport | null>(null);
   const canonicalMissionReportRef = useRef<CanonicalMissionReport | null>(
     null,
   );
+
+  const {
+    isClearing: isClearingMission,
+    canClear: canClearMission,
+    confirmAndClear: handleClearMission,
+  } = useClearMission({
+    currentMission: backendMission,
+    filename: backendMission?.filename ?? verifiedCtx.missionName,
+    fileId: backendMission?.filename ?? verifiedCtx.missionName,
+    onCleared: () => {
+      setBackendMissionState(null);
+      retainedMissionRef.current = null;
+      setRetainedMission(null);
+      resetVerifiedProgress();
+    },
+  });
   const staleMissionRunIdRef = useRef<string | null>(null);
   const holdingForNewReportRunRef = useRef(false);
   const [isPreparingMission, setIsPreparingMission] = useState(false);
@@ -3828,25 +3836,6 @@ export default function MissionReportScreen({
     }
   };
 
-  const handleClearMission = async () => {
-    try {
-      console.log("[MissionReportScreen] Clearing mission...");
-      const result = await clearMission();
-      if (!result.success) {
-        throw new Error(result.message || "The rover could not clear the mission.");
-      }
-      clearRetainedMission();
-      setBackendMission(null);
-      verifiedCtx.clearLoadedMission();
-      resetVerifiedProgress();
-      onMissionCleared?.();
-      showNotification("success", "Cleared", "Mission cleared from controller");
-    } catch (err) {
-      console.error("[MissionReportScreen] Clear mission error:", err);
-      showNotification("error", "Clear Failed", String(err));
-    }
-  };
-
   const handleExport = () => {
     console.log("[MissionReportScreen] Export report triggered");
   };
@@ -3936,8 +3925,9 @@ export default function MissionReportScreen({
       console.log(
         "[MissionReportScreen] 🗑️ User confirmed - clearing mission logs after export",
       );
-      // Clear all mission data
-      await PersistentStorage.clearMissionData();
+      if (!(await PersistentStorage.clearMissionLogs())) {
+        throw new Error("The app could not clear the saved mission logs.");
+      }
 
       // Clear local state
       setStatusMap({});
@@ -3966,55 +3956,6 @@ export default function MissionReportScreen({
     );
     setShowClearLogsDialog(false);
     showNotification("info", "Logs Kept", "Mission logs preserved for review");
-  };
-
-  // Clear all mission data (user-initiated)
-  const handleClearMissionData = async () => {
-    Alert.alert(
-      "Clear Mission Data",
-      "This will clear all marking points, progress, and mission logs. This cannot be undone. Continue?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Clear All",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              // Clear from persistent storage
-              await PersistentStorage.clearMissionData();
-
-              // Clear local state
-              clearMissionWaypoints();
-              clearRetainedMission();
-              setBackendMission(null);
-              setStatusMap({});
-              setMissionStartTime(null);
-              setMissionEndTime(null);
-              setIsMissionActive(false);
-              setMissionMode("DGPS Mark");
-              setCurrentIndex(null);
-
-              showNotification(
-                "success",
-                "Mission Data Cleared",
-                "All mission data has been cleared from storage",
-              );
-              console.log("[MissionReportScreen] ✅ All mission data cleared");
-            } catch (error) {
-              console.error(
-                "[MissionReportScreen] ❌ Failed to clear mission data:",
-                error,
-              );
-              showNotification(
-                "error",
-                "Clear Failed",
-                "Failed to clear mission data",
-              );
-            }
-          },
-        },
-      ],
-    );
   };
 
   // Debug function to test mission events (for development/testing)
@@ -5638,7 +5579,9 @@ export default function MissionReportScreen({
           missionEndTime={displayData.endTime}
           isMissionActive={effectiveMissionActive}
           hasMissionLoaded={hasUploadedMission || missionUploadConfirmed}
-          onClearMission={() => { void handleClearMission(); }}
+          onClearMission={handleClearMission}
+          canClearMission={canClearMission}
+          isClearingMission={isClearingMission}
           onOpenPlan={onOpenPlan ?? (() => undefined)}
           onLoadMission={() => { void handleHomeLoadMission(); }}
           loadBusy={isLoadingHomeMission}
@@ -5964,7 +5907,9 @@ interface MissionActivityExperienceProps {
   missionEndTime?: Date | null;
   isMissionActive: boolean;
   hasMissionLoaded: boolean;
-  onClearMission: () => void;
+  onClearMission?: () => void;
+  canClearMission?: boolean;
+  isClearingMission?: boolean;
   onOpenPlan: (intent?: PlanOpenIntent) => void;
   onLoadMission: () => void;
   loadBusy: boolean;
@@ -6157,7 +6102,7 @@ function commandAccuracyTier(accMm: number | null): { label: string; color: stri
 function MissionActivityExperience({
   waypoints, statusMap, currentIndex, missionStartTime, missionEndTime,
   isMissionActive,
-  hasMissionLoaded, onClearMission, onOpenPlan, onLoadMission, loadBusy, onOpenExtension,
+  hasMissionLoaded, onClearMission, canClearMission, isClearingMission, onOpenPlan, onLoadMission, loadBusy, onOpenExtension,
   onStart, onPause, onResume, onStop,
   canStart, isPreparing, isMissionPaused, missionState, isStarting,
   pauseAvailable, skipAvailable, nextAvailable, canChangeMode, stopLatched, onEmergencyStopRecorded,
@@ -6669,7 +6614,7 @@ function MissionActivityExperience({
           <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
-          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{hasMissionLoaded ? "Mission ready to use" : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{hasMissionLoaded && <TouchableOpacity style={fieldExperienceStyles.clearMissionCompact} onPress={onClearMission} accessibilityRole="button" accessibilityLabel="Clear mission"><MaterialCommunityIcons name="trash-can-outline" size={15} color="#D94A42" /><Text style={fieldExperienceStyles.clearMissionCompactText}>Clear</Text></TouchableOpacity>}</View></View>
+          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{hasMissionLoaded ? "Mission ready to use" : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{hasMissionLoaded && onClearMission && (<TouchableOpacity style={[fieldExperienceStyles.clearMissionCompact, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactDisabled]} onPress={onClearMission} disabled={!canClearMission || isClearingMission} accessibilityRole="button" accessibilityLabel="Clear Mission"><MaterialCommunityIcons name="eraser-variant" size={15} color={!canClearMission || isClearingMission ? "rgba(217,74,66,0.4)" : "#D94A42"} /><Text style={[fieldExperienceStyles.clearMissionCompactText, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactTextDisabled]}>Clear Mission</Text></TouchableOpacity>)}</View></View>
           <View style={fieldExperienceStyles.missionToolGrid}>
             <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTilePrimary]} onPress={() => openPlanGuarded("upload")} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={24} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolTilePrimaryText}>Upload</Text></TouchableOpacity>
             <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => runWithoutDraft(onLoadMission)} disabled={!hasMissionLoaded || loadBusy} accessibilityRole="button" accessibilityLabel="Load mission plan" accessibilityState={{ disabled: !hasMissionLoaded || loadBusy, busy: loadBusy }}><MaterialCommunityIcons name="tray-arrow-down" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Load</Text></TouchableOpacity>
@@ -7277,7 +7222,7 @@ function MissionActivityExperience({
 
 const fieldExperienceStyles = StyleSheet.create({
   host: { ...StyleSheet.absoluteFillObject, zIndex: 21 },
-  missionToolSection: { padding: 16, marginBottom: 8, backgroundColor: "#FCFDFF", shadowColor: "#315987", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 10, elevation: 3 }, missionToolHeading: { flexDirection: "row", alignItems: "center", gap: 9, flex: 1 }, missionToolHeadingIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF3FF" }, missionToolTitle: { color: "#152A50", fontSize: 15, fontWeight: "900" }, toolSectionSub: { color: "#7A8DA8", fontSize: 9, fontWeight: "700", marginTop: 2 }, toolHeaderActions: { flexDirection: "row", alignItems: "center", gap: 7 }, toolSectionHint: { color: "#7183A1", fontSize: 8, fontWeight: "900", letterSpacing: 0.7 }, clearMissionCompact: { height: 32, paddingHorizontal: 10, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: "#FFF5F3", borderWidth: 1, borderColor: "#FFD9D2" }, clearMissionCompactText: { color: "#D94A42", fontSize: 9, fontWeight: "900" },
+  missionToolSection: { padding: 16, marginBottom: 8, backgroundColor: "#FCFDFF", shadowColor: "#315987", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 10, elevation: 3 }, missionToolHeading: { flexDirection: "row", alignItems: "center", gap: 9, flex: 1 }, missionToolHeadingIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF3FF" }, missionToolTitle: { color: "#152A50", fontSize: 15, fontWeight: "900" }, toolSectionSub: { color: "#7A8DA8", fontSize: 9, fontWeight: "700", marginTop: 2 }, toolHeaderActions: { flexDirection: "row", alignItems: "center", gap: 7 }, toolSectionHint: { color: "#7183A1", fontSize: 8, fontWeight: "900", letterSpacing: 0.7 }, clearMissionCompact: { height: 32, paddingHorizontal: 10, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: "#FFF5F3", borderWidth: 1, borderColor: "#FFD9D2" }, clearMissionCompactDisabled: { opacity: 0.45, backgroundColor: "#F1F5F9", borderColor: "#E2E8F0" }, clearMissionCompactText: { color: "#D94A42", fontSize: 9, fontWeight: "900" }, clearMissionCompactTextDisabled: { color: "#94A3B8" },
   missionToolGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 12, marginTop: 14 }, missionToolTile: { width: "48.6%", height: 62, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderRadius: 16, backgroundColor: "#F7FAFF", borderWidth: 1, borderColor: "#D5E3F5", shadowColor: "#315987", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 }, missionToolTilePrimary: { backgroundColor: "#1475EE", borderColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.28, shadowRadius: 9, elevation: 5 }, missionToolTileDisabled: { backgroundColor: "#F3F6FA", borderColor: "#E0E7F0", shadowOpacity: 0, elevation: 0 }, missionToolTileClear: { backgroundColor: "#FFF7F5", borderColor: "#FFD9D2" }, missionToolTileText: { color: "#315987", fontSize: 13, fontWeight: "900", letterSpacing: 0.1 }, missionToolTileTextDisabled: { color: "#9BAABD" }, missionToolTilePrimaryText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", letterSpacing: 0.1 }, missionToolTileClearText: { color: "#D94A42", fontSize: 11, fontWeight: "900", letterSpacing: 0.1 },
   uploadMissionOnly: { height: 58, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 11, borderRadius: 14, backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.24, shadowRadius: 8, elevation: 3 }, uploadMissionOnlyIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" }, uploadMissionOnlyTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" }, uploadMissionOnlySub: { color: "#DCEBFF", fontSize: 10, fontWeight: "600", marginTop: 2 },
   missionTools: { height: 58, flexDirection: "row", gap: 8, marginBottom: 12 }, missionTool: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 12, backgroundColor: "#F4F8FE", borderWidth: 1, borderColor: "#DCE8F7" }, missionToolPrimary: { backgroundColor: "#1475EE", borderColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.22, shadowRadius: 6, elevation: 3 }, missionToolText: { color: "#315987", fontSize: 9, fontWeight: "900" }, missionToolPrimaryText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },

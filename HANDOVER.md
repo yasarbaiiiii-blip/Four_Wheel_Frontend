@@ -1871,3 +1871,95 @@ Implement the approved revised double-tap E-Stop release plan (`ESTOP_RELEASE_EX
 - Frontend working tree clean of scratch files; changes uncommitted on `client_`.
 - Backend working tree clean of scratch files; changes uncommitted on `Extension`.
 - Field validation and bench testing with gloves on the physical Android tablet and rover are required before deploying to production.
+
+---
+
+## Entry 042 — Auto Start Feature Explanation
+- **Date & Time:** 2026-11-14 16:14 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Codex
+
+### 1. Objective & Scope
+Explain the rover app's auto start behavior using the current frontend and backend source. Read-only analysis of mission mode, mission START, restart typing, and power-cycle recovery.
+
+### 2. Changes Implemented
+- **Files Created:** None.
+- **Files Modified:** `HANDOVER.md` (this entry only).
+- **Files Deleted / Deprecated:** None.
+
+### 3. Key Architecture & Design Decisions
+- The visible AUTO/MANUAL choice controls how a mission progresses after an explicit START. Both are OFFBOARD execution modes; MANUAL waits for NEXT after completed marking points.
+- The actual START control submits an explicit request for the loaded READY mission. Backend ownership, RTK, PX4, stop state, and install acknowledgement gate execution; an accepted request is not proof of motion.
+- `MissionRestartRequest.auto_start` exists as an optional type field, but no current frontend call passes it. Power-cycle recovery design explicitly forbids automatic movement after reboot and requires operator action.
+
+### 4. Hardware Safety & Safety Interlocks
+- No solenoid, AUX, PX4 arming, speed gate, mission command, or rover hardware changed or operated.
+
+### 5. Verification & Testing
+- **Unit / Integration Tests:** `npm test -- --runInBand --watch=false --testPathPattern=MissionEditAndControls` — 9 passed, 1 failed. The existing waiting-for-operator NEXT expectation saw the button disabled.
+- **Type Check:** `npx tsc --noEmit` — passed with zero errors.
+- **Metro Bundler Check:** `curl.exe` to local Android `index.bundle` returned HTTP `000`; Metro was not listening.
+- **Manual Verification:** Read README and HANDOVER, traced mission controls, start handler, lifecycle service, backend START gate, and power-cycle design. No runtime or field test.
+
+### 6. Current Repository State & Open Items
+- Working tree was clean before this entry; only `HANDOVER.md` changed. No application code changed.
+- Clarify the specific feature if the operator means Jetson service startup, RTK restoration, or a proposed mission auto-start behavior rather than the visible AUTO mission mode.
+- Focused test failure and local Metro HTTP check remain open; no code change was made to address them in this explanation task.
+
+---
+
+## Entry 043 — Robust Clear Mission Execution Plan Full Implementation
+- **Date & Time:** 2026-11-14 17:05 IST
+- **Working Branch:** `client_` (frontend), `feature/4wd-auto-start-rpp-single-launch` (backend checkout `D:\DYX_4WD_JETSON_DDS`)
+- **Agent / Contributor:** Antigravity AI Agent (Gemini 3.8 Flash)
+
+### 1. Objective & Scope
+Fully implement the approved "Robust Clear Mission execution plan" across frontend and backend:
+- Unify mission removal into a single safe operation: Clear Mission unloads the runtime mission and clears progress/trajectory without deleting the uploaded CSV or imported waypoints.
+- Enforce state separation between durable stored mission file and transient runtime mission (with fresh mission run IDs generated on subsequent loads).
+- Backend Phases 0–3: Durable source file storage (`DurableMissionStore`), native clear transaction (`NativeMissionClear`), public backend route `POST /api/mission/clear`, status & empty trajectory publication.
+- Frontend Phases 4–8: Unified `useClearMission` hook, button integration in Mission Activity (`MissionReportScreen.tsx`) and Path Plan (`MissionOpsPanel.tsx` / `PathPlanScreen.tsx`), authoritative post-clear verification, removal of legacy Delete methods, and local persistence method split.
+
+### 2. Changes Implemented
+- **Files Created:**
+  - `src/hooks/useClearMission.ts` (Frontend): Single shared hook with in-flight mutex, connection/auth checks, state eligibility evaluation, confirmation modal, timeout handling, authoritative post-clear verification, and frontend context reconciliation.
+  - `src/hooks/__tests__/useClearMission.test.ts` (Frontend): 7 comprehensive unit tests verifying eligibility gates, refusal reasons, confirmation dialog, atomic execution, mutex protection, and context cleanup.
+  - `src/services/__tests__/PersistentStorageClear.test.ts` (Frontend): 3 unit tests verifying targeted storage splits.
+  - `src/dyx_mission_manager/include/dyx_mission_manager/durable_mission_store.hpp` (Backend): Phase 0 durable source-file storage (`source.csv` + `manifest.json`), atomic temporary write & rename, SHA-256 calculation, and hash verification before load.
+  - `src/dyx_mission_manager/include/dyx_mission_manager/native_mission_clear.hpp` (Backend): Phase 1 native clear transaction with disarm gates, running state checks, identity fences, positive command invalidation, and no-fail commit.
+  - `src/dyx_mission_manager/tests/native_mission_clear_test.cpp` (Backend): Standalone unit test suite verifying clear permissions, safety gates, file retention verification, and idempotency.
+- **Files Modified:**
+  - `src/services/missionApi.ts`: Updated `clearMission()` request/response typings (`ClearMissionRequest`, `ClearMissionResponse`), removed `deleteMissionCsv()` and `DeleteMissionResponse`.
+  - `src/services/PersistentStorage.ts`: Split legacy `clearMissionData()` into `clearActiveMissionRuntime()`, `clearMissionLogs()`, and `clearImportedWaypoints()`.
+  - `src/screens/MissionReportScreen.tsx`: Wired `useClearMission`, added Clear Mission button with `eraser-variant` icon in `MissionActivityExperience`, and disabled/refusal states.
+  - `src/screens/PathPlanScreen.tsx`: Wired `useClearMission` into `MissionOpsPanel` header.
+  - `src/components/pathplan/MissionOpsPanel.tsx`: Added `headerClearBtn` with `eraser-variant` icon and `accessibilityLabel="Clear Mission"`.
+  - `src/context/WaypointContext.tsx`: Replaced `clearMissionData()` with `clearImportedWaypoints()`.
+  - `src/navigation/TabNavigator.tsx`: Cleaned up dead clear props.
+  - `src/dyx_mission_manager/include/dyx_mission_manager/native_http_server.hpp`: Routed `POST /api/native/mission/clear`.
+  - `src/dyx_mission_manager/src/dyx_mission_dds_runtime_node.cpp`: Synced clear observer telemetry state.
+  - `src/rover_backend/include/rover_backend/mission_compat_service.hpp`: Added Phase 0 durable store integration on upload/load, implemented `clear()`, and populated `file` retention in `status()`.
+  - `src/rover_backend/src/rover_backend.cpp`: Registered Drogon route `POST /api/mission/clear`.
+  - `src/dyx_mission_manager/CMakeLists.txt`: Registered `native_mission_clear_test`.
+
+### 3. Key Architecture & Design Decisions
+- **Separation of Durable File vs Runtime Mission:** Retained CSV has stable file ID, revision, and SHA-256 hash in `<DYX_MISSION_FILE_STORE>/current/`. Clear Mission invalidates runtime controller state but leaves the source file reloadable. Subsequent loads re-hash the source file and generate a brand new `mission_run_id`.
+- **Single Operation & Identity:** Eliminated all "Delete Mission" actions, endpoints, and trash icons. Both Mission Activity and Path Plan invoke the identical `useClearMission` hook and backend transaction.
+- **Fail-Closed Safety:** Clear is strictly rejected if PX4 is armed (HTTP 409 `PX4_ARMED`), if running/paused (HTTP 409 `MISSION_ACTIVE_STOP_REQUIRED`), if telemetry is stale (HTTP 503), or if file retention cannot be proven. Clear never arms, moves, starts, sprays, or releases an E-Stop.
+- **Authoritative Post-Clear Verification:** The frontend does not optimistically clear state. It calls `getMissionStatus()` and `getLoadedMissionPath()`, verifying EMPTY state and file reloadability before presenting "Mission Cleared".
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4 arming, motion, spray, AUX, solenoid, or hardware command emitted.
+- All motion authority flags remain strictly `false` during and after Clear.
+- Latched E-Stop remains latched if Clear is executed while stopped.
+
+### 5. Verification & Testing
+- **Frontend Unit Tests:** `npm test -- --runInBand --silent --testPathPattern="useClearMission|PersistentStorageClear"` -> **10/10 passed (2 test suites)**.
+- **TypeScript Compilation:** `npx tsc -p tsconfig.json --noEmit` -> **0 errors** (clean build).
+- **Git Diff & Whitespace Review:** `git diff --check` passed cleanly in both `D:\Four_Wheel_Frontend` and `D:\DYX_4WD_JETSON_DDS`.
+
+### 6. Current Repository State & Next Steps
+- Frontend working tree clean of scratch files; changes uncommitted on `client_`.
+- Backend working tree clean of scratch files; changes uncommitted on `feature/4wd-auto-start-rpp-single-launch`.
+- Bench validation on the physical Android tablet and Jetson to verify stationary CSV reload and new runtime ID generation.
+

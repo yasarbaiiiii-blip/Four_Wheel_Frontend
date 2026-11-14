@@ -62,9 +62,9 @@ type Props = {
     loadAgain?: boolean;
     /** An archived mission is regenerating its preview after Load Again. */
     loadPreparing?: boolean;
-    /** Deletes the controller mission and clears the local marking-plan UI. */
+    /** Clears the staged or loaded runtime mission from controller and app. */
     onClearMission?: () => void;
-    /** Clear is unavailable until a controller mission exists and is not running. */
+    /** Clear is enabled when connected, disarmed, not running, and mission exists. */
     clearEnabled?: boolean;
     clearInProgress?: boolean;
 };
@@ -364,23 +364,25 @@ const MissionOpsPanel = React.memo(({
                         <Text style={styles.headerTitle}>MISSION OPS</Text>
                     </View>
                     <View style={styles.headerRight}>
-                        <TouchableOpacity
-                            style={[
-                                styles.headerClearBtn,
-                                (!clearEnabled || clearInProgress) && styles.headerClearBtnDisabled,
-                            ]}
-                            onPress={onClearMission}
-                            disabled={!clearEnabled || clearInProgress}
-                            activeOpacity={0.7}
-                            accessibilityLabel="Delete mission and clear the marking plan"
-                            accessibilityRole="button"
-                        >
-                            <MaterialCommunityIcons
-                                name="trash-can-outline"
-                                size={15}
-                                color={clearEnabled && !clearInProgress ? '#FCA5A5' : 'rgba(148,163,184,0.45)'}
-                            />
-                        </TouchableOpacity>
+                        {onClearMission && (
+                            <TouchableOpacity
+                                style={[
+                                    styles.headerClearBtn,
+                                    (!clearEnabled || clearInProgress) && styles.headerClearBtnDisabled,
+                                ]}
+                                onPress={onClearMission}
+                                disabled={!clearEnabled || clearInProgress}
+                                activeOpacity={0.7}
+                                accessibilityLabel="Clear Mission"
+                                accessibilityRole="button"
+                            >
+                                <MaterialCommunityIcons
+                                    name="eraser-variant"
+                                    size={15}
+                                    color={clearEnabled && !clearInProgress ? '#FCA5A5' : 'rgba(148,163,184,0.45)'}
+                                />
+                            </TouchableOpacity>
+                        )}
                         {onClose && (
                             <TouchableOpacity style={styles.headerCloseBtn} onPress={onClose} activeOpacity={0.7}>
                                 <MaterialCommunityIcons name="close" size={14} color="#94A3B8" />
@@ -401,9 +403,9 @@ const MissionOpsPanel = React.memo(({
             {/* Action Buttons */}
             <View style={styles.buttonsRow}>
                 <TouchableOpacity
-                    style={[styles.button, styles.uploadBtn, (trajectoryUpdating || uploadBusy || clearInProgress) && styles.disabledBtn]}
+                    style={[styles.button, styles.uploadBtn, (trajectoryUpdating || uploadBusy) && styles.disabledBtn]}
                     onPress={handleUpload}
-                    disabled={trajectoryUpdating || uploadBusy || clearInProgress}
+                    disabled={trajectoryUpdating || uploadBusy}
                     activeOpacity={0.75}
                 >
                     <MaterialCommunityIcons name="upload" size={20} color={trajectoryUpdating || uploadBusy ? "rgba(255,255,255,0.45)" : "#10B981"} />
@@ -424,7 +426,7 @@ const MissionOpsPanel = React.memo(({
 
             {onOpenExtension && (() => {
                 // The rover also refuses changes while a mission is active.
-                const extensionLocked = trajectoryUpdating || uploadBusy || clearInProgress;
+                const extensionLocked = trajectoryUpdating || uploadBusy;
                 return (
                     <TouchableOpacity
                         style={[styles.extensionRow, extensionOn && styles.extensionRowOn, extensionLocked && styles.disabledBtn]}
@@ -576,20 +578,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    headerIconWrap: {
-        width: 24,
-        height: 24,
-        borderRadius: 6,
-        backgroundColor: 'rgba(59, 130, 246, 0.15)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    headerTitle: {
-        color: '#E5F1FF',
-        fontSize: 12,
-        fontWeight: '700',
-        letterSpacing: 2,
-    },
     headerClearBtn: {
         width: 24,
         height: 24,
@@ -604,7 +592,20 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(148, 163, 184, 0.16)',
         backgroundColor: 'rgba(255,255,255,0.03)',
     },
-
+    headerIconWrap: {
+        width: 24,
+        height: 24,
+        borderRadius: 6,
+        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    headerTitle: {
+        color: '#E5F1FF',
+        fontSize: 12,
+        fontWeight: '700',
+        letterSpacing: 2,
+    },
     // ── ACTION BUTTONS ──
     buttonsRow: {
         flexDirection: 'row',

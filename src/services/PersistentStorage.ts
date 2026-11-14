@@ -451,25 +451,47 @@ class PersistentStorageService {
     }
   }
 
-  /**
-   * Clear all mission data (user-initiated clear)
-   */
-  async clearMissionData(): Promise<boolean> {
+  /** Clear only the current run projection; keep the imported plan and logs. */
+  async clearActiveMissionRuntime(): Promise<boolean> {
     this.invalidateMissionReportCache();
     try {
-      await Promise.all([
-        AsyncStorage.removeItem(STORAGE_KEYS.MISSION_WAYPOINTS),
-        AsyncStorage.removeItem(STORAGE_KEYS.MISSION_STATUS_MAP),
-        AsyncStorage.removeItem(STORAGE_KEYS.MISSION_METADATA),
-        AsyncStorage.removeItem(STORAGE_KEYS.MISSION_START_TIME),
-        AsyncStorage.removeItem(STORAGE_KEYS.MISSION_END_TIME),
-        AsyncStorage.removeItem(STORAGE_KEYS.MISSION_ACTIVE),
-        AsyncStorage.removeItem(STORAGE_KEYS.MISSION_MODE),
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.MISSION_ACTIVE,
+        STORAGE_KEYS.VERIFIED_MISSION_ID,
+        STORAGE_KEYS.VERIFIED_MISSION_NAME,
       ]);
-      console.log('[Storage] 🗑️ Cleared all mission data');
       return true;
     } catch (error) {
-      console.error('[Storage] ❌ Failed to clear mission data:', error);
+      console.error('[Storage] Failed to clear active mission runtime:', error);
+      return false;
+    }
+  }
+
+  /** Clear archived progress and timing while preserving the mission file and waypoints. */
+  async clearMissionLogs(): Promise<boolean> {
+    this.invalidateMissionReportCache();
+    try {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.MISSION_STATUS_MAP,
+        STORAGE_KEYS.MISSION_START_TIME,
+        STORAGE_KEYS.MISSION_END_TIME,
+        STORAGE_KEYS.MISSION_SKIP_AUDIT,
+      ]);
+      return true;
+    } catch (error) {
+      console.error('[Storage] Failed to clear mission logs:', error);
+      return false;
+    }
+  }
+
+  /** Used only when the operator explicitly replaces or removes local waypoints. */
+  async clearImportedWaypoints(): Promise<boolean> {
+    this.pendingWaypoints = null;
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEYS.MISSION_WAYPOINTS);
+      return true;
+    } catch (error) {
+      console.error('[Storage] Failed to clear imported waypoints:', error);
       return false;
     }
   }

@@ -11,12 +11,10 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import useBackendMissionStatus from "../../hooks/useBackendMissionStatus";
 import {
-  clearMission,
   resumeMission,
   stopMission,
 } from "../../services/missionApi";
 import { useConnection } from "../../context/ConnectionContext";
-import { useMission } from "../../context/MissionContext";
 import { useTelemetryControl } from "../../context/TelemetryContext";
 import {
   shallowEqual,
@@ -27,10 +25,6 @@ import {
   canResumeRecoveredMission,
   shouldShowRecovery,
 } from "../../utils/missionRecoveryUi";
-
-interface MissionRecoveryNoticeProps {
-  onUploadNewMission: () => void;
-}
 
 type RecoveryAction = "resume" | "discard" | null;
 
@@ -65,13 +59,10 @@ function stageTitle(stage: string): string {
  * Global power-cycle recovery UI.
  *
  * Backend is the only authority for recovery eligibility/state. This component
- * only projects backend fields and sends existing RESUME / STOP / CLEAR calls.
+ * only projects backend fields and sends existing RESUME / STOP calls.
  */
-export const MissionRecoveryNotice: React.FC<MissionRecoveryNoticeProps> = ({
-  onUploadNewMission,
-}) => {
+export const MissionRecoveryNotice: React.FC = () => {
   const { connectionState } = useConnection();
-  const { clearMissionWaypoints } = useMission();
   const { mission, refresh } = useBackendMissionStatus(
     connectionState === "connected",
   );
@@ -172,24 +163,13 @@ export const MissionRecoveryNotice: React.FC<MissionRecoveryNoticeProps> = ({
     setActionError(null);
 
     try {
-      const state = mission.state.trim().toUpperCase();
-      if (
-        state === "RUNNING" ||
-        state === "PAUSED" ||
-        state === "WAITING_FOR_NEXT"
-      ) {
-        await stopMission();
-      }
-
-      await clearMission();
-      clearMissionWaypoints();
+      await stopMission();
       await refresh();
-      onUploadNewMission();
     } catch (error) {
       setActionError(
         error instanceof Error
           ? error.message
-          : "Unable to stop and clear the recovered mission.",
+          : "Unable to stop the recovered mission.",
       );
     } finally {
       setAction(null);
@@ -375,7 +355,7 @@ export const MissionRecoveryNotice: React.FC<MissionRecoveryNoticeProps> = ({
                   />
                 )}
                 <Text style={styles.buttonText}>
-                  Stop & Upload New Mission
+                  Stop Mission
                 </Text>
               </TouchableOpacity>
             </View>
@@ -407,7 +387,7 @@ export const MissionRecoveryNotice: React.FC<MissionRecoveryNoticeProps> = ({
                 />
               )}
               <Text style={styles.buttonText}>
-                Stop & Upload New Mission
+                Stop Mission
               </Text>
             </TouchableOpacity>
           ) : null}

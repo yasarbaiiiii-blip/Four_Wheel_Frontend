@@ -18,7 +18,6 @@ import {
 } from "../config/px4Endpoints";
 
 import {
-  apiDelete,
   apiGet,
   apiPost,
   apiPostMultipart,
@@ -544,11 +543,44 @@ export interface LoadedPathResponse {
   seq?: number;
 }
 
-export interface DeleteMissionResponse {
+export interface ClearMissionRequest {
+  file_id?: string;
+  expected_mission_id?: string | null;
+  expected_generation?: number;
+  request_id?: string;
+}
+
+export interface ClearMissionResponse {
   success: boolean;
-  deleted: boolean;
-  message: string;
-  mission: MissionRuntimeState;
+  operation: "clear" | string;
+  cleared: boolean;
+  idempotent?: boolean;
+  cleared_mission_id?: string | null;
+  clear_generation?: number;
+  mission?: {
+    state: "EMPTY" | string;
+    mission_id: string | null;
+    loaded: boolean;
+    active: boolean;
+    ready: boolean;
+    accepted_for_start: boolean;
+    [key: string]: unknown;
+  };
+  file?: {
+    retained: boolean;
+    reloadable: boolean;
+    file_id: string;
+    filename: string;
+    revision?: number;
+    sha256?: string;
+    [key: string]: unknown;
+  };
+  trajectory?: {
+    available: boolean;
+    mission_id: string | null;
+    [key: string]: unknown;
+  };
+  message?: string;
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────
@@ -878,23 +910,15 @@ Promise<MissionControlResponse> {
 
 /**
  * Clears generated path and runtime mission progress.
- * The active mission.csv remains stored.
+ * The active mission.csv remains stored and reloadable.
  */
-export async function clearMission():
-Promise<MissionControlResponse> {
-  return apiPost<MissionControlResponse>(
+export async function clearMission(
+  request?: ClearMissionRequest,
+): Promise<ClearMissionResponse> {
+  return apiPost<ClearMissionResponse>(
     PX4_MISSION.CLEAR,
-  );
-}
-
-/**
- * Deletes the active mission.csv completely.
- * This is different from Clear.
- */
-export async function deleteMissionCsv():
-Promise<DeleteMissionResponse> {
-  return apiDelete<DeleteMissionResponse>(
-    PX4_MISSION.FILE,
+    request,
+    { timeoutMs: 15_000 },
   );
 }
 
@@ -922,5 +946,4 @@ export default {
   stopMission,
   clearMission,
 
-  deleteMissionCsv,
 };

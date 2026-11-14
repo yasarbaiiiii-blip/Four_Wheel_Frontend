@@ -132,11 +132,11 @@ export function WaypointProvider({ children }: WaypointProviderProps): React.Rea
   const clearMissionWaypoints = useCallback(async () => {
     setMissionWaypointsState([]);
     // Await the pending write before clearing, otherwise the write can finish
-    // after clearMissionData and resurrect deleted waypoints.
+    // after clearing storage and resurrect deleted waypoints.
     await PersistentStorage.flushWaypointSave();
-    await PersistentStorage.clearMissionData().catch(error => {
-      console.error('[WaypointContext] Failed to clear persisted data:', error);
-    });
+    if (!(await PersistentStorage.clearImportedWaypoints())) {
+      console.error('[WaypointContext] Failed to clear persisted waypoints');
+    }
   }, []);
 
   const setMissionMode = useCallback((mode: string) => {

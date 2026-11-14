@@ -48,7 +48,7 @@ function OperationsWorkspace() {
         <SystemEventNotice />
         <Px4LinkNotice />
         <RoverDataStaleNotice />
-        <MissionRecoveryNotice onUploadNewMission={() => { setPlanOpenIntent("upload"); setIsPlanningRoute(true); }} />
+        <MissionRecoveryNotice />
 
         <View style={styles.body}>
           <View style={styles.mapHost} pointerEvents="auto" collapsable={false}>
@@ -89,7 +89,6 @@ function OperationsWorkspace() {
                   isVisible
                   missionUploadCompletedToken={missionUploadCompletedToken}
                   missionUploadConfirmed={missionUploadConfirmed}
-                  onMissionCleared={() => setMissionUploadConfirmed(false)}
                   onOpenPlan={(intent) => { setPlanOpenIntent(intent ?? null); setIsPlanningRoute(true); }}
                 />
               </ErrorBoundary>

@@ -114,10 +114,10 @@ import { parseCSV as parseCoreCSV } from "../core/parsers/csvParser";
 import { parseKML as coreParseKML } from "../core/parsers/kmlParser";
 import { convertToPathPlanWaypoints } from "../core/parsers/adapter";
 import { useWaypointHistory } from "../hooks/pathplan/useWaypointHistory";
+import { useClearMission } from "../hooks/useClearMission";
 import {
   uploadMissionCsv,
   loadMission,
-  deleteMissionCsv,
   getMissionStatus,
   getMissionHistory,
   restoreMission,
@@ -475,7 +475,6 @@ export default function PathPlanScreen({
   // the real Load exactly once when the backend says that preview is ready.
   const pendingReloadMissionIdRef = useRef<string | null>(null);
   const [isAutoTrajectoryUpdating, setIsAutoTrajectoryUpdating] = useState(false);
-  const [isClearingControllerMission, setIsClearingControllerMission] = useState(false);
   const [isRestoringMission, setIsRestoringMission] = useState(false);
   const [isImportingFile, setIsImportingFile] = useState(false);
   const autoTrajectoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -698,6 +697,19 @@ export default function PathPlanScreen({
     waypoints,
     updateWaypoints,
   );
+
+  const {
+    isClearing: isClearingControllerMission,
+    canClear: canClearControllerMission,
+    confirmAndClear: handleClearControllerMission,
+  } = useClearMission({
+    filename: preview.missionId ?? "mission.csv",
+    fileId: preview.missionId ?? undefined,
+    onCleared: () => {
+      resetHistory();
+      showPathPlanToast("info", "Mission cleared from controller");
+    },
+  });
 
   const [selectedWaypoint, setSelectedWaypoint] = useState<number | null>(null);
   const [editingWaypoint, setEditingWaypoint] =
@@ -2686,103 +2698,6 @@ export default function PathPlanScreen({
       Alert.alert("Load Failed", message);
     }
   }
-
-  const missionIsRunning = [
-    "running",
-    "paused",
-    "arming",
-    "switching_offboard",
-    "loading",
-    "stopping",
-  ].includes(String(telemetry.mission?.status ?? "").toLowerCase());
-  const hasControllerMission = preview.missionId !== null;
-  const canClearControllerMission =
-    (hasControllerMission || waypoints.length > 0) &&
-    !missionIsRunning &&
-    !isClearingControllerMission &&
-    (!hasControllerMission || !roverUploadBlockedReason);
-
-  const handleClearControllerMission = useCallback(() => {
-    if (roverUploadBlockedReason && hasControllerMission) {
-      Alert.alert("Connect Rover", roverUploadBlockedReason);
-      return;
-    }
-
-    if (missionIsRunning) {
-      Alert.alert(
-        "Mission Is Active",
-        "Stop the mission before deleting it.",
-      );
-      return;
-    }
-
-    if (!hasControllerMission && waypoints.length === 0) {
-      return;
-    }
-
-    Alert.alert(
-      "Delete Mission?",
-      "This permanently removes the controller mission, trajectory preview, marking points, and local mission data. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Clear",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              setIsClearingControllerMission(true);
-              try {
-                if (hasControllerMission) {
-                  const result = await deleteMissionCsv();
-                  if (!result.success) {
-                    throw new Error(result.message || "The rover could not delete the mission.");
-                  }
-                }
-                await clearMissionWaypoints();
-                resetHistory();
-                setSelectedWaypoint(null);
-                setEditingWaypoint(null);
-                setShowEditDialog(false);
-                setShowUploadPreview(false);
-                setShowManualConnectionCanvas(false);
-                pendingReloadMissionIdRef.current = null;
-                if (autoTrajectoryTimerRef.current) {
-                  clearTimeout(autoTrajectoryTimerRef.current);
-                  autoTrajectoryTimerRef.current = null;
-                }
-                setIsAutoTrajectoryUpdating(false);
-                clearTrajectory();
-                await refreshNow();
-                showPathPlanToast(
-                  "success",
-                  "Mission Deleted",
-                  "The mission, trajectory preview, and marking points were removed.",
-                  4500,
-                );
-              } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                showPathPlanToast("error", "Clear Failed", message, 5000);
-              } finally {
-                if (mountedRef.current) setIsClearingControllerMission(false);
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [
-    missionIsRunning,
-    hasControllerMission,
-    clearMissionWaypoints,
-    clearTrajectory,
-    refreshNow,
-    resetHistory,
-    roverUploadBlockedReason,
-    setShowManualConnectionCanvas,
-    setShowUploadPreview,
-    showPathPlanToast,
-    waypoints.length,
-  ]);
 
   useEffect(() => {
     if (autoTrajectoryTimerRef.current) {
