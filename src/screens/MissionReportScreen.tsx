@@ -5624,7 +5624,10 @@ export default function MissionReportScreen({
           onClearLogs={handleRequestClearLogs}
           clearLogsBlockedReason={clearLogsBlockedReason}
           startBlockerMessage={
-            backendMission?.start_blocker_message ||
+            (typeof backendMission?.start_blocker_message === "string" &&
+             backendMission.start_blocker_message.trim().length > 0
+              ? backendMission.start_blocker_message.trim()
+              : null) ||
             (!canStartMission && !hasUploadedMission
               ? "Upload and Load a mission first."
               : !backendMission?.ready && backendMission?.loaded
@@ -6522,30 +6525,6 @@ function MissionActivityExperience({
     onClearLogs?.();
   }, [onClearLogs]);
 
-  const deckNotice = useMemo(() => {
-    if (isMissionPaused) {
-      return pauseNotice(isMissionPaused, pauseReason, rtkReason, resumeAvailable);
-    }
-    if (controls.primary === "start" && !controls.primaryEnabled) {
-      if (startBlockerMessage) {
-        return {
-          title: "START BLOCKED",
-          detail: startBlockerMessage,
-          blocking: true,
-        };
-      }
-    }
-    return null;
-  }, [
-    isMissionPaused,
-    pauseReason,
-    rtkReason,
-    resumeAvailable,
-    controls.primary,
-    controls.primaryEnabled,
-    startBlockerMessage,
-  ]);
-
   // ── Mission control buttons: one request at a time, STOP always available ──
   const runControl = useCallback(
     async (key: Exclude<DeckPendingAction, null>, action?: DeckAction) => {
@@ -6594,6 +6573,34 @@ function MissionActivityExperience({
     canChangeMode,
     mode: mode ?? "auto",
   });
+
+  const deckNotice = useMemo(() => {
+    if (isMissionPaused) {
+      return pauseNotice(isMissionPaused, pauseReason, rtkReason, resumeAvailable);
+    }
+    if (controls.primary === "start" && !controls.primaryEnabled) {
+      const detail =
+        typeof startBlockerMessage === "string"
+          ? startBlockerMessage.trim()
+          : "";
+      if (detail) {
+        return {
+          title: "START BLOCKED",
+          detail,
+          blocking: true,
+        };
+      }
+    }
+    return null;
+  }, [
+    isMissionPaused,
+    pauseReason,
+    rtkReason,
+    resumeAvailable,
+    controls.primary,
+    controls.primaryEnabled,
+    startBlockerMessage,
+  ]);
 
   const pointsPanelAnimatedWidth = pointsPanelProgress.interpolate({
     inputRange: [0, 1],
