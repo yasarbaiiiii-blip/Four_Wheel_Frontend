@@ -67,7 +67,7 @@ export default function RoverDiscoveryScreen({
   const [scanning, setScanning] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [showManualInput, setShowManualInput] = useState(false);
-  const [manualUrl, setManualUrl] = useState("http://");
+  const [manualUrl, setManualUrl] = useState("http://192.168.3.101:5001");
   const [testingManualUrl, setTestingManualUrl] = useState(false);
   const [connectingRoverId, setConnectingRoverId] = useState<string | null>(
     null,
@@ -187,7 +187,7 @@ export default function RoverDiscoveryScreen({
       if (found.length === 0 && beaconListener.getDiscoveredRovers().length === 0) {
         Alert.alert(
           "No Rovers Found",
-          `No rover answered GET /api/health on ${prefix}.x:5001. Try manual URL or wait for a UDP beacon.`,
+          `No rover answered GET /api/health on ${prefix || "192.168.3"}.x:5001. Try manual URL or wait for a UDP beacon.`,
         );
       }
     } catch {

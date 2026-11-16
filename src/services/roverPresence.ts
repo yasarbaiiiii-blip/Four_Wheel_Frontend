@@ -154,12 +154,19 @@ export function subnetPrefixFromIp(ip: string): string | null {
   return `${parts[0]}.${parts[1]}.${parts[2]}`;
 }
 
+export const FALLBACK_DISCOVERY_PREFIXES = ["192.168.3", "192.168.1", "192.168.0"];
+
 export function discoveryPrefixes(): string[] {
   const prefixes = new Set<string>();
   for (const rover of beaconListener.getDiscoveredRovers()) {
     const prefix = subnetPrefixFromIp(rover.ip);
     if (prefix) {
       prefixes.add(prefix);
+    }
+  }
+  if (prefixes.size === 0) {
+    for (const fallback of FALLBACK_DISCOVERY_PREFIXES) {
+      prefixes.add(fallback);
     }
   }
   return Array.from(prefixes);

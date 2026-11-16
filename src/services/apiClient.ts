@@ -151,6 +151,10 @@ async function request<T>(
     getBackendURL()
       .replace(/\/+$/, "");
 
+  if (!backendURL) {
+    throw new Error("No rover backend selected. Connect to a rover first.");
+  }
+
   const normalizedPath =
     path.startsWith("/")
       ? path

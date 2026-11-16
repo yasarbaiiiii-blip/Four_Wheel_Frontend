@@ -164,7 +164,9 @@ export const SOCKET_CONFIG = {
    * Prefer a real WebSocket to the rover. Fall back to HTTP polling if
    * the access point blocks the upgrade.
    */
-  transports: ["websocket", "polling"],
+  // The rover gateway implements Socket.IO WebSocket transport only.
+  // Advertising polling caused a misleading release-only fallback path.
+  transports: ["websocket"],
 
   reconnection: false,
 

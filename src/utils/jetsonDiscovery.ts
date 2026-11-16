@@ -29,7 +29,7 @@ export async function getLocalNetworkBase(): Promise<string> {
       return prefix;
     }
   }
-  return "";
+  return "192.168.3";
 }
 
 export async function testJetsonConnection(
@@ -83,6 +83,16 @@ export async function scanForJetsonDevices(
 export async function quickScanForJetsonDevices(
   onProgress?: (current: number, total: number) => void,
 ): Promise<JetsonDevice[]> {
+  // First, directly probe the standard Jetson IP (192.168.3.101:5001) for instant discovery
+  try {
+    const directTarget = await testJetsonConnection("192.168.3.101", ROVER_API_PORT);
+    if (directTarget) {
+      return [directTarget];
+    }
+  } catch {
+    // Continue to subnet sweep
+  }
+
   const extra: string[] = [];
   const base = await getLocalNetworkBase();
   if (base) {
