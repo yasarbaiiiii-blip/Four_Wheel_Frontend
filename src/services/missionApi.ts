@@ -145,6 +145,19 @@ export interface MissionRuntimeState {
    */
   accepted_for_start?: boolean;
 
+  /** Exact backend-owned reason START is currently disabled. */
+  start_blocker?: string | null;
+  start_blocker_message?: string | null;
+
+  /** STOP never erases the selected mission; LOAD is required after release. */
+  mission_preserved?: boolean;
+  requires_reload?: boolean;
+  emergency_stop?: boolean;
+  estop_latched?: boolean;
+  mission_stop_latched?: boolean;
+  px4_disarmed?: boolean;
+  px4_armed?: boolean;
+
   message?: string;
   error?: string | null;
   terminal_cleanup_status?: string | null;

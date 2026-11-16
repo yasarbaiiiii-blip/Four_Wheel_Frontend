@@ -17,6 +17,7 @@
  */
 
 export class ApiError extends Error {
+  readonly code?: string;
   readonly outcome?: string;
   readonly retry_safe?: boolean;
   readonly mission?: unknown;
@@ -31,6 +32,7 @@ export class ApiError extends Error {
     this.name = "ApiError";
 
     const extra = parseControlDetail(responseBody);
+    this.code = extra.code;
     this.outcome = extra.outcome;
     this.retry_safe = extra.retry_safe;
     this.mission = extra.mission;
@@ -43,6 +45,7 @@ export class ApiError extends Error {
 }
 
 function parseControlDetail(body: string | undefined): {
+  code?: string;
   outcome?: string;
   retry_safe?: boolean;
   mission?: unknown;
@@ -64,6 +67,7 @@ function parseControlDetail(body: string | undefined): {
     }
 
     return {
+      code: typeof detail.code === "string" ? detail.code : undefined,
       outcome:
         typeof detail.outcome === "string" ? detail.outcome : undefined,
       retry_safe:
