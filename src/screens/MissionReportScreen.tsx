@@ -1193,6 +1193,7 @@ export default function MissionReportScreen({
   const canStartMission =
     connectionState === "connected" &&
     backendMission?.loaded === true &&
+    backendMission?.ready === true &&
     backendMission?.accepted_for_start === true &&
     backendMissionState === "READY" &&
     typeof backendMission?.mission_id === "string" &&
@@ -1958,7 +1959,7 @@ export default function MissionReportScreen({
      */
     const timer = setInterval(() => {
       void pollMission();
-    }, 15_000);
+    }, 2_000);
 
     return () => {
       cancelled = true;
@@ -2392,7 +2393,10 @@ export default function MissionReportScreen({
       resumePreviewAfterFailedUpload();
       void refreshNow();
       console.error("[MissionReportScreen] Upload Error:", error);
-      showNotification("error", "Error", "Failed to upload mission");
+      const message = error instanceof Error && error.message.trim()
+        ? error.message
+        : "The rover did not accept the mission upload.";
+      showNotification("error", "Upload Failed", message, 6000);
     } finally {
       setIsUploadingMission(false);
     }
@@ -3151,8 +3155,10 @@ export default function MissionReportScreen({
 
       if (!missionId || !runId || missionId !== runId ||
           loadedMission.loaded !== true ||
+          loadedMission.ready !== true ||
           loadedMission.accepted_for_start !== true || state !== "READY") {
-        const message = loadedMission.error || loadedMission.message ||
+        const message = loadedMission.start_blocker_message ||
+          loadedMission.error || loadedMission.message ||
           "The rover has not confirmed a loaded READY mission. Press LOAD first.";
         showNotification("info", "Mission Not Ready", message, 5000);
         return { success: false, message };
@@ -3570,7 +3576,12 @@ export default function MissionReportScreen({
       }
       const response = await loadMission(preview.missionId ?? undefined);
       if (!response.success) {
-        throw new Error(response.message || "The rover rejected Load Mission.");
+        throw new Error(
+          response.message ||
+          response.mission?.message ||
+          response.error ||
+          "The rover rejected Load Mission.",
+        );
       }
       markLoadAccepted();
       // LOAD response already identifies the exact signed mission installed
@@ -5612,6 +5623,14 @@ export default function MissionReportScreen({
           onExportReport={handleRequestExportReport}
           onClearLogs={handleRequestClearLogs}
           clearLogsBlockedReason={clearLogsBlockedReason}
+          startBlockerMessage={
+            backendMission?.start_blocker_message ||
+            (!canStartMission && !hasUploadedMission
+              ? "Upload and Load a mission first."
+              : !backendMission?.ready && backendMission?.loaded
+              ? "The rover is preparing. Wait for READY."
+              : null)
+          }
           pauseReason={backendPauseReason}
           rtkReason={backendRtkReason}
           resumeAvailable={backendResumeAvailable}
@@ -5942,6 +5961,8 @@ interface MissionActivityExperienceProps {
   onClearLogs?: () => void;
   /** Why clearing logs is blocked right now, or null when it is allowed. */
   clearLogsBlockedReason?: string | null;
+  /** Exact reason START is currently disabled, shown in notice and tool banner. */
+  startBlockerMessage?: string | null;
   /** Rover-reported pause reason / RTK reason / resume flag, for the deck notice. */
   pauseReason?: string | null;
   rtkReason?: string | null;
@@ -6108,6 +6129,7 @@ function MissionActivityExperience({
   pauseAvailable, skipAvailable, nextAvailable, canChangeMode, stopLatched, onEmergencyStopRecorded,
   mode, onSetMode, onSkip, onNext, waitingForManual,
   onExport, onExportReport, onClearLogs, clearLogsBlockedReason,
+  startBlockerMessage,
   pauseReason, rtkReason, resumeAvailable,
   onCommitEdit, editBlockedReason, onNotify,
 }: MissionActivityExperienceProps) {
@@ -6500,10 +6522,29 @@ function MissionActivityExperience({
     onClearLogs?.();
   }, [onClearLogs]);
 
-  const deckPauseNotice = useMemo(
-    () => pauseNotice(isMissionPaused, pauseReason, rtkReason, resumeAvailable),
-    [isMissionPaused, pauseReason, rtkReason, resumeAvailable],
-  );
+  const deckNotice = useMemo(() => {
+    if (isMissionPaused) {
+      return pauseNotice(isMissionPaused, pauseReason, rtkReason, resumeAvailable);
+    }
+    if (controls.primary === "start" && !controls.primaryEnabled) {
+      if (startBlockerMessage) {
+        return {
+          title: "START BLOCKED",
+          detail: startBlockerMessage,
+          blocking: true,
+        };
+      }
+    }
+    return null;
+  }, [
+    isMissionPaused,
+    pauseReason,
+    rtkReason,
+    resumeAvailable,
+    controls.primary,
+    controls.primaryEnabled,
+    startBlockerMessage,
+  ]);
 
   // ── Mission control buttons: one request at a time, STOP always available ──
   const runControl = useCallback(
@@ -6614,12 +6655,12 @@ function MissionActivityExperience({
           <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
-          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{hasMissionLoaded ? "Mission ready to use" : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{hasMissionLoaded && onClearMission && (<TouchableOpacity style={[fieldExperienceStyles.clearMissionCompact, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactDisabled]} onPress={onClearMission} disabled={!canClearMission || isClearingMission} accessibilityRole="button" accessibilityLabel="Clear Mission"><MaterialCommunityIcons name="eraser-variant" size={15} color={!canClearMission || isClearingMission ? "rgba(217,74,66,0.4)" : "#D94A42"} /><Text style={[fieldExperienceStyles.clearMissionCompactText, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactTextDisabled]}>Clear Mission</Text></TouchableOpacity>)}</View></View>
+          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{stopLatched ? "Emergency stop active — press Release" : hasMissionLoaded ? (canStart ? "Mission ready to start" : (startBlockerMessage || "Mission ready to use")) : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{hasMissionLoaded && onClearMission && (<TouchableOpacity style={[fieldExperienceStyles.clearMissionCompact, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactDisabled]} onPress={onClearMission} disabled={!canClearMission || isClearingMission} accessibilityRole="button" accessibilityLabel="Clear Mission"><MaterialCommunityIcons name="eraser-variant" size={15} color={!canClearMission || isClearingMission ? "rgba(217,74,66,0.4)" : "#D94A42"} /><Text style={[fieldExperienceStyles.clearMissionCompactText, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactTextDisabled]}>Clear Mission</Text></TouchableOpacity>)}</View></View>
           <View style={fieldExperienceStyles.missionToolGrid}>
             <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTilePrimary]} onPress={() => openPlanGuarded("upload")} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={24} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolTilePrimaryText}>Upload</Text></TouchableOpacity>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => runWithoutDraft(onLoadMission)} disabled={!hasMissionLoaded || loadBusy} accessibilityRole="button" accessibilityLabel="Load mission plan" accessibilityState={{ disabled: !hasMissionLoaded || loadBusy, busy: loadBusy }}><MaterialCommunityIcons name="tray-arrow-down" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Load</Text></TouchableOpacity>
-            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={() => setIsExportSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Open export and logs menu"><MaterialCommunityIcons name="file-export-outline" size={24} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Export</Text></TouchableOpacity>
             <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => runWithoutDraft(onOpenExtension)} disabled={!hasMissionLoaded} accessibilityRole="button" accessibilityLabel="Open mission extension tools" accessibilityState={{ disabled: !hasMissionLoaded }}><MaterialCommunityIcons name="vector-polyline-plus" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Extension</Text></TouchableOpacity>
+            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, (!hasMissionLoaded || stopLatched) && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => runWithoutDraft(onLoadMission)} disabled={!hasMissionLoaded || loadBusy || stopLatched} accessibilityRole="button" accessibilityLabel={stopLatched ? "Load disabled while emergency stop is active" : "Load mission plan"} accessibilityState={{ disabled: !hasMissionLoaded || loadBusy || stopLatched, busy: loadBusy }}><MaterialCommunityIcons name="tray-arrow-down" size={24} color={hasMissionLoaded && !stopLatched ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, (!hasMissionLoaded || stopLatched) && fieldExperienceStyles.missionToolTileTextDisabled]}>Load</Text></TouchableOpacity>
+            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={() => setIsExportSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Open export and logs menu"><MaterialCommunityIcons name="file-export-outline" size={24} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Export</Text></TouchableOpacity>
           </View>
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionActivityCard]} onLayout={(event) => { setActivityCardHeight(Math.round(event.nativeEvent.layout.height)); setActivityCardWidth(Math.round(event.nativeEvent.layout.width)); }}>
@@ -7115,7 +7156,7 @@ function MissionActivityExperience({
                   mode={mode ?? "auto"}
                   isPreparing={isPreparing}
                   pending={isStopping ? "stop" : pendingAction}
-                  notice={deckPauseNotice}
+                  notice={deckNotice}
                   onPrimary={() => {
                     void (controls.primary === "stop"
                       ? runControl("stop", onStop)
