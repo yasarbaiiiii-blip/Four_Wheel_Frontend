@@ -121,6 +121,7 @@ import {
   getMissionStatus,
   getMissionHistory,
   restoreMission,
+  MISSION_RESTORE_SUPPORTED,
   type MissionControlResponse,
 } from "../services/missionApi";
 import {
@@ -474,6 +475,7 @@ export default function PathPlanScreen({
   // Keep the intent across the asynchronous preview regeneration, then perform
   // the real Load exactly once when the backend says that preview is ready.
   const pendingReloadMissionIdRef = useRef<string | null>(null);
+  const loadInFlightRef = useRef(false);
   const [isAutoTrajectoryUpdating, setIsAutoTrajectoryUpdating] = useState(false);
   const [isRestoringMission, setIsRestoringMission] = useState(false);
   const [isImportingFile, setIsImportingFile] = useState(false);
@@ -2644,6 +2646,8 @@ export default function PathPlanScreen({
   }
 
   async function handleLoadMissionToController(): Promise<void> {
+    // One LOAD at a time: a double tap must not send a second LOAD.
+    if (loadInFlightRef.current) return;
     if (roverUploadBlockedReason) {
       Alert.alert("Connect Rover", roverUploadBlockedReason);
       return;
@@ -2653,9 +2657,13 @@ export default function PathPlanScreen({
       return;
     }
 
+    loadInFlightRef.current = true;
     try {
       if (!canLoadBackendPreview(preview)) {
         if (!preview.acceptedForStart || !preview.missionId) return;
+        // Already acknowledged by Jetson; "Load Again" needs the unsupported
+        // restore route, so do nothing instead of sending it.
+        if (!MISSION_RESTORE_SUPPORTED) return;
         setIsReloadPreparing(true);
         const restored = await restoreMission(preview.missionId);
         if (!restored?.success) {
@@ -2665,6 +2673,8 @@ export default function PathPlanScreen({
         // successful Load, so do not navigate yet. The effect above waits for
         // the authoritative ready flags and then submits `loadMission`.
         pendingReloadMissionIdRef.current = preview.missionId;
+        // Release the guard so the deferred LOAD effect is not dropped.
+        loadInFlightRef.current = false;
         await refreshNow();
         return;
       }
@@ -2696,6 +2706,8 @@ export default function PathPlanScreen({
         ? "The mission changed on the rover. Wait for the current path and try again."
         : detail.message;
       Alert.alert("Load Failed", message);
+    } finally {
+      loadInFlightRef.current = false;
     }
   }
 
@@ -2756,6 +2768,10 @@ export default function PathPlanScreen({
       silent = false,
       allowPersistedReplacement = false,
     }: { silent?: boolean; allowPersistedReplacement?: boolean } = {}): Promise<boolean> => {
+    // /api/mission/restore is not implemented by the C++ backend. Do not touch
+    // history, status or the uploaded waypoints; the upload/extension/LOAD
+    // workflow is the only supported path.
+    if (!MISSION_RESTORE_SUPPORTED) return false;
     if (isRestoringMissionRef.current) return false;
     isRestoringMissionRef.current = true;
     if (mountedRef.current) setIsRestoringMission(true);
@@ -3873,11 +3889,10 @@ export default function PathPlanScreen({
                     !planNeedsUpload &&
                     !missionExtension.applying &&
                     missionExtension.missionId === preview.missionId &&
-                    (canLoadBackendPreview(preview) ||
-                      (preview.acceptedForStart && preview.missionId !== null))
+                    canLoadBackendPreview(preview)
                   }
                   loadVisible={canDrawBackendLine(preview) && preview.missionId !== null}
-                  loadAgain={preview.acceptedForStart}
+                  loadAgain={false}
                   loadPreparing={isReloadPreparing}
                   onClearMission={handleClearControllerMission}
                   clearEnabled={canClearControllerMission}

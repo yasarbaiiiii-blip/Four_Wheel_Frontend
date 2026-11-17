@@ -287,7 +287,7 @@ export function shouldFetchLoadedPath(args: {
 }): boolean {
   return (
     shouldPollMissionStatus(args) &&
-    args.loaded === true &&
+    // C++ reports loaded=false until LOAD; the generated path exists before it.
     args.trajectoryReady === true &&
     args.pathRefreshRequested === true
   );
@@ -306,13 +306,13 @@ export function canDrawBackendLine(
 export function canLoadBackendPreview(
   state: Pick<
     TrajectoryPreviewState,
-    "phase" | "points" | "liveLoaded" | "liveTrajectoryReady"
+    "phase" | "points" | "liveLoaded" | "liveTrajectoryReady" | "acceptedForStart"
   >,
 ): boolean {
   return (
     canDrawBackendLine(state) &&
-    state.liveLoaded === true &&
-    state.liveTrajectoryReady === true
+    state.liveTrajectoryReady === true &&
+    state.acceptedForStart !== true
   );
 }
 
@@ -369,7 +369,7 @@ export function shouldRetainReadyPath(
     return String(mission.terminal_cleanup_status ?? "").trim().toUpperCase() === "ARCHIVED";
   }
 
-  if (mission.trajectory_ready === true && mission.loaded === true) {
+  if (mission.trajectory_ready === true) {
     return true;
   }
 
@@ -621,7 +621,7 @@ function reduceCore(
         };
       }
 
-      if (!loaded) {
+      if (!loaded && !trajectoryReady && (state === "EMPTY" || state === "IDLE")) {
         return {
           ...EMPTY_TRAJECTORY_PREVIEW,
           phase: "idle",

@@ -145,6 +145,9 @@ export interface MissionRuntimeState {
    */
   accepted_for_start?: boolean;
 
+  /** Read-only Jetson START availability for the acknowledged signed mission. */
+  start_available?: boolean;
+
   /** Exact backend-owned reason START is currently disabled. */
   start_blocker?: string | null;
   start_blocker_message?: string | null;
@@ -194,11 +197,9 @@ export interface MissionRuntimeState {
   backend_heartbeat_healthy?: boolean;
 
   mission_enable?: boolean;
-  emergency_stop?: boolean;
   px4_connected?: boolean;
   px4_link_ok?: boolean;
   px4_link_reason?: string | null;
-  px4_armed?: boolean;
 
   arrival_settle_elapsed_sec?: number;
   arrival_settle_required_sec?: number;
@@ -772,9 +773,19 @@ export async function loadMission(missionId?: string): Promise<MissionControlRes
   );
 }
 
+/**
+ * The current C++ backend does not implement POST /api/mission/restore.
+ * Keep the request disabled until the backend route exists, so no screen can
+ * trigger an unsupported call. Flip only after backend integration testing.
+ */
+export const MISSION_RESTORE_SUPPORTED = false;
+
 export async function restoreMission(missionId: string): Promise<MissionControlResponse> {
   const id = missionId.trim();
   if (!id) throw new Error("A mission ID is required to restore a mission.");
+  if (!MISSION_RESTORE_SUPPORTED) {
+    throw new Error("Restoring an archived mission is not supported by this rover backend.");
+  }
   return apiPost<MissionControlResponse>(PX4_MISSION.RESTORE, { mission_id: id }, { timeoutMs: 60_000 });
 }
 

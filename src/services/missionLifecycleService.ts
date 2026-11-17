@@ -8,10 +8,6 @@
 import { apiGet, apiPost } from './apiClient';
 import { PX4_MISSION } from '../config/px4Endpoints';
 import type {
-  MissionStartRequest,
-  MissionStartResponse,
-  MissionStopResponse,
-  MissionClearResponse,
   MissionRestartRequest,
   MissionRestartResponse,
   MissionStatusResponse,
@@ -25,22 +21,6 @@ import {
 } from './px4PointApiNormalize';
 
 // ── Mission lifecycle ─────────────────────────────────────────────────────────
-
-/**
- * Start the loaded mission.
- * Prerequisites: path loaded via load-to-controller, vehicle armed or auto-arm by server.
- */
-export async function startMission(request: MissionStartRequest = {}): Promise<MissionStartResponse> {
-  return apiPost<MissionStartResponse>(PX4_MISSION.START, request);
-}
-
-/**
- * Soft stop — allows spray safety cleanup before disarm.
- * Transitions: running → stopping → stopped.
- */
-export async function stopMission(): Promise<MissionStopResponse> {
-  return apiPost<MissionStopResponse>(PX4_MISSION.STOP);
-}
 
 /**
  * Pause a point mission. Returns 409 on continuous/dash missions.
@@ -69,14 +49,6 @@ export async function restartMission(
   request: MissionRestartRequest = {},
 ): Promise<MissionRestartResponse> {
   return apiPost<MissionRestartResponse>(PX4_MISSION.RESTART, request);
-}
-
-/**
- * Clear the loaded mission from the controller.
- * Returns 409 if a mission is currently running (stop first).
- */
-export async function clearMission(): Promise<MissionClearResponse> {
-  return apiPost<MissionClearResponse>(PX4_MISSION.CLEAR);
 }
 
 /**
@@ -109,12 +81,9 @@ export async function getPointEvents(
 }
 
 export default {
-  startMission,
-  stopMission,
   pauseMission,
   resumeMission,
   restartMission,
-  clearMission,
   getMissionStatus,
   getPointStatus,
   getPointEvents,

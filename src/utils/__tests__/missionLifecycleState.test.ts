@@ -39,6 +39,17 @@ function socketPayload(overrides: Record<string, unknown> = {}) {
 }
 
 describe("REST mission lifecycle dedupe", () => {
+  it("preserves LOAD acknowledgement and Jetson START permission changes", () => {
+    const ready = { ...PAUSED_BLOCKED, state: "READY", accepted_for_start: false, start_available: false };
+    const acknowledged = { ...ready, accepted_for_start: true, start_available: true };
+    expect(isSameMissionRuntimeLifecycle(ready, acknowledged)).toBe(false);
+  });
+
+  it("preserves backend NEXT permission changes", () => {
+    const first = { ...PAUSED_BLOCKED, next_available: false };
+    expect(isSameMissionRuntimeLifecycle(first, { ...first, next_available: true })).toBe(false);
+  });
+
   it("does not dedupe PAUSED resume_available false -> true", () => {
     const next = { ...PAUSED_BLOCKED, resume_available: true };
     expect(isSameMissionRuntimeLifecycle(PAUSED_BLOCKED, next)).toBe(false);

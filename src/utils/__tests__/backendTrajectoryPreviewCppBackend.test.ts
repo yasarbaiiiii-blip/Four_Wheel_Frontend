@@ -27,7 +27,7 @@ const EMPTY_STATUS = {
 
 const READY_STATUS = {
   state: "READY",
-  loaded: true,
+  loaded: false,
   ready: false,
   trajectory_ready: true,
   accepted_for_start: false,
@@ -40,8 +40,10 @@ const READY_STATUS = {
 
 const LOADED_STATUS = {
   ...READY_STATUS,
+  loaded: true,
+  ready: true,
   accepted_for_start: true,
-  message: "Mission loaded. Start is not available in this rover build.",
+  message: "Mission loaded. START is available from Jetson.",
 };
 
 const PATH_POINTS = [
@@ -118,6 +120,7 @@ describe("path preview with C++ backend responses", () => {
     const state = reduceTrajectoryPreview(uploadedState(), statusEvent(LOADED_STATUS, 1));
     expect(state.acceptedForStart).toBe(true);
     expect(canDrawBackendLine(state)).toBe(true);
+    expect(canLoadBackendPreview(state)).toBe(false); // Already acknowledged
   });
 
   it("does not offer Load once the rover no longer holds the mission", () => {

@@ -296,7 +296,7 @@ describe("backend trajectory display contract", () => {
 
     expect(refreshedReadyStatus.missionId).toBe("m1");
     expect(refreshedReadyStatus.acceptedForStart).toBe(true);
-    expect(canLoadBackendPreview(refreshedReadyStatus)).toBe(true);
+    expect(canLoadBackendPreview(refreshedReadyStatus)).toBe(false); // Already LOADed
 
     const completed = reduceTrajectoryPreview(refreshedReadyStatus, {
       type: "STATUS",

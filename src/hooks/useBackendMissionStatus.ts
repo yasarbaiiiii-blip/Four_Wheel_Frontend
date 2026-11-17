@@ -1075,8 +1075,6 @@ export function useBackendMissionStatus(
               previous => ({
                 ...previous,
                 state: "COMPLETED",
-                remainingPoints: 0,
-                progressPercent: 100,
                 markingActive: false,
                 alignmentActive: false,
               }),

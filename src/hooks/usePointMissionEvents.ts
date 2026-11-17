@@ -153,7 +153,7 @@ export function usePointMissionEvents(
   socket: Socket | null,
   connectionState: string,
 ): UsePointMissionEventsResult {
-  const { roverPosition } = useTelemetry();
+  const { roverPosition, missionLifecycle } = useTelemetry();
 
   const [statusMap, setStatusMap] = useState<
     Record<number, WaypointStatusEntry>
@@ -171,6 +171,7 @@ export function usePointMissionEvents(
   const statusMapRef = useRef(statusMap);
   const cursorRef = useRef<PointEventCursor>(INITIAL_POINT_EVENT_CURSOR);
   const roverPositionRef = useRef(roverPosition);
+  const currentMissionRunIdRef = useRef<string | null>(null);
   const syntheticEventIdRef = useRef(0);
   const lastKnownTotalRef = useRef(0);
   const authoritativeCurrentIndexRef = useRef<number | null>(null);
@@ -182,6 +183,12 @@ export function usePointMissionEvents(
   useEffect(() => {
     roverPositionRef.current = roverPosition;
   }, [roverPosition]);
+
+  useEffect(() => {
+    currentMissionRunIdRef.current = stringValue(
+      missionLifecycle?.mission_run_id ?? missionLifecycle?.mission_id,
+    ) || null;
+  }, [missionLifecycle?.mission_run_id, missionLifecycle?.mission_id]);
 
   const syncCursor = useCallback((cursor: PointEventCursor) => {
     cursorRef.current = cursor;
@@ -247,6 +254,8 @@ export function usePointMissionEvents(
     (socketEventName: string, raw: unknown): PointMissionEvent | null => {
       const payload = asRecord(raw);
       if (!payload) return null;
+      const expectedRun = currentMissionRunIdRef.current;
+      if (expectedRun && stringValue(payload.mission_run_id ?? payload.mission_id) !== expectedRun) return null;
 
       const pointIndexValue = finiteNumber(
         payload.point_index ??
@@ -294,6 +303,8 @@ export function usePointMissionEvents(
     const root = asRecord(raw);
     if (!root) return;
     const mission = asRecord(root.mission) ?? root;
+    const expectedRun = currentMissionRunIdRef.current;
+    if (expectedRun && stringValue(mission.mission_run_id ?? mission.mission_id) !== expectedRun) return;
 
     const state = stringValue(mission.state).toUpperCase();
     if (state === "EMPTY" || state === "CLEARED") {
@@ -410,34 +421,15 @@ export function usePointMissionEvents(
     });
 
     const handleMissionCompleted = (raw: unknown) => {
+      const root = asRecord(raw);
+      const mission = root && (asRecord(root.mission) ?? root);
+      const expectedRun = currentMissionRunIdRef.current;
+      // Mission completion is NOT proof that the last marking point was reached.
+      // Only accept the matching run; never invent point_completed or its index.
+      if (!mission || !expectedRun ||
+          stringValue(mission.mission_run_id ?? mission.mission_id) !== expectedRun ||
+          stringValue(mission.state).toUpperCase() !== "COMPLETED") return;
       handleMissionSnapshot(raw);
-
-      const payload = asRecord(raw) ?? {};
-      const suppliedIndex = finiteNumber(
-        payload.active_point_index ?? payload.current_point_index,
-      );
-      const finalIndex = Math.max(
-        0,
-        Math.trunc(
-          suppliedIndex ??
-            authoritativeCurrentIndexRef.current ??
-            Math.max(0, lastKnownTotalRef.current - 1),
-        ),
-      );
-
-      syntheticEventIdRef.current += 1;
-      const terminalEvent: PointMissionEvent = {
-        event_id: syntheticEventIdRef.current,
-        event_type: "point_completed",
-        point_index: finalIndex,
-        generation: cursorRef.current.generation ?? 0,
-        timestamp: new Date().toISOString(),
-        terminal: true,
-        message: "Mission completed",
-      };
-
-      const terminal = terminalStateFromEvent(terminalEvent);
-      if (terminal) setMissionTerminal(terminal);
     };
 
     socket.on("mission_completed", handleMissionCompleted);

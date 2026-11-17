@@ -1193,10 +1193,8 @@ export default function MissionReportScreen({
   // Do not gate on local authoringChanged or retained frontend waypoints.
   const canStartMission =
     connectionState === "connected" &&
-    backendMission?.loaded === true &&
-    backendMission?.ready === true &&
     backendMission?.accepted_for_start === true &&
-    backendMissionState === "READY" &&
+    backendMission?.start_available === true &&
     typeof backendMission?.mission_id === "string" &&
     backendMission.mission_id.trim().length > 0;
 
@@ -3149,15 +3147,16 @@ export default function MissionReportScreen({
       setBackendMission(loadedMission, { fresh: true });
       if (loadedMission.execution_mode === "AUTO" ||
           loadedMission.execution_mode === "MANUAL") {
-        // Display only. Execution mode was selected before LOAD; START must
+        // Display only. Execution mode was selected after LOAD; START must
         // never mutate the installed signed mission's execution mode.
         setMode(loadedMission.execution_mode);
       }
 
+      // Backend owns START authorization. Only verify the acknowledged
+      // mission identity and the backend-provided START availability.
       if (!missionId || !runId || missionId !== runId ||
-          loadedMission.loaded !== true ||
-          loadedMission.ready !== true ||
-          loadedMission.accepted_for_start !== true || state !== "READY") {
+          loadedMission.accepted_for_start !== true ||
+          loadedMission.start_available !== true) {
         const message = loadedMission.start_blocker_message ||
           loadedMission.error || loadedMission.message ||
           "The rover has not confirmed a loaded READY mission. Press LOAD first.";
@@ -3238,7 +3237,8 @@ export default function MissionReportScreen({
       setIsMissionActive(true);
       setMissionStartTime(new Date());
       setMissionEndTime(null);
-      setCurrentIndex(0);
+      // Point index must come from Jetson, not an optimistic START tap.
+      setCurrentIndex(null);
       const startPosition = liveStore.getSnapshot().roverPosition;
       startOriginRef.current = {
         lat: startPosition?.lat ?? 0,
@@ -3580,7 +3580,7 @@ export default function MissionReportScreen({
         throw new Error(
           response.message ||
           response.mission?.message ||
-          response.error ||
+          response.mission?.error ||
           "The rover rejected Load Mission.",
         );
       }
@@ -5627,7 +5627,7 @@ export default function MissionReportScreen({
           pauseAvailable={effectiveLifecycle.pauseAvailable}
           skipAvailable={effectiveLifecycle.skipAvailable}
           nextAvailable={backendMission?.next_available === true}
-          canChangeMode={effectiveLifecycle.state === "READY" && backendMission?.accepted_for_start === false}
+          canChangeMode={(effectiveLifecycle.state ?? backendMissionState) === "READY" && backendMission?.accepted_for_start === true}
           stopLatched={backendMission?.emergency_stop === true}
           onEmergencyStopRecorded={() => { void refreshBackendMission(); }}
           mode={mode === "MANUAL" ? "manual" : "auto"}

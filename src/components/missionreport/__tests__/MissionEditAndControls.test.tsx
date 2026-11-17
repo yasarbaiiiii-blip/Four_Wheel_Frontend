@@ -218,6 +218,8 @@ describe("MissionDeckControls", () => {
     const { button, onNext } = view({
       isMissionActive: true,
       waitingForManual: true,
+      state: "WAITING_FOR_NEXT",
+      nextAvailable: true,
       mode: "manual",
     });
     expect(button("Continue to next waypoint").props.disabled).toBe(false);

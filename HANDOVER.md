@@ -1963,3 +1963,72 @@ Fully implement the approved "Robust Clear Mission execution plan" across fronte
 - Backend working tree clean of scratch files; changes uncommitted on `feature/4wd-auto-start-rpp-single-launch`.
 - Bench validation on the physical Android tablet and Jetson to verify stationary CSV reload and new runtime ID generation.
 
+
+---
+
+## Entry 044 — Mission Pipeline Endpoint Audit (UPLOAD→CLEAR)
+- **Date & Time:** 2026-11-17
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Claude Code (Sonnet 5.5)
+
+### 1. Objective & Scope
+Audit missionApi, missionLifecycleService, usePointMissionEvents, useBackendMissionStatus, PathPlanScreen, MissionReportScreen for one authoritative UPLOAD→EXTENSION→LOAD→START→controls→POINT RESULTS→REPORT→CLEAR pipeline. Minimal changes only.
+
+### 2. Changes Implemented
+- `src/services/missionLifecycleService.ts`: removed unused duplicate `startMission`, `stopMission`, `clearMission` (grep: zero references; missionApi owns them; the lifecycle START omitted mission_id).
+- `src/services/missionApi.ts`: removed duplicate `emergency_stop`/`px4_armed` fields in `MissionRuntimeState` (tsc TS2300).
+- `src/screens/PathPlanScreen.tsx`: added `loadInFlightRef` guard so a double tap cannot send two LOAD requests; released before the restore→deferred-LOAD hand-off.
+- `src/screens/MissionReportScreen.tsx`: LOAD error detail now reads `response.mission?.error` (type fix, TS2339).
+- `src/hooks/useBackendMissionStatus.ts`: `mission_completed` no longer forces `remainingPoints: 0` / `progressPercent: 100`; backend counts are kept.
+
+### 3. Key Architecture & Design Decisions
+Backend `mission_id`/`mission_run_id` and backend `point_results` stay authoritative. Status refresh failures only set `lastError`; they never mark completion.
+
+### 4. Hardware Safety & Interlocks
+None touched. Reduces duplicate-LOAD risk only.
+
+### 5. Verification & Testing
+- `npx tsc --noEmit`: 0 errors.
+- `npm test -- --runInBand`: 83/84 suites, 1015/1016 tests. Failing: MissionEditAndControls "waiting for the operator: NEXT" (already open since Entry 042, outside audited files).
+- Metro HTTP check not run (no server).
+
+### 6. Repository State & Next Steps
+Uncommitted on `client_`. Remaining mismatches are listed in the audit report: RESTART, point/events, point/status are not in the backend; `mission_completed` synthetic terminal event in usePointMissionEvents has no run-id check.
+
+---
+
+## Entry 045 — Jetson Frontend Wiring Patch, NEXT Test Fixture & Restore Guard
+- **Date & Time:** 2026-11-17
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Claude Code (Sonnet 5.5)
+
+### 1. Objective & Scope
+Fix and apply the existing `apply_jetson_frontend_wiring_v2.py` wiring patch, repair the NEXT test fixture, stop the unsupported `/api/mission/restore` request, and verify. No architecture refactor; no RPP, DDS, PX4 or backend changes.
+
+### 2. Changes Implemented
+- **Patch:** fixed anchor 6 (the appended rule used `\n`, a literal backslash-n; now real newlines) and made `missionLifecycleState.ts` anchor 2 unique (it matched two field lists; now anchored on `"progress_percent"`). `--check` then passed; `--apply` made **27 replacements across 10 files**; a re-check showed 0 remaining.
+- **Patch files:** `src/utils/backendTrajectoryPreview.ts`, `src/services/missionApi.ts`, `src/screens/MissionReportScreen.tsx`, `src/utils/missionLifecycleState.ts`, `src/screens/PathPlanScreen.tsx`, `src/hooks/usePointMissionEvents.ts`, and tests `backendTrajectoryPreview.test.ts`, `backendTrajectoryPreviewCppBackend.test.ts`, `missionLifecycleState.test.ts`, `usePointMissionEvents.test.tsx`.
+- **NEXT test:** `MissionEditAndControls.test.tsx` fixture now supplies `state: "WAITING_FOR_NEXT"` and `nextAvailable: true`. Production NEXT gating (`next_available` from the backend, `missionDeckControls.ts`) is unchanged.
+- **Restore guard:** `missionApi.ts` adds `MISSION_RESTORE_SUPPORTED = false`; `restoreMission` throws before any request. `PathPlanScreen.restoreLatestMission` returns `false` immediately (it had no callers), and the "Load Again" branch of `handleLoadMissionToController` returns without a request. Uploaded waypoints and the upload/extension/LOAD workflow are untouched.
+- **Deleted:** untracked `apply_jetson_frontend_wiring_v2.py` after confirming 0 outstanding replacements (never committed, no references).
+- Earlier this session (Entry 044): duplicate lifecycle START/STOP/CLEAR removed, PathPlan LOAD in-flight guard, `mission_completed` no longer forces 100%/0 remaining.
+
+### 3. Key Architecture & Design Decisions
+- `mission_run_id`/`mission_id` filtering in `usePointMissionEvents` stays strict: events and snapshots for another run are dropped when a current run id is known. It was not loosened.
+- `mission_completed` no longer fabricates a `point_completed` event or point index. Point results come only from Jetson.
+- START depends on `accepted_for_start`, `start_available` and a matching mission ID only; no extra PX4/RTK frontend authorization was added.
+
+### 4. Hardware Safety & Interlocks
+No solenoid, AUX, arming, speed gate or E-Stop code touched. No rover command sent.
+
+### 5. Verification & Testing
+- `npx tsc --noEmit`: 0 errors.
+- `npm test -- --runInBand`: 84/84 suites, 1018/1018 tests.
+- `git diff --check`: clean (only an LF→CRLF warning on `HANDOVER.md`).
+- Metro: `curl.exe http://127.0.0.1:8081/index.bundle?...` returned HTTP `000`; **no Metro server was running, so the HTTP 200 check was not performed.** As a substitute, `npx expo export --platform android` compiled the Hermes bundle successfully (output in scratchpad, not in the repo).
+
+### 6. Current Repository State & Next Steps
+- Uncommitted on `client_`; 14 modified files, no untracked scratch files.
+- **Backend integration limits (untested):** the backend must publish `mission_run_id` (or `mission_id`) on `point_event`, `point_completed`, `point_skipped`, `point_failed`, `mission_status`, `mission_progress`, `mission_state` and `mission_completed`; otherwise the strict filter drops them. `trajectory_ready`, `accepted_for_start`, `start_available` and `next_available` must be present in `/api/mission/status` and socket snapshots. Needs bench integration test against the Jetson.
+- `/api/mission/restart`, `/api/mission/point/events` and `/api/mission/point/status` are still not in the backend; `TelemetryContext` failsafe restart still calls restart.
+- Field validation with gloves on the physical tablet remains outstanding.

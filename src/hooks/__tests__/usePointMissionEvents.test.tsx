@@ -114,8 +114,9 @@ it("updates waiting, continuation, completion and reset state without changing s
   expect(hook.result.current.waitingForContinue).toBe(false);
   expect(hook.result.current.statusMap[2].status).toBe("completed");
 
+  // Completion without a correlated backend point result cannot make up P3.
   socket.emit("mission_completed", { active_point_index: 2 });
-  expect(hook.result.current.missionTerminal?.outcome).toBe("completed");
+  expect(hook.result.current.missionTerminal).toBeNull();
   act(() => hook.result.current.clearMissionTerminal());
   expect(hook.result.current.missionTerminal).toBeNull();
 
