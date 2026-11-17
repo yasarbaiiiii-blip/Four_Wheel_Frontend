@@ -46,6 +46,7 @@ interface Props {
       status?: string;
     } & Record<string, any>
   >;
+  onMapPress?: (coord: { latitude: number; longitude: number }) => void;
 }
 
 const MissionMapBase: React.FC<Props> = ({
@@ -60,6 +61,7 @@ const MissionMapBase: React.FC<Props> = ({
   edgeToEdge = false,
   isVisible = true,
   statusMap,
+  onMapPress,
 }) => {
   const webViewRef = useRef<WebView | null>(null);
 
@@ -435,6 +437,15 @@ const MissionMapBase: React.FC<Props> = ({
     map.on('zoomend', function() {
       map.getCanvas().style.pointerEvents = '';
       map.resize();
+    });
+
+    map.on('click', function(e) {
+      if (window.ReactNativeWebView && e && e.lngLat) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'mapClick',
+          lngLat: { lng: e.lngLat.lng, lat: e.lngLat.lat }
+        }));
+      }
     });
 
     function centerOnRover() {
@@ -955,6 +966,13 @@ const MissionMapBase: React.FC<Props> = ({
         onMessage={(event) => {
           try {
             const message = JSON.parse(event.nativeEvent.data);
+            if (message.type === "mapClick" && onMapPress && message.lngLat) {
+              onMapPress({
+                longitude: message.lngLat.lng,
+                latitude: message.lngLat.lat,
+              });
+              return;
+            }
             if (message.type === "mapReady") {
               setMapReady(true);
               // Fix: Mapbox initializes before WebView layout finalizes.

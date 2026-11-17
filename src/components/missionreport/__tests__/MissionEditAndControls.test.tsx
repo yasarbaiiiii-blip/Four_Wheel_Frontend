@@ -74,6 +74,27 @@ describe("MissionEditToolbar", () => {
     expect(button("Redo")).toBeTruthy();
   });
 
+  it("renders Add Point button when onAddPoint is provided and fires onPress", () => {
+    const onAddPoint = jest.fn();
+    const { button } = render(
+      <MissionEditToolbar {...props} onAddPoint={onAddPoint} isAddPointActive={false} />,
+    );
+    const addBtn = button("Add Point");
+    expect(addBtn).toBeTruthy();
+    expect(addBtn.props.disabled).toBe(false);
+    act(() => {
+      addBtn.props.onPress();
+    });
+    expect(onAddPoint).toHaveBeenCalledTimes(1);
+  });
+
+  it("reflects active state on Add Point button", () => {
+    const { button } = render(
+      <MissionEditToolbar {...props} onAddPoint={noop} isAddPointActive={true} />,
+    );
+    expect(button("Add Point").props.accessibilityState.selected).toBe(true);
+  });
+
   it("enables Reverse but disables Undo, Redo and Apply on a clean draft", () => {
     const { button } = render(<MissionEditToolbar {...props} />);
     expect(button("Reverse").props.disabled).toBe(false);

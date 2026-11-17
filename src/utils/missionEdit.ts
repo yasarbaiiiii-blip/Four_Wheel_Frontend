@@ -30,6 +30,55 @@ export function reverseMissionWaypoints(
   return renumber([...points].reverse());
 }
 
+export interface NewWaypointCandidate {
+  lat: number;
+  lon: number;
+  alt?: number;
+  block?: string;
+  row?: string;
+  pile?: string;
+  mark?: boolean;
+}
+
+/**
+ * Add a new point to the mission. Returns the same array reference if coordinates are invalid.
+ */
+export function addMissionWaypoint(
+  points: ReadonlyArray<Waypoint>,
+  candidate: NewWaypointCandidate,
+): Waypoint[] {
+  if (
+    typeof candidate.lat !== "number" ||
+    typeof candidate.lon !== "number" ||
+    !Number.isFinite(candidate.lat) ||
+    !Number.isFinite(candidate.lon) ||
+    candidate.lat < -90 ||
+    candidate.lat > 90 ||
+    candidate.lon < -180 ||
+    candidate.lon > 180
+  ) {
+    return points as Waypoint[];
+  }
+
+  const lastPoint = points.length > 0 ? points[points.length - 1] : undefined;
+  const newSn = points.length + 1;
+  const newPoint: Waypoint = {
+    sn: newSn,
+    block: candidate.block || lastPoint?.block || "B1",
+    row: candidate.row || lastPoint?.row || "R1",
+    pile: candidate.pile || String(newSn),
+    lat: candidate.lat,
+    lon: candidate.lon,
+    alt: candidate.alt ?? lastPoint?.alt ?? 50.0,
+    mark: candidate.mark ?? true,
+    status: "Pending",
+    time: "",
+    remark: "",
+    distance: undefined,
+  };
+  return renumber([...points, newPoint]);
+}
+
 /**
  * Remove one point. Returns the SAME array reference when the removal is not
  * allowed (bad index, or it would leave fewer than MIN_MISSION_POINTS), so

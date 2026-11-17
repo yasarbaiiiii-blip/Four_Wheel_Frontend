@@ -1,5 +1,6 @@
 import type { Waypoint } from "../../components/missionreport/types";
 import {
+  addMissionWaypoint,
   MIN_MISSION_POINTS,
   removeMissionWaypoint,
   reverseMissionWaypoints,
@@ -80,5 +81,37 @@ describe("sameMissionRoute", () => {
     const a = [point(1, 10), point(2, 20)];
     expect(sameMissionRoute(a, [point(1, 10)])).toBe(false);
     expect(sameMissionRoute(a, [point(1, 20), point(2, 10)])).toBe(false);
+  });
+});
+
+describe("addMissionWaypoint", () => {
+  it("appends a new point and renumbers sequential sn from 1", () => {
+    const input = [point(1, 10), point(2, 20)];
+    const result = addMissionWaypoint(input, { lat: 30, lon: 130 });
+    expect(result.length).toBe(3);
+    expect(result.map((p) => p.lat)).toEqual([10, 20, 30]);
+    expect(result.map((p) => p.sn)).toEqual([1, 2, 3]);
+  });
+
+  it("resets progress state to Pending on all points", () => {
+    const input = [point(1, 10, { status: "Completed" })];
+    const result = addMissionWaypoint(input, { lat: 20, lon: 120 });
+    expect(result.every((p) => p.status === "Pending")).toBe(true);
+    expect(result.every((p) => p.distance === undefined)).toBe(true);
+  });
+
+  it("inherits block and row from the last point if omitted", () => {
+    const input = [point(1, 10, { block: "B2", row: "R5" })];
+    const result = addMissionWaypoint(input, { lat: 20, lon: 120 });
+    expect(result[1].block).toBe("B2");
+    expect(result[1].row).toBe("R5");
+    expect(result[1].pile).toBe("2");
+  });
+
+  it("rejects invalid or out-of-bounds coordinates", () => {
+    const input = [point(1, 10), point(2, 20)];
+    expect(addMissionWaypoint(input, { lat: 100, lon: 0 })).toBe(input);
+    expect(addMissionWaypoint(input, { lat: 0, lon: 200 })).toBe(input);
+    expect(addMissionWaypoint(input, { lat: NaN, lon: 0 })).toBe(input);
   });
 });

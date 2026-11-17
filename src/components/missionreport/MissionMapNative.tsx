@@ -46,6 +46,7 @@ interface Props {
   edgeToEdge?: boolean;
   isVisible?: boolean;
   statusMap?: Record<number, { status?: string } & Record<string, unknown>>;
+  onMapPress?: (coord: { latitude: number; longitude: number }) => void;
 }
 
 const DEFAULT_ZOOM = 15;
@@ -79,6 +80,7 @@ const MissionMapNativeBase: React.FC<Props> = ({
   statusMap,
   extensionPreviewPath = null,
   extensionPoints = null,
+  onMapPress,
 }) => {
   const cameraRef = useRef<React.ElementRef<typeof Camera>>(null);
   const zoomRef = useRef(DEFAULT_ZOOM);
@@ -312,6 +314,14 @@ const MissionMapNativeBase: React.FC<Props> = ({
         onMapLoadingError={onMapError}
         onDidFailLoadingMap={onMapError}
         onMapIdle={handleCameraChanged}
+        onPress={(e: any) => {
+          if (onMapPress && e.geometry && e.geometry.coordinates) {
+            onMapPress({
+              longitude: e.geometry.coordinates[0],
+              latitude: e.geometry.coordinates[1],
+            });
+          }
+        }}
       >
         <Camera
           ref={cameraRef}

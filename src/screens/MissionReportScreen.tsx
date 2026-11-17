@@ -196,6 +196,7 @@ import { useMissionExtension } from "../hooks/pathplan/useMissionExtension";
 import { downloadFileToDevice, getMimeType } from "../utils/downloadHelper";
 import { useDraftHistory } from "../hooks/useDraftHistory";
 import {
+  addMissionWaypoint,
   removeMissionWaypoint,
   reverseMissionWaypoints,
   sameMissionRoute,
@@ -3711,6 +3712,7 @@ export default function MissionReportScreen({
       setCurrentIndex(null);
       resetVerifiedProgress();
       clearVerifiedTerminal();
+      setEditDraftWaypoints(null);
       await refreshBackendMission();
       await refreshNow();
       showNotification(
@@ -3740,6 +3742,20 @@ export default function MissionReportScreen({
       setIsApplyingHomeExtension(false);
     }
   };
+
+  const [editDraftWaypoints, setEditDraftWaypoints] = useState<Waypoint[] | null>(null);
+  const mapPressHandlerRef = useRef<((coord: { latitude: number; longitude: number }) => void) | null>(null);
+
+  const handleMapPress = useCallback((coord: { latitude: number; longitude: number }) => {
+    mapPressHandlerRef.current?.(coord);
+  }, []);
+
+  const handleRegisterMapPress = useCallback(
+    (handler: ((coord: { latitude: number; longitude: number }) => void) | null) => {
+      mapPressHandlerRef.current = handler;
+    },
+    [],
+  );
 
   // Push an edited point list to the rover. The rover only ever sees a normal
   // CSV upload, so every backend safety rule (not while a mission is active,
@@ -3821,6 +3837,7 @@ export default function MissionReportScreen({
       setCurrentIndex(null);
       resetVerifiedProgress();
       clearVerifiedTerminal();
+      setEditDraftWaypoints(null);
       await refreshBackendMission();
       await refreshNow();
 
@@ -5387,13 +5404,14 @@ export default function MissionReportScreen({
       <View style={styles.absoluteMapContainer}>
         {embedMap && (
         <LiveMissionMap
-          waypoints={displayData.waypoints}
+          waypoints={editDraftWaypoints ?? displayData.waypoints}
           extensionPreviewPath={extensionMapPreview}
           extensionPoints={extensionMapPoints}
           activeWaypointIndex={effectiveCurrentIndex}
           statusMap={displayData.statusMap}
           edgeToEdge
           isVisible={isVisible}
+          onMapPress={handleMapPress}
         />
         )}
       </View>
@@ -5641,6 +5659,8 @@ export default function MissionReportScreen({
           editBlockedReason={
             connectionState !== "connected" ? "Connect to the rover to edit the mission." : null
           }
+          onDraftChange={setEditDraftWaypoints}
+          onRegisterMapPress={handleRegisterMapPress}
           onNotify={(type, title, message) => showNotification(type, title, message, 4500)}
         />
       )}
@@ -5976,6 +5996,12 @@ interface MissionActivityExperienceProps {
   ) => Promise<{ success: boolean; message?: string }>;
   /** Why editing is currently not allowed (offline, ...), or null. */
   editBlockedReason?: string | null;
+  /** Callback fired whenever the local edit draft changes or ends, so the map updates live. */
+  onDraftChange?: (draft: Waypoint[] | null) => void;
+  /** Register a callback for map clicks during Add Point mode. */
+  onRegisterMapPress?: (
+    handler: ((coord: { latitude: number; longitude: number }) => void) | null,
+  ) => void;
   onNotify?: (
     type: "success" | "error" | "info",
     title: string,
@@ -6134,7 +6160,7 @@ function MissionActivityExperience({
   onExport, onExportReport, onClearLogs, clearLogsBlockedReason,
   startBlockerMessage,
   pauseReason, rtkReason, resumeAvailable,
-  onCommitEdit, editBlockedReason, onNotify,
+  onCommitEdit, editBlockedReason, onDraftChange, onRegisterMapPress, onNotify,
 }: MissionActivityExperienceProps) {
   const telemetry = useLiveTelemetrySelector(selectCommandTelemetry, shallowEqual);
   const { width: viewportWidth } = useWindowDimensions();
@@ -6147,6 +6173,44 @@ function MissionActivityExperience({
   const [isExportSheetOpen, setIsExportSheetOpen] = useState(false);
   const editHistory = useDraftHistory<Waypoint[]>();
   const isEditingPoints = editHistory.isEditing;
+  const [isAddPointMode, setIsAddPointMode] = useState(false);
+
+  useEffect(() => {
+    onDraftChange?.(editHistory.draft);
+  }, [editHistory.draft, onDraftChange]);
+
+  useEffect(() => {
+    if (!isEditingPoints) {
+      setIsAddPointMode(false);
+    }
+  }, [isEditingPoints]);
+
+  const handleAddDraftPoint = useCallback(
+    (candidate: { lat: number; lon: number }) => {
+      const current = editHistory.draft;
+      if (!current) return;
+      const next = addMissionWaypoint(current, candidate);
+      editHistory.apply(next);
+    },
+    [editHistory],
+  );
+
+  const handleToggleAddPoint = useCallback(() => {
+    setIsAddPointMode((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    if (isEditingPoints && isAddPointMode) {
+      onRegisterMapPress?.((coord) => {
+        handleAddDraftPoint({ lat: coord.latitude, lon: coord.longitude });
+      });
+    } else {
+      onRegisterMapPress?.(null);
+    }
+    return () => {
+      onRegisterMapPress?.(null);
+    };
+  }, [isEditingPoints, isAddPointMode, onRegisterMapPress, handleAddDraftPoint]);
   const [isApplyingEdit, setIsApplyingEdit] = useState(false);
   const applyingEditRef = useRef(false);
   const [pendingAction, setPendingAction] = useState<DeckPendingAction>(null);
@@ -6354,6 +6418,7 @@ function MissionActivityExperience({
   const handleToggleEdit = useCallback(() => {
     if (editHistory.isEditing) {
       if (!isDraftDirty) {
+        setIsAddPointMode(false);
         editHistory.end();
         return;
       }
@@ -6367,10 +6432,12 @@ function MissionActivityExperience({
       onNotify?.("info", "Editing unavailable", editBlocked);
       return;
     }
+    setIsAddPointMode(false);
     editHistory.begin(waypoints.map((point) => ({ ...point })));
   }, [editBlocked, editHistory, isDraftDirty, onNotify, waypoints]);
 
   const handleDiscardEdit = useCallback(() => {
+    setIsAddPointMode(false);
     if (!isDraftDirty) {
       editHistory.end();
       return;
@@ -6402,6 +6469,7 @@ function MissionActivityExperience({
   );
 
   const handleApplyEdit = useCallback(() => {
+    setIsAddPointMode(false);
     const draft = editHistory.draft;
     if (!draft || !isDraftDirty || applyingEditRef.current || !onCommitEdit) return;
     Alert.alert(
@@ -7194,6 +7262,23 @@ function MissionActivityExperience({
         </Animated.View>
       )}
 
+      {isEditingPoints && isAddPointMode && (
+        <View style={fieldExperienceStyles.addPointBanner} pointerEvents="box-none">
+          <MaterialCommunityIcons name="map-marker-plus" size={18} color="#60A5FA" />
+          <Text style={fieldExperienceStyles.addPointBannerText}>
+            Tap anywhere on map to add point
+          </Text>
+          <TouchableOpacity
+            style={fieldExperienceStyles.addPointBannerDone}
+            onPress={() => setIsAddPointMode(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Done adding points"
+          >
+            <Text style={fieldExperienceStyles.addPointBannerDoneText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {isPointsExpanded && <Animated.View style={[fieldExperienceStyles.pointsPanel, { width: pointsPanelAnimatedWidth, height: activityCardHeight || 320 }]}>
         <View style={fieldExperienceStyles.pointsPanelHeader}>
           <View style={fieldExperienceStyles.expandedActivityTitle}>
@@ -7235,6 +7320,8 @@ function MissionActivityExperience({
             canRedo={editHistory.canRedo}
             isDirty={isDraftDirty}
             isApplying={isApplyingEdit}
+            isAddPointActive={isAddPointMode}
+            onAddPoint={handleToggleAddPoint}
             onReverse={handleReverseDraft}
             onUndo={editHistory.undo}
             onRedo={editHistory.redo}
@@ -8453,5 +8540,42 @@ const fieldExperienceStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
     letterSpacing: 0.4,
+  },
+  addPointBanner: {
+    position: "absolute",
+    top: 76,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+    backgroundColor: "rgba(16, 36, 75, 0.94)",
+    borderWidth: 1,
+    borderColor: "#3B82F6",
+    shadowColor: "#10244B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+    zIndex: 50,
+  },
+  addPointBannerText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  addPointBannerDone: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: "#1475EE",
+  },
+  addPointBannerDoneText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
   },
 });

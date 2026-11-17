@@ -21,6 +21,8 @@ interface MissionEditToolbarProps {
   onRedo: () => void;
   onCancel: () => void;
   onApply: () => void;
+  onAddPoint?: () => void;
+  isAddPointActive?: boolean;
 }
 
 interface ToolButtonProps {
@@ -28,25 +30,32 @@ interface ToolButtonProps {
   label: string;
   disabled: boolean;
   onPress: () => void;
+  active?: boolean;
 }
 
-function ToolButton({ icon, label, disabled, onPress }: ToolButtonProps) {
+function ToolButton({ icon, label, disabled, onPress, active }: ToolButtonProps) {
   return (
     <TouchableOpacity
-      style={[styles.tool, disabled && styles.disabled]}
+      style={[styles.tool, disabled && styles.disabled, active && styles.toolActive]}
       onPress={onPress}
       disabled={disabled}
       activeOpacity={0.82}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, selected: active }}
     >
       <MaterialCommunityIcons
         name={icon}
-        size={20}
-        color={disabled ? "#9BAABD" : "#1475EE"}
+        size={18}
+        color={active ? "#FFFFFF" : disabled ? "#9BAABD" : "#1475EE"}
       />
-      <Text style={[styles.toolText, disabled && styles.toolTextDisabled]}>
+      <Text
+        style={[
+          styles.toolText,
+          disabled && styles.toolTextDisabled,
+          active && styles.toolTextActive,
+        ]}
+      >
         {label}
       </Text>
     </TouchableOpacity>
@@ -69,6 +78,8 @@ export function MissionEditToolbar({
   onRedo,
   onCancel,
   onApply,
+  onAddPoint,
+  isAddPointActive = false,
 }: MissionEditToolbarProps): React.ReactElement {
   return (
     <View style={styles.container}>
@@ -82,6 +93,15 @@ export function MissionEditToolbar({
       </View>
 
       <View style={styles.row}>
+        {onAddPoint && (
+          <ToolButton
+            icon="plus"
+            label="Add Point"
+            disabled={isApplying}
+            onPress={onAddPoint}
+            active={isAddPointActive}
+          />
+        )}
         <ToolButton
           icon="swap-vertical"
           label="Reverse"
@@ -179,12 +199,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 4,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#DDE8F7",
   },
-  toolText: { color: "#1475EE", fontSize: 13, fontWeight: "700" },
+  toolActive: {
+    backgroundColor: "#1475EE",
+    borderColor: "#0E63D0",
+  },
+  toolText: { color: "#1475EE", fontSize: 12, fontWeight: "700" },
+  toolTextActive: { color: "#FFFFFF" },
   toolTextDisabled: { color: "#9BAABD" },
   disabled: { opacity: 0.5 },
   action: {

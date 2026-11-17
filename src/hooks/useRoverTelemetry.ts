@@ -1628,20 +1628,31 @@ if (envelope.within_test_tolerance !== undefined) {
         });
         return;
       }
-      // Live socket packets win. REST may still complete after the first
-      // packet and must not overwrite fresher telemetry.
-      if (!mountedRef.current || hasLiveTelemetryRef.current) {
+      // Live socket packets win. If fresh socket packets arrived within 2.0s, keep socket data.
+      const now = Date.now();
+      if (
+        lastSocketPacketTsRef.current != null &&
+        now - lastSocketPacketTsRef.current < 2000
+      ) {
+        return;
+      }
+      if (!mountedRef.current) {
         return;
       }
       const adapted = toRoverTelemetry(
         latest as Parameters<typeof toRoverTelemetry>[0]
       );
       applyEnvelopeRef.current(
-        toLiveTelemetryEnvelope(adapted, Date.now()),
+        toLiveTelemetryEnvelope(adapted, now),
       );
       if (!hasLiveTelemetryRef.current) {
         hasLiveTelemetryRef.current = true;
         setHasLiveTelemetry(true);
+      }
+      // If socket is not connected, set connection to connected via polling transport
+      if (socketRef.current == null || !socketRef.current.connected) {
+        setConnectionState("connected");
+        setSocketTransport("polling");
       }
       patchRobotStatusDebug({
         lastSource: "rest_telemetry",
@@ -2407,24 +2418,32 @@ if (envelope.within_test_tolerance !== undefined) {
     };
     const sub = AppState.addEventListener("change", onAppState);
     const watchdog = setInterval(() => {
-      if (connectionState !== "connected") return;
       const lastPacket = lastSocketPacketTsRef.current;
       const connectedAt = socketConnectedAtRef.current;
       const now = Date.now();
-      const stale = isSocketSilent({
-        lastPacketMs: lastPacket,
-        lastHeartbeatMs: lastSocketHeartbeatTsRef.current,
-        connectedAtMs: connectedAt,
-        nowMs: now,
-      });
-      if (stale) {
-        telemetryDiagLog("Watchdog reconnect: socket silent", {
-          sinceLastPacketMs: lastPacket != null ? now - lastPacket : null,
-          sinceConnectMs: connectedAt != null ? now - connectedAt : null,
-        });
-        reconnect();
+
+      // Fallback REST telemetry when socket is silent or not streaming
+      const socketSilent = lastPacket == null || now - lastPacket >= 2_000;
+      if (socketSilent && !isOfflineMode()) {
+        void fetchTelemetrySnapshot();
       }
-    }, 4_000);
+
+      if (connectionState === "connected") {
+        const stale = isSocketSilent({
+          lastPacketMs: lastPacket,
+          lastHeartbeatMs: lastSocketHeartbeatTsRef.current,
+          connectedAtMs: connectedAt,
+          nowMs: now,
+        });
+        if (stale) {
+          telemetryDiagLog("Watchdog reconnect: socket silent", {
+            sinceLastPacketMs: lastPacket != null ? now - lastPacket : null,
+            sinceConnectMs: connectedAt != null ? now - connectedAt : null,
+          });
+          reconnect();
+        }
+      }
+    }, 1_500);
     return () => {
       sub.remove();
       clearInterval(watchdog);
