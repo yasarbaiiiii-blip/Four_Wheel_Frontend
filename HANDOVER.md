@@ -2032,3 +2032,70 @@ No solenoid, AUX, arming, speed gate or E-Stop code touched. No rover command se
 - **Backend integration limits (untested):** the backend must publish `mission_run_id` (or `mission_id`) on `point_event`, `point_completed`, `point_skipped`, `point_failed`, `mission_status`, `mission_progress`, `mission_state` and `mission_completed`; otherwise the strict filter drops them. `trajectory_ready`, `accepted_for_start`, `start_available` and `next_available` must be present in `/api/mission/status` and socket snapshots. Needs bench integration test against the Jetson.
 - `/api/mission/restart`, `/api/mission/point/events` and `/api/mission/point/status` are still not in the backend; `TelemetryContext` failsafe restart still calls restart.
 - Field validation with gloves on the physical tablet remains outstanding.
+
+
+---
+
+## Entry 046 — point_event@1 Normalisation & Socket.IO Contract Tests
+- **Date & Time:** 2026-11-17
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Claude Code (Sonnet 5.5)
+
+### 1. Objective & Scope
+Align frontend normalisation with the backend `point_event@1` payload: string `event_id`, `event_kind` COMPLETED/FAILED/SKIPPED, `timestamp_unix_ms`. No fabricated completion.
+
+### 2. Changes Implemented
+- **New** `src/adapters/backendPointEvent.ts`: pure `normalizeBackendPointEvent` + `PointEventDeduper` (moved out of `usePointMissionEvents`).
+- `src/hooks/usePointMissionEvents.ts`: uses the new module; removed local `backendEventType`/helpers; dedupes by original string `event_id` per run; dedupe set cleared on reset and run change.
+- `src/types/px4/mission.ts`: `PointMissionEvent` gains optional `event_key` (original string id) and `mission_run_id`.
+- **New** `src/hooks/__tests__/pointEventSocketContract.test.tsx` (14 tests).
+
+### 3. Key Architecture & Design Decisions
+- `event_kind` is authoritative over the socket event name. Unknown `event_kind`, or a generic `point_event` with no recognisable kind, is dropped (previously defaulted to ARRIVED).
+- `timestamp_unix_ms` → ISO; falls back to string `timestamp`, then receipt time (unchanged behaviour when the backend sends neither).
+- `point_index` stays 0-based; run-id filter stays strict. `event_id` numeric field is only a local ordering counter; identity is `event_key`.
+- Events without an `event_id` cannot be deduped by id; the status map stays idempotent for them.
+
+### 4. Hardware Safety & Interlocks
+None touched.
+
+### 5. Verification & Testing
+- `npx tsc --noEmit`: 0 errors.
+- `npm test -- --runInBand --silent`: 85/85 suites, 1033/1033 tests.
+- Metro HTTP 200 check not performed (no Metro server running).
+
+### 6. Current Repository State & Next Steps
+Uncommitted on `client_`. Confirm against the live Jetson that `point_event` and `point_completed` really share one `event_id` and that `mission_run_id` is present, otherwise the strict filter drops events.
+
+
+---
+
+## Entry 047 — Clear Mission: CSV Deleted by Backend, Strict Verification
+- **Date & Time:** 2026-11-17
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Claude Code (Sonnet 5.5)
+
+### 1. Objective & Scope
+Backend CLEAR now deletes the CSV and path. Remove "CSV retained" wording, tighten eligibility and post-clear verification, reset local state, prevent stale auto-upload. STOP and physical safety unchanged.
+
+### 2. Changes Implemented
+- `src/hooks/useClearMission.ts`: new confirm/success text (file and path deleted, cannot be undone); exported `verifyMissionCleared`; success now requires status `EMPTY`, empty `mission_id`/`mission_run_id`, not loaded/active/ready/accepted, and an empty loaded path (a path 404/409/410 `ApiError` counts as "no path"). A failed or missing status/path read, or a leftover path, is now a **failure** (previously a failed read passed and leftover points only logged a warning). On failure nothing local is reset and a refresh is requested. On success local waypoints are cleared via `clearMissionWaypoints()` (after verification), along with trajectory, verified-mission state and persisted runtime. New options `hasMissionHint`, `blockedReason`, `getBlockedReason`.
+- `src/screens/PathPlanScreen.tsx`: passes `hasMissionHint` (uploaded preview can be cleared before LOAD), blocks Clear during an upload/queued auto-upload, and on success cancels the pending auto-upload timer, resets `userEditedWaypointsRef`, selection and undo history.
+- `src/services/missionApi.ts`: doc comment corrected.
+- `src/hooks/__tests__/useClearMission.test.ts`: 7 → 25 tests (wording, STOP-first, inactive states, verification failures, 404 no-path, 409 refusal, ordering).
+
+### 3. Key Architecture & Design Decisions
+- STOP-first is enforced in `executeClearDirectly` too (previously only the dialog checked), and `active === true` from the backend now also blocks Clear.
+- Stale auto-upload is prevented by clearing waypoints (auto-upload needs ≥2) and `clearTrajectory` (resets `authoringChanged`), plus the timer cancel and the upload-in-flight block.
+- Backend source was not available in this workspace; eligibility mirrors the contract in Entry 043 (409 `PX4_ARMED`, 409 `MISSION_ACTIVE_STOP_REQUIRED`, 503 stale telemetry). Those errors surface the backend message unchanged.
+
+### 4. Hardware Safety & Interlocks
+No STOP, E-Stop, arming, spray or AUX code touched. Clear still never stops, arms, starts, sprays or moves the rover.
+
+### 5. Verification & Testing
+- `npx tsc --noEmit`: 0 errors.
+- `npm test -- --runInBand --silent`: 85/85 suites, 1058/1058 tests.
+- Metro HTTP 200 check not performed (no Metro server running).
+
+### 6. Current Repository State & Next Steps
+Uncommitted on `client_` (also contains Entry 046 changes). Needs bench test: Clear on an uploaded-not-loaded, a loaded, and a completed mission; then confirm no re-upload and that Mission Report shows empty state.

@@ -26,10 +26,14 @@ import {
   type PointMissionTerminalOutcome,
   type WaypointStatusEntry,
 } from "../adapters/pointEventAdapter";
-import type {
-  PointEventType,
-  PointMissionEvent,
-} from "../types/px4/mission";
+import {
+  asRecord,
+  finiteNumber,
+  normalizeBackendPointEvent as normalizeBackendPointEventPayload,
+  PointEventDeduper,
+  stringValue,
+} from "../adapters/backendPointEvent";
+import type { PointMissionEvent } from "../types/px4/mission";
 import { POINT_MISSION_ENABLED } from "../config/featureFlags";
 import { useTelemetry } from "../context/TelemetryContext";
 
@@ -72,24 +76,6 @@ export interface UsePointMissionEventsResult {
   clearMissionTerminal: () => void;
 }
 
-type UnknownRecord = Record<string, unknown>;
-
-function asRecord(value: unknown): UnknownRecord | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as UnknownRecord)
-    : null;
-}
-
-function finiteNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null;
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) ? numberValue : null;
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
 function isoTimestampFromUnixNanoseconds(value: unknown): string | undefined {
   const nanoseconds = finiteNumber(value);
   if (nanoseconds === null) return undefined;
@@ -98,48 +84,6 @@ function isoTimestampFromUnixNanoseconds(value: unknown): string | undefined {
   return Number.isFinite(timestamp.getTime())
     ? timestamp.toISOString()
     : undefined;
-}
-
-function backendEventType(
-  socketEventName: string,
-  payload: UnknownRecord,
-): PointEventType {
-  const raw = stringValue(
-    payload.event_type ?? payload.event ?? payload.status ?? socketEventName,
-  ).toUpperCase();
-
-  if (socketEventName === "point_skipped" || raw.includes("SKIP")) {
-    return "point_skipped";
-  }
-
-  if (socketEventName === "point_failed" || raw.includes("FAIL")) {
-    return "point_failed";
-  }
-
-  if (
-    socketEventName === "point_completed" ||
-    raw.includes("COMPLETE") ||
-    raw.includes("MARKED")
-  ) {
-    return "point_completed";
-  }
-
-  if (raw.includes("PAUSE")) return "point_paused";
-  if (raw.includes("RESUME")) return "point_resumed";
-  if (raw.includes("DWELL") || raw.includes("HOLD")) {
-    return "point_dwell_started";
-  }
-  if (raw.includes("ARRIV") || raw.includes("REACH")) {
-    return "point_arrived";
-  }
-  if (raw.includes("START") || raw.includes("ACTIVE")) {
-    return "point_leg_started";
-  }
-
-  // A generic point_event means the backend has reported progress for that
-  // point. Treat it as arrival rather than completion unless its payload says
-  // otherwise.
-  return "point_arrived";
 }
 
 function terminalStateFromEvent(
@@ -173,6 +117,7 @@ export function usePointMissionEvents(
   const roverPositionRef = useRef(roverPosition);
   const currentMissionRunIdRef = useRef<string | null>(null);
   const syntheticEventIdRef = useRef(0);
+  const dedupeRef = useRef(new PointEventDeduper());
   const lastKnownTotalRef = useRef(0);
   const authoritativeCurrentIndexRef = useRef<number | null>(null);
 
@@ -188,6 +133,7 @@ export function usePointMissionEvents(
     currentMissionRunIdRef.current = stringValue(
       missionLifecycle?.mission_run_id ?? missionLifecycle?.mission_id,
     ) || null;
+    dedupeRef.current.clear();
   }, [missionLifecycle?.mission_run_id, missionLifecycle?.mission_id]);
 
   const syncCursor = useCallback((cursor: PointEventCursor) => {
@@ -208,6 +154,7 @@ export function usePointMissionEvents(
     setMissionTerminal(null);
     cursorRef.current = INITIAL_POINT_EVENT_CURSOR;
     syntheticEventIdRef.current = 0;
+    dedupeRef.current.clear();
     lastKnownTotalRef.current = 0;
   }, []);
 
@@ -251,51 +198,12 @@ export function usePointMissionEvents(
   );
 
   const normalizeBackendPointEvent = useCallback(
-    (socketEventName: string, raw: unknown): PointMissionEvent | null => {
-      const payload = asRecord(raw);
-      if (!payload) return null;
-      const expectedRun = currentMissionRunIdRef.current;
-      if (expectedRun && stringValue(payload.mission_run_id ?? payload.mission_id) !== expectedRun) return null;
-
-      const pointIndexValue = finiteNumber(
-        payload.point_index ??
-          payload.active_point_index ??
-          payload.current_point_index,
-      );
-
-      if (pointIndexValue === null || pointIndexValue < 0) return null;
-
-      syntheticEventIdRef.current += 1;
-
-      const explicitEventId = finiteNumber(payload.event_id);
-      const generation = finiteNumber(payload.generation) ?? 0;
-      const latestPosition = roverPositionRef.current;
-      const latitude = finiteNumber(payload.lat ?? payload.latitude);
-      const longitude = finiteNumber(
-        payload.lon ?? payload.lng ?? payload.longitude,
-      );
-
-      return {
-        event_id:
-          explicitEventId !== null
-            ? Math.trunc(explicitEventId)
-            : syntheticEventIdRef.current,
-        event_type: backendEventType(socketEventName, payload),
-        point_index: Math.trunc(pointIndexValue),
-        generation: Math.trunc(generation),
-        timestamp:
-          stringValue(
-            payload.timestamp ?? payload.received_at ?? payload.updated_at,
-          ) || new Date().toISOString(),
-        terminal: payload.terminal === true,
-        lat: latitude ?? latestPosition?.lat,
-        lon: longitude ?? latestPosition?.lng,
-        reason: stringValue(payload.reason) || undefined,
-        message:
-          stringValue(payload.message ?? payload.event ?? payload.status) ||
-          undefined,
-      };
-    },
+    (socketEventName: string, raw: unknown): PointMissionEvent | null =>
+      normalizeBackendPointEventPayload(socketEventName, raw, {
+        expectedRun: currentMissionRunIdRef.current,
+        nextLocalOrder: () => (syntheticEventIdRef.current += 1),
+        fallbackPosition: roverPositionRef.current,
+      }),
     [],
   );
 
@@ -408,7 +316,11 @@ export function usePointMissionEvents(
     const backendHandlers = BACKEND_POINT_EVENTS.map((eventName) => {
       const handler = (raw: unknown) => {
         const event = normalizeBackendPointEvent(eventName, raw);
-        if (event) handleNormalizedPointEvent(event);
+        // point_event and point_completed/_failed/_skipped can carry the same
+        // backend event_id; apply it exactly once.
+        if (event && dedupeRef.current.firstSighting(event)) {
+          handleNormalizedPointEvent(event);
+        }
       };
       socket.on(eventName, handler);
       return { eventName, handler };

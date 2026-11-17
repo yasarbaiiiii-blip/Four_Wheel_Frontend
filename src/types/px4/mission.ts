@@ -165,6 +165,9 @@ export type PointEventType =
 
 export interface PointMissionEvent {
   event_id: number;
+  /** Original backend string event_id (dedupe identity for point_event@1). */
+  event_key?: string;
+  mission_run_id?: string;
   event_type: PointEventType;
   point_index: number;
   generation: number;

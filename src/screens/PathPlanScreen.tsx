@@ -707,7 +707,24 @@ export default function PathPlanScreen({
   } = useClearMission({
     filename: preview.missionId ?? "mission.csv",
     fileId: preview.missionId ?? undefined,
+    hasMissionHint: Boolean(preview.missionId),
+    blockedReason: isAutoTrajectoryUpdating
+      ? "Wait for the mission upload to finish before clearing."
+      : null,
+    getBlockedReason: () =>
+      isUploadingRef.current || autoTrajectoryTimerRef.current
+        ? "Wait for the mission upload to finish before clearing."
+        : null,
     onCleared: () => {
+      // CLEAR deleted the CSV/path on the rover. Make sure no queued or
+      // stale local plan can re-upload it.
+      if (autoTrajectoryTimerRef.current) {
+        clearTimeout(autoTrajectoryTimerRef.current);
+        autoTrajectoryTimerRef.current = null;
+      }
+      userEditedWaypointsRef.current = false;
+      setIsAutoTrajectoryUpdating(false);
+      setSelectedWaypoint(null);
       resetHistory();
       showPathPlanToast("info", "Mission cleared from controller");
     },

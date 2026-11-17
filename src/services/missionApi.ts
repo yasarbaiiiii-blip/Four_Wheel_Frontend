@@ -933,8 +933,8 @@ Promise<MissionControlResponse> {
 }
 
 /**
- * Clears generated path and runtime mission progress.
- * The active mission.csv remains stored and reloadable.
+ * Deletes the runtime mission, the uploaded mission.csv and the generated path.
+ * Rejected while armed or running/paused (STOP first). Callers must verify EMPTY.
  */
 export async function clearMission(
   request?: ClearMissionRequest,
