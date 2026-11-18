@@ -57,10 +57,13 @@ export function parsePointResultEvent(
 ): PointResultEntry | null {
   const event = asRecord(raw);
   if (!event) return null;
-  const result = asRecord(event.point_result);
-  if (!result) return null;
+  const result = asRecord(event.point_result) ?? event;
 
-  const pointId = text(result.point_id) ?? text(event.point_id);
+  const pointIndex = finiteInt(result.point_index ?? event.point_index);
+  const pointId =
+    text(result.point_id) ??
+    text(event.point_id) ??
+    (pointIndex !== null ? `P${String(pointIndex + 1).padStart(4, "0")}` : null);
   const runId = text(event.mission_run_id) ?? text(result.mission_run_id);
   // A result without run identity can never be proven to belong to the
   // current run, so it is not accepted into the live store.
@@ -70,8 +73,8 @@ export function parsePointResultEvent(
     missionId: text(event.mission_id) ?? text(result.mission_id),
     runId,
     pointId,
-    pointIndex: finiteInt(result.point_index ?? event.point_index),
-    event: String(event.event ?? result.event ?? "").trim().toUpperCase(),
+    pointIndex,
+    event: String(event.event ?? result.event ?? event.event_kind ?? "").trim().toUpperCase(),
     result,
     receivedAtMs: nowMs,
   };
@@ -95,8 +98,11 @@ function exactAccuracy(result: Record<string, unknown>): Record<string, unknown>
   const accuracy = asRecord(result.accuracy);
   if (
     accuracy &&
-    accuracy.measurement_source === "RPP_TERMINAL_RESULT" &&
-    accuracy.available === true
+    (
+      (accuracy.measurement_source === "RPP_TERMINAL_RESULT" && accuracy.available === true) ||
+      typeof accuracy.radial_error_mm === "number" ||
+      typeof accuracy.overall_accuracy_mm === "number"
+    )
   ) {
     return accuracy;
   }

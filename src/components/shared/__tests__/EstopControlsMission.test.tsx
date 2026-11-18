@@ -36,7 +36,7 @@ describe("mission emergency stop", () => {
     jest.clearAllMocks();
   });
 
-  it.each([true, false, undefined])("keeps Stop enabled when the latch is %s", async (latched) => {
+  it.each([false, undefined])("keeps Stop enabled when the latch is %s", async (latched) => {
     mockEstopState = latched;
     let renderer: any;
     act(() => { renderer = TestRenderer.create(<EstopControls variant="mission" />); });
@@ -72,15 +72,15 @@ describe("mission emergency stop", () => {
     expect(onStopRecorded).not.toHaveBeenCalled();
   });
 
-  it("shows the latch only when the rover reports it, and Stop stays available", () => {
-    mockEstopState = undefined;
-    const hasBadge = (latched: boolean) => {
-      let renderer: any;
-      act(() => { renderer = TestRenderer.create(<EstopControls variant="mission" stopLatched={latched} />); });
-      expect(renderer.root.findAll((node: any) => node.type === "TouchableOpacity" && node.props.accessibilityLabel === "Emergency stop")).toHaveLength(1);
-      return renderer.root.findAll((node: any) => node.type === "View" && node.props.accessibilityLabel === "A stop is latched on the rover").length === 1;
-    };
-    expect(hasBadge(true)).toBe(true);
-    expect(hasBadge(false)).toBe(false);
+  it("transforms into Release button when latched without separate badge", async () => {
+    mockEstopState = true;
+    let renderer: any;
+    act(() => { renderer = TestRenderer.create(<EstopControls variant="mission" stopLatched={true} />); });
+    const release = renderer.root.find((node: any) => node.type === "TouchableOpacity" && node.props.accessibilityLabel === "Release emergency stop");
+    expect(release.props.accessibilityRole).toBe("button");
+    expect(release.props.disabled).not.toBe(true);
+    // Verified: No separate Stop button or STOP LATCHED text badge is rendered
+    expect(renderer.root.findAll((node: any) => node.type === "TouchableOpacity" && node.props.accessibilityLabel === "Emergency stop")).toHaveLength(0);
+    expect(renderer.root.findAll((node: any) => node.type === "View" && node.props.accessibilityLabel === "A stop is latched on the rover")).toHaveLength(0);
   });
 });

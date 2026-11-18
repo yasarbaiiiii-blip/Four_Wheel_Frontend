@@ -49,6 +49,7 @@ export interface ReportStatusEntry {
   rowNo?: string | number;
   /** Frozen raw-GNSS survey snapshot; its radial error is the GNSS accuracy. */
   survey?: RawGnssSurveySnapshot | null;
+  position_error_cm?: number;
 }
 
 export interface ReportTiming {
@@ -168,7 +169,10 @@ export function buildMissionReportModel(input: {
     const mm =
       survey && survey.available === true
         ? roundGnssMm(survey.radial_error_mm)
-        : null;
+        : typeof entry?.position_error_cm === "number" &&
+          Number.isFinite(entry.position_error_cm)
+          ? roundGnssMm(entry.position_error_cm * 10)
+          : null;
     const stamp = parseReportTime(entry?.timestamp);
     const markedAt = stamp
       ? formatPointTime(stamp, started)

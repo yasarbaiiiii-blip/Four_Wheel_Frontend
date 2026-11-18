@@ -334,7 +334,7 @@ export default function MissionReportScreen({
     useTelemetryControl();
   const liveStore = useLiveTelemetryStore();
   const screenTelemetry = useLiveTelemetrySelector(selectScreenTelemetry, shallowEqual);
-  const { setMissionSnapshot } = useFieldMap();
+  const { setMissionSnapshot, setMarkingSnapshot } = useFieldMap();
   const {
     preview,
     invalidateForUpload,
@@ -624,21 +624,7 @@ export default function MissionReportScreen({
     null,
   );
 
-  const {
-    isClearing: isClearingMission,
-    canClear: canClearMission,
-    confirmAndClear: handleClearMission,
-  } = useClearMission({
-    currentMission: backendMission,
-    filename: backendMission?.filename ?? verifiedCtx.missionName,
-    fileId: backendMission?.filename ?? verifiedCtx.missionName,
-    onCleared: () => {
-      setBackendMissionState(null);
-      retainedMissionRef.current = null;
-      setRetainedMission(null);
-      resetVerifiedProgress();
-    },
-  });
+
   const staleMissionRunIdRef = useRef<string | null>(null);
   const holdingForNewReportRunRef = useRef(false);
   const [isPreparingMission, setIsPreparingMission] = useState(false);
@@ -1177,6 +1163,49 @@ export default function MissionReportScreen({
     retainedMission !== null ||
     hasRetainedPreviewMission;
 
+  const [isClearedLocally, setIsClearedLocally] = useState(false);
+
+  useEffect(() => {
+    if (
+      hasUploadedMission ||
+      (typeof missionUploadCompletedToken === "number" &&
+        missionUploadCompletedToken > 0)
+    ) {
+      setIsClearedLocally(false);
+    }
+  }, [hasUploadedMission, missionUploadCompletedToken]);
+
+  const effectiveHasMissionLoaded =
+    !isClearedLocally && (hasUploadedMission || missionUploadConfirmed);
+
+  const {
+    isClearing: isClearingMission,
+    canClear: canClearMission,
+    confirmAndClear: handleClearMission,
+  } = useClearMission({
+    currentMission: backendMission,
+    filename: backendMission?.filename ?? verifiedCtx.missionName,
+    fileId: backendMission?.filename ?? verifiedCtx.missionName,
+    hasMissionHint: Boolean(
+      effectiveHasMissionLoaded ||
+      (waypoints && waypoints.length > 0) ||
+      (preview.points && preview.points.length > 0) ||
+      (previousMissionData && previousMissionData.waypoints.length > 0)
+    ),
+    onCleared: () => {
+      setIsClearedLocally(true);
+      setBackendMissionState(null);
+      retainedMissionRef.current = null;
+      setRetainedMission(null);
+      resetVerifiedProgress();
+      setPreviousMissionData(null);
+      setStatusMap({});
+      setCurrentIndex(null);
+      setMissionSnapshot({ waypoints: [] });
+      setMarkingSnapshot({ waypoints: [] });
+    },
+  });
+
   /**
    * AUTO and MANUAL are both autonomous OFFBOARD
    * mission execution modes.
@@ -1533,6 +1562,27 @@ export default function MissionReportScreen({
         : null;
       const rppFallback = terminalRppAccuracyFallbackMap[waypoint.sn];
 
+      const resolvedPositionErrorCm =
+        runtimeOverall !== null
+          ? runtimeOverall / 10
+          : typeof displayRow?.position_error_cm === "number" &&
+            Number.isFinite(displayRow.position_error_cm)
+            ? displayRow.position_error_cm
+            : typeof canonicalPoint?.accuracy?.overall_accuracy_mm === "number" &&
+              Number.isFinite(canonicalPoint.accuracy.overall_accuracy_mm)
+              ? canonicalPoint.accuracy.overall_accuracy_mm / 10
+              : typeof (canonicalPoint?.accuracy as any)?.radial_error_mm === "number" &&
+                Number.isFinite((canonicalPoint?.accuracy as any).radial_error_mm)
+                ? (canonicalPoint?.accuracy as any).radial_error_mm / 10
+                : typeof rppFallback?.overallAccuracyMm === "number" &&
+                  Number.isFinite(rppFallback.overallAccuracyMm)
+                  ? rppFallback.overallAccuracyMm / 10
+                  : previousRowIsTerminal &&
+                    typeof previousRow?.position_error_cm === "number" &&
+                    Number.isFinite(previousRow.position_error_cm)
+                    ? previousRow.position_error_cm
+                    : undefined;
+
       if (displayRow) {
         next[waypoint.sn] = {
           reached:
@@ -1555,6 +1605,10 @@ export default function MissionReportScreen({
               displayRow.remark,
               rppFallback,
             ),
+
+          ...(resolvedPositionErrorCm !== undefined
+            ? { position_error_cm: resolvedPositionErrorCm }
+            : {}),
 
           // Independent RAW GNSS value for the new column only.
           survey:
@@ -1580,6 +1634,10 @@ export default function MissionReportScreen({
             null,
             rppFallback,
           ),
+
+        ...(resolvedPositionErrorCm !== undefined
+          ? { position_error_cm: resolvedPositionErrorCm }
+          : {}),
 
         survey:
           surveySnapshot,
@@ -5607,7 +5665,7 @@ export default function MissionReportScreen({
           missionStartTime={displayData.startTime}
           missionEndTime={displayData.endTime}
           isMissionActive={effectiveMissionActive}
-          hasMissionLoaded={hasUploadedMission || missionUploadConfirmed}
+          hasMissionLoaded={effectiveHasMissionLoaded}
           onClearMission={handleClearMission}
           canClearMission={canClearMission}
           isClearingMission={isClearingMission}
@@ -6730,7 +6788,7 @@ function MissionActivityExperience({
           <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
-          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{stopLatched ? "Emergency stop active — press Release" : hasMissionLoaded ? (canStart ? "Mission ready to start" : (startBlockerMessage || "Mission ready to use")) : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{hasMissionLoaded && onClearMission && (<TouchableOpacity style={[fieldExperienceStyles.clearMissionCompact, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactDisabled]} onPress={onClearMission} disabled={!canClearMission || isClearingMission} accessibilityRole="button" accessibilityLabel="Clear Mission"><MaterialCommunityIcons name="eraser-variant" size={15} color={!canClearMission || isClearingMission ? "rgba(217,74,66,0.4)" : "#D94A42"} /><Text style={[fieldExperienceStyles.clearMissionCompactText, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactTextDisabled]}>Clear Mission</Text></TouchableOpacity>)}</View></View>
+          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{stopLatched ? "Emergency stop active — press Release" : hasMissionLoaded ? (canStart ? "Mission ready to start" : (startBlockerMessage || "Mission ready to use")) : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{onClearMission && (<TouchableOpacity style={[fieldExperienceStyles.clearMissionCompact, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactDisabled]} onPress={onClearMission} disabled={!canClearMission || isClearingMission} accessibilityRole="button" accessibilityLabel="Clear Mission"><MaterialCommunityIcons name="eraser-variant" size={15} color={!canClearMission || isClearingMission ? "rgba(217,74,66,0.4)" : "#D94A42"} /><Text style={[fieldExperienceStyles.clearMissionCompactText, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactTextDisabled]}>Clear Mission</Text></TouchableOpacity>)}</View></View>
           <View style={fieldExperienceStyles.missionToolGrid}>
             <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTilePrimary]} onPress={() => openPlanGuarded("upload")} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={24} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolTilePrimaryText}>Upload</Text></TouchableOpacity>
             <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => runWithoutDraft(onOpenExtension)} disabled={!hasMissionLoaded} accessibilityRole="button" accessibilityLabel="Open mission extension tools" accessibilityState={{ disabled: !hasMissionLoaded }}><MaterialCommunityIcons name="vector-polyline-plus" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Extension</Text></TouchableOpacity>

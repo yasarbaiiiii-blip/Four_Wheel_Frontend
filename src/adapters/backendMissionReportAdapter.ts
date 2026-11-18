@@ -22,6 +22,8 @@ export interface MissionReportRowStatus {
   timestamp?: string;
 
   remark: string;
+
+  position_error_cm?: number;
 }
 
 /**
@@ -36,6 +38,7 @@ export interface MissionReportFallbackStatus {
   marked?: boolean;
   status?: WaypointUiStatus;
   timestamp?: string;
+  position_error_cm?: number;
 }
 
 export interface BackendMissionReportProjection {
@@ -143,6 +146,12 @@ export function reconcileMissionReportRow(
     remark:
       reportRow?.remark
       ?? EMPTY_ACCURACY_REMARK,
+
+    ...(reportRow?.position_error_cm !== undefined
+      ? { position_error_cm: reportRow.position_error_cm }
+      : fallbackRow?.position_error_cm !== undefined
+        ? { position_error_cm: fallbackRow.position_error_cm }
+        : {}),
   };
 }
 
@@ -304,6 +313,14 @@ export function projectBackendMissionReport(
         point.point_index;
     }
 
+    const overallMm =
+      point.accuracy?.overall_accuracy_mm
+      ?? (point.accuracy as any)?.radial_error_mm;
+    const positionErrorCm =
+      typeof overallMm === "number" && Number.isFinite(overallMm)
+        ? overallMm / 10
+        : undefined;
+
     statusMap[
       sequence
     ] = {
@@ -329,6 +346,10 @@ export function projectBackendMissionReport(
         buildRemark(
           point.accuracy
         ),
+
+      ...(positionErrorCm !== undefined
+        ? { position_error_cm: positionErrorCm }
+        : {}),
     };
   }
 

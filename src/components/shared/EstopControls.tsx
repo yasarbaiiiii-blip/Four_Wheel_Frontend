@@ -266,7 +266,7 @@ export const EstopControls: React.FC<EstopControlsProps> = ({
   };
 
   const isVertical = variant === "vertical";
-  const actionIsRelease = isVertical && view.showRelease;
+  const actionIsRelease = (isVertical || variant === "mission") && view.showRelease;
 
   const releaseButtonLabel = isReleasing
     ? "RELEASING…"
@@ -286,13 +286,7 @@ export const EstopControls: React.FC<EstopControlsProps> = ({
         </View>
       )}
 
-      {stopLatched && variant === "mission" && (
-        <View style={styles.latchedBadge} accessibilityLabel="A stop is latched on the rover">
-          <Text style={styles.latchedText}>STOP LATCHED</Text>
-        </View>
-      )}
-
-      {view.showRelease && (variant === "header" || variant === "mission") && (
+      {view.showRelease && variant === "header" && (
         <TouchableOpacity
           onPress={handleReleasePress}
           disabled={isReleasing}
@@ -320,7 +314,7 @@ export const EstopControls: React.FC<EstopControlsProps> = ({
           disabled={isReleasing}
           style={[
             styles.releaseBtn,
-            styles.verticalButton,
+            isVertical && styles.verticalButton,
             firstTapActive && styles.releaseBtnPending,
             isReleasing && styles.busy,
           ]}
@@ -330,7 +324,7 @@ export const EstopControls: React.FC<EstopControlsProps> = ({
         >
           <MaterialCommunityIcons
             name="lock-open-variant-outline"
-            size={18}
+            size={isVertical ? 18 : 16}
             color="#1F1300"
           />
           <Text style={styles.releaseText}>{releaseButtonLabel}</Text>
