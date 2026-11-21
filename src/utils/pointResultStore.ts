@@ -226,5 +226,12 @@ export function newerPointResult(
 ): RuntimePointResult | undefined {
   if (!a) return b;
   if (!b) return a;
-  return receivedAtMs(b) > receivedAtMs(a) ? b : a;
+  const newer = receivedAtMs(b) > receivedAtMs(a) ? b : a;
+  const older = newer === a ? b : a;
+  // Some later status updates omit accuracy entirely. Retain the already
+  // received measurement, but never override an explicit unavailable result.
+  if (!("accuracy" in newer) && exactAccuracy(older)) {
+    return { ...newer, accuracy: older.accuracy };
+  }
+  return newer;
 }

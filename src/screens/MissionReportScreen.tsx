@@ -1193,6 +1193,16 @@ export default function MissionReportScreen({
       (previousMissionData && previousMissionData.waypoints.length > 0)
     ),
     onCleared: () => {
+      const oldRun = liveIdentityRef.current.runId ?? canonicalMissionReportRef.current?.mission_run_id ?? null;
+      if (oldRun) staleMissionRunIdRef.current = oldRun;
+      holdingForNewReportRunRef.current = true;
+      liveIdentityRef.current = { missionId: null, runId: null };
+      setSocketPointResults(EMPTY_POINT_RESULTS);
+      resetPointStatusMap();
+      clearTerminalRppAccuracyFallback();
+      previousReportStatusMapRef.current = null;
+      canonicalMissionReportRef.current = null;
+      setCanonicalMissionReport(null);
       setIsClearedLocally(true);
       setBackendMissionState(null);
       retainedMissionRef.current = null;

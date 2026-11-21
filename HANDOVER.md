@@ -2256,3 +2256,25 @@ Make uploaded mission points and their sequence numbers render above the traject
 ### Verification & Next Steps
 - `git diff --check` passed. Jest and TypeScript commands were attempted twice but stalled without output and were interrupted; they are not verified. Metro status endpoint was unavailable (HTTP 000).
 - The tablet release build was not rebuilt or installed. Validate STOP with a safe test and check points above the route on an Android release build. Mapbox logged glyph download timeouts; offline number visibility is not yet resolved or verified.
+
+---
+
+## Entry 052 — Live point accuracy retention
+- **Date & Time:** 2026-11-21 17:23 IST
+- **Working Branch:** `client_`
+- **Agent:** Codex
+
+### Objective & Scope
+- Keep received current-run waypoint accuracy visible promptly in the new Progress screen and avoid reuse after Clear.
+
+### Changes Implemented
+- `pointResultStore.ts`: preserve an already received accuracy when a newer current-point status omits the accuracy field; explicit unavailable accuracy remains authoritative.
+- `MissionReportScreen.tsx`: clear socket point results, point status, terminal fallback, prior report rows and canonical report on confirmed Clear; fence the prior report run.
+- `pointResultStore.test.ts`: add coverage for omitted versus explicitly unavailable accuracy.
+
+### Architecture & Safety
+- The existing run-identity checked socket listener remains the immediate source; no measurements are calculated by the frontend. No mission control, PX4, E-stop, or actuator logic was changed.
+
+### Verification & Next Steps
+- `git diff --check` passed. Focused Jest and TypeScript commands stalled without output and were interrupted. Metro status endpoint returned HTTP 000. The APK was not rebuilt or installed.
+- Validate on the rover with the new release build; if results are still delayed, capture the backend point event and run identity. Earlier STOP map changes and other pre-existing uncommitted work remain in place.

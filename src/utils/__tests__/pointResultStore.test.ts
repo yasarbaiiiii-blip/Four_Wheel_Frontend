@@ -191,4 +191,12 @@ describe("runtime point_results fallback (REST / full mission_status)", () => {
     expect(newerPointResult(undefined, achieved)).toBe(achieved);
     expect(newerPointResult(achieved, undefined)).toBe(achieved);
   });
+
+  test("a later status without accuracy retains the received point measurement", () => {
+    const live = { received_at: "2026-09-22T10:00:00.100Z", accuracy: { available: true, overall_accuracy_mm: 12 } };
+    const status = { received_at: "2026-09-22T10:00:00.900Z", point_outcome: "COMPLETED" };
+    expect(newerPointResult(live, status)).toEqual({ ...status, accuracy: live.accuracy });
+    const explicitlyUnavailable = { ...status, accuracy: { available: false, overall_accuracy_mm: null } };
+    expect(newerPointResult(live, explicitlyUnavailable)).toBe(explicitlyUnavailable);
+  });
 });
