@@ -2234,3 +2234,25 @@ Make uploaded mission points and their sequence numbers render above the traject
 - Existing uncommitted Entry 048/049 work remains in the shared working tree and was preserved.
 - Verify on the Android tablet that every numbered point remains above the route at the operating zoom.
 - If authorized, fix the stale accuracy path by atomically resetting all per-run result caches on confirmed Clear and on a committed run-ID transition, with regression tests for clear -> upload -> load -> start.
+
+---
+
+## Entry 051 — STOP map layer failure investigation
+- **Date & Time:** 2026-11-21 16:37 IST
+- **Working Branch:** `client_`
+- **Agent:** Codex
+
+### Objective & Scope
+- Investigate the white screen after STOP and restore waypoint ordering above the trajectory.
+
+### Changes Implemented
+- `NativeMapLayers.tsx`: remount the waypoint source when its trajectory anchor changes; omit an absent native `aboveLayerID` instead of resetting the property on an existing native circle layer.
+- `PathPlanMapNative.tsx`: move the trajectory anchor to the waypoint layer, where it is used.
+- `NativeMapLayers.test.tsx`: add a regression check for removal of the route anchor.
+
+### Architecture & Safety
+- Tablet log at 16:33:14 showed `RNMBXCircleLayerManager.setAboveLayerID` throwing `ClassCastException` immediately after STOP. Remount avoids the string-to-absent native property update. This is a UI-only change; no rover control or safety code was changed.
+
+### Verification & Next Steps
+- `git diff --check` passed. Jest and TypeScript commands were attempted twice but stalled without output and were interrupted; they are not verified. Metro status endpoint was unavailable (HTTP 000).
+- The tablet release build was not rebuilt or installed. Validate STOP with a safe test and check points above the route on an Android release build. Mapbox logged glyph download timeouts; offline number visibility is not yet resolved or verified.

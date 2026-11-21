@@ -172,6 +172,9 @@ export const NativeWaypointLayer = memo(function NativeWaypointLayer({
   const authoring = variant === "authoring";
   return (
     <ShapeSource
+      // Android's native setter expects a string, including on prop updates.
+      // Remount when the route anchor changes so it is never reset to null.
+      key={aboveLayerID ?? "no-route-anchor"}
       id={sourceId}
       shape={shape}
       tolerance={tolerance}
@@ -179,7 +182,7 @@ export const NativeWaypointLayer = memo(function NativeWaypointLayer({
     >
       <CircleLayer
         id={`${layerId}-glow`}
-        aboveLayerID={aboveLayerID}
+        {...(aboveLayerID ? { aboveLayerID } : {})}
         style={authoring ? AUTHORING_POINT_GLOW_STYLE : MISSION_POINT_GLOW_STYLE}
       />
       <CircleLayer

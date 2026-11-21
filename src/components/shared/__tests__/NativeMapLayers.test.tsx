@@ -73,6 +73,23 @@ jest.mock("../OfflineMapStatusBadge", () => ({ OfflineMapStatusBadge: () => null
 import { FieldMapHost } from "../FieldMapHost";
 import { NativeTrajectoryLayer, NativeWaypointLayer } from "../NativeMapLayers";
 
+it("remounts waypoint layers when their route anchor is removed", () => {
+  const shape = { type: "FeatureCollection" as const, features: [] };
+  let tree: ReturnType<typeof TestRenderer.create>;
+  act(() => {
+    tree = TestRenderer.create(<NativeWaypointLayer sourceId="points" layerId="points-layer" shape={shape} aboveLayerID="route-centre" />);
+  });
+  const oldGlow = tree!.root.findAllByType("CircleLayer")[0];
+  expect(oldGlow.props.aboveLayerID).toBe("route-centre");
+  act(() => {
+    tree!.update(<NativeWaypointLayer sourceId="points" layerId="points-layer" shape={shape} />);
+  });
+  const newGlow = tree!.root.findAllByType("CircleLayer")[0];
+  expect(newGlow).not.toBe(oldGlow);
+  expect(newGlow.props).not.toHaveProperty("aboveLayerID");
+  act(() => tree!.unmount());
+});
+
 let renderer: ReturnType<typeof TestRenderer.create> | undefined;
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
