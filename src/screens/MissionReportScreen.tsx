@@ -334,7 +334,7 @@ export default function MissionReportScreen({
     useTelemetryControl();
   const liveStore = useLiveTelemetryStore();
   const screenTelemetry = useLiveTelemetrySelector(selectScreenTelemetry, shallowEqual);
-  const { setMissionSnapshot, setMarkingSnapshot } = useFieldMap();
+  const { setMissionSnapshot, setMarkingSnapshot, missionPressRef } = useFieldMap();
   const {
     preview,
     invalidateForUpload,
@@ -2957,6 +2957,8 @@ export default function MissionReportScreen({
     missionEndTime,
   ]);
 
+  const [editDraftWaypoints, setEditDraftWaypoints] = useState<Waypoint[] | null>(null);
+
   useEffect(() => {
     const statusMap: Record<number, { status?: string }> = {};
     Object.entries(displayData.statusMap ?? {}).forEach(([key, value]) => {
@@ -2968,19 +2970,30 @@ export default function MissionReportScreen({
           : "";
       statusMap[sn] = { status: raw.toLowerCase() };
     });
+    const currentPoints = editDraftWaypoints ?? displayData.waypoints;
+    const isDraft = editDraftWaypoints !== null;
+    const trajectoryPoints = isDraft
+      ? (editDraftWaypoints ?? []).map((wp) => ({
+          latitude: wp.lat,
+          longitude: wp.lon,
+        }))
+      : preview.points;
+
     setMissionSnapshot({
-      waypoints: (displayData.waypoints ?? []).map((wp) => ({
+      waypoints: (currentPoints ?? []).map((wp) => ({
         lat: wp.lat,
         lon: wp.lon,
         sn: wp.sn,
       })),
       statusMap,
       activeWaypointIndex: effectiveCurrentIndex,
-      trajectoryPoints: preview.points,
+      trajectoryPoints,
+      isDraft,
     });
   }, [
     displayData.waypoints,
     displayData.statusMap,
+    editDraftWaypoints,
     effectiveCurrentIndex,
     preview.points,
     setMissionSnapshot,
@@ -3801,7 +3814,6 @@ export default function MissionReportScreen({
     }
   };
 
-  const [editDraftWaypoints, setEditDraftWaypoints] = useState<Waypoint[] | null>(null);
   const mapPressHandlerRef = useRef<((coord: { latitude: number; longitude: number }) => void) | null>(null);
 
   const handleMapPress = useCallback((coord: { latitude: number; longitude: number }) => {
@@ -3811,9 +3823,20 @@ export default function MissionReportScreen({
   const handleRegisterMapPress = useCallback(
     (handler: ((coord: { latitude: number; longitude: number }) => void) | null) => {
       mapPressHandlerRef.current = handler;
+      if (missionPressRef) {
+        missionPressRef.current = handler;
+      }
     },
-    [],
+    [missionPressRef],
   );
+
+  useEffect(() => {
+    return () => {
+      if (missionPressRef) {
+        missionPressRef.current = null;
+      }
+    };
+  }, [missionPressRef]);
 
   // Push an edited point list to the rover. The rover only ever sees a normal
   // CSV upload, so every backend safety rule (not while a mission is active,
@@ -6243,14 +6266,18 @@ function MissionActivityExperience({
     }
   }, [isEditingPoints]);
 
+  const draftRef = useRef(editHistory.draft);
+  draftRef.current = editHistory.draft;
+
   const handleAddDraftPoint = useCallback(
     (candidate: { lat: number; lon: number }) => {
-      const current = editHistory.draft;
+      const current = draftRef.current ?? editHistory.draft ?? waypoints;
       if (!current) return;
       const next = addMissionWaypoint(current, candidate);
+      draftRef.current = next;
       editHistory.apply(next);
     },
-    [editHistory],
+    [editHistory, waypoints],
   );
 
   const handleToggleAddPoint = useCallback(() => {

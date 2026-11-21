@@ -31,6 +31,9 @@ This file is the **mandatory living handover register** for all AI agents, engin
 | **017** | 2026-11-03 | Robust UDP beacon broadcaster DRAFT (compiled + self-tested, not applied) | DRAFT DELIVERED (patch/ only) | Claude Code (GLM-5.3-Flash Free) |
 | **018** | 2026-11-03 | Deliverables relocated out of the backend repo — backend working tree pristine | DONE (backend 100% clean) | Claude Code (GLM-5.3-Flash Free) |
 | **019** | 2026-11-03 | APPLIED (uncommitted): beacon + LAN bind in rover_backend — W1+W4, owner-approved | APPLIED / UNCOMMITTED (not built — Jetson gate pending) | Claude Code (GLM-5.3-Flash Free) |
+| **048** | 2026-11-19 | Robust "Add Points" Wiring in New UI (FieldMapHost <-> FieldMapContext <-> MissionReportScreen) | COMPLETED | Antigravity AI Agent |
+| **049** | 2026-11-20 | Real-Time Point Marker & Trajectory Update in Mission Edit Mode | COMPLETED | Antigravity AI Agent |
+| **050** | 2026-11-20 | Waypoint Layer Ordering & Progress Accuracy Diagnosis | COMPLETED (accuracy fix pending authorization) | Codex |
 
 ---
 
@@ -2099,3 +2102,135 @@ No STOP, E-Stop, arming, spray or AUX code touched. Clear still never stops, arm
 
 ### 6. Current Repository State & Next Steps
 Uncommitted on `client_` (also contains Entry 046 changes). Needs bench test: Clear on an uploaded-not-loaded, a loaded, and a completed mission; then confirm no re-upload and that Mission Report shows empty state.
+
+
+---
+
+## Entry 048 — Robust "Add Points" Wiring in New UI (FieldMapHost <-> FieldMapContext <-> MissionReportScreen)
+- **Date & Time:** 2026-11-19 11:15 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Antigravity AI Agent
+
+### 1. Objective & Scope
+Verify and robustly fix the "Add Points" behavior in the new Mission Progress UI. Previously, commit `2ec044b` added manual "Add Point" toolbar controls and data structures, but clicking the map in the new UI failed to add points because taps were dropped by `FieldMapHost` when `activeSurface === "mission"`, `MissionReportScreen`'s handler was plugged into an unmounted `LiveMissionMap` (`embedMap={false}`), and draft points were omitted from `setMissionSnapshot`.
+
+### 2. Changes Implemented
+- **`src/context/FieldMapContext.tsx`**:
+  - Exported `MapPressHandler` type (aliased to `MarkingPressHandler` for backwards compatibility).
+  - Added `missionPressRef: MutableRefObject<MapPressHandler | null>` to `FieldMapContextValue` and `FieldMapProvider`.
+- **`src/components/shared/FieldMapHost.tsx`**:
+  - Destructured `missionPressRef` from `useFieldMap()`.
+  - Updated `handlePress` to validate coordinates via `isValidLngLat` and dispatch to `missionPressRef.current?.(coord)` when `activeSurface === "mission"` (and `markingPressRef.current?.(coord)` when `activeSurface === "marking"`).
+- **`src/screens/MissionReportScreen.tsx`**:
+  - Destructured `missionPressRef` from `useFieldMap()`.
+  - Elevated `editDraftWaypoints` state declaration above `setMissionSnapshot` to eliminate TDZ warnings.
+  - Updated `setMissionSnapshot` to pass `editDraftWaypoints ?? displayData.waypoints` with `editDraftWaypoints` in the dependency array, ensuring the Mapbox native surface updates with draft points, reversals, and deletions in real time.
+  - Updated `handleRegisterMapPress` to wire the active tap handler into `missionPressRef.current` and clear it on component unmount.
+  - In `MissionActivityExperience`, introduced `draftRef` into `handleAddDraftPoint` to prevent race conditions during rapid consecutive map taps.
+- **`src/components/shared/__tests__/NativeMapLayers.test.tsx`**:
+  - Updated `useFieldMap` mock to include `missionPressRef: { current: null }`.
+- **`src/components/shared/__tests__/FieldMapHostPress.test.tsx`** (New Test Suite):
+  - 4 comprehensive unit tests verifying: dispatch to `missionPressRef` when `activeSurface === "mission"`, dispatch to `markingPressRef` when `activeSurface === "marking"`, dropping invalid / (0,0) coordinates, and graceful handling of null press handlers.
+
+### 3. Key Architecture & Design Decisions
+- **Persistent Singleton Map Integrity**: Preserved the architecture where `FieldMapHost` remains the single persistent Mapbox host in `TabNavigator.tsx`, avoiding unmount/remount churn.
+- **Scoped Tap Activation**: `missionPressRef.current` is only non-null while `isEditingPoints && isAddPointMode`. When "Done", "Cancel", or "Apply" is triggered, the ref is cleared to `null`, preventing unintended waypoint additions during normal monitoring.
+- **Immediate Draft Synchronization**: Forwarding `editDraftWaypoints` to `setMissionSnapshot` guarantees visual parity between the expanded points panel drawer and the Mapbox map markers.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4 arming, motion, spray, AUX, solenoid, or hardware command emitted.
+- All backend upload and safety gates in `handleCommitMissionEdit` remain intact (connect to rover first, mission must be stopped, minimum 2 points required, atomic CSV upload).
+
+### 5. Verification & Testing
+- **Unit Tests:** `npm test -- --runInBand --silent` -> **86/86 suites passed, 1061/1061 tests passed**.
+- **TypeScript:** `npx tsc --noEmit` -> **0 errors** (clean build).
+- **Whitespace / Git Check:** `git diff --check` passed cleanly with 0 warnings.
+
+### 6. Current Repository State & Next Steps
+- Uncommitted on branch `client_`.
+- Ready for bench testing on the Android tablet: open Mission Progress, expand activity drawer, tap Edit -> Add Point, tap on the map to place waypoints, confirm real-time marker rendering, and test Apply commit.
+
+---
+
+## Entry 049 — Real-Time Point Marker & Trajectory Update in Mission Edit Mode
+- **Date & Time:** 2026-11-20 15:10 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Antigravity AI Agent
+
+### 1. Objective & Scope
+Enable instantaneous real-time rendering of both the waypoint marker and the route trajectory line on the native Mapbox map when the operator taps the map in "Add Point" / Edit mode, without waiting for the "Apply" commit button.
+
+### 2. Changes Implemented
+- **`src/context/FieldMapContext.tsx`**:
+  - Added `isDraft?: boolean` to `FieldMapSnapshot`.
+  - Updated `setMarkingSnapshot` and `setMissionSnapshot` to preserve `isDraft` in the context state.
+- **`src/components/shared/FieldMapHost.tsx`**:
+  - Imported `type TrajectoryPreviewPoint`.
+  - Added `isDraftTrajectory` condition: when `fallbackSnapshot.isDraft` is true and at least 2 points exist, builds and renders the trajectory GeoJSON `LineString` from `fallbackSnapshot.trajectoryPoints` (or `fallbackSnapshot.waypoints`) in real time.
+  - Retained fallback to confirmed backend trajectory preview (`preview.points`) when not drafting.
+- **`src/screens/MissionReportScreen.tsx`**:
+  - In `setMissionSnapshot`, passed `isDraft: editDraftWaypoints !== null`.
+  - Mapped `trajectoryPoints` from `editDraftWaypoints` (`{ latitude: wp.lat, longitude: wp.lon }`) when drafting, falling back to `preview.points` when committed.
+  - In `handleAddDraftPoint`, fortified fallback: `draftRef.current ?? editHistory.draft ?? waypoints` ensuring reliable non-null draft mutation on rapid clicks.
+- **`src/components/shared/__tests__/FieldMapHostPress.test.tsx`**:
+  - Added 2 new unit tests validating real-time draft trajectory rendering with 2 points and dynamic updating when a 3rd point is added. (All 6 suite tests pass).
+
+### 3. Key Architecture & Design Decisions
+- **Zero-Latency Visual Feedback**: The draft route line and point markers are constructed and drawn entirely on the client side using Mapbox native layers without making premature backend network requests.
+- **Backend Safety Preservation**: Rover backend contracts are strictly respected. No premature mission overwrites or disk writes occur during tapping; the official ROS 2 / C++ kinematic trajectory is requested only when the operator explicitly taps "Apply".
+- **Undo / Redo / Reversal Parity**: Because `setMissionSnapshot` listens to `editDraftWaypoints`, undoing, redoing, deleting, or reversing waypoints reflects on both the point markers and the trajectory line in real time.
+
+### 4. Hardware Safety & Safety Interlocks
+- No PX4 arming, motion, spray, AUX, solenoid, or hardware command emitted.
+- All backend upload and safety gates in `handleCommitMissionEdit` remain intact (connect to rover first, mission must be stopped, minimum 2 points required, atomic CSV upload).
+
+### 5. Verification & Testing
+- **Unit Tests:** `npm test -- --runInBand src/components/shared/__tests__/FieldMapHostPress.test.tsx` -> **6/6 passed**.
+- **Related Tests:** `NativeMapLayers.test.tsx` (2/2 passed), `MissionEditAndControls.test.tsx` (12/12 passed).
+- **TypeScript:** `npx tsc --noEmit` -> **0 errors** (clean build).
+- **Bundle Compilation:** `npx expo export --platform android` -> **1771 modules bundled cleanly, Hermes bytecode compiled (6.79 MB)** with exit code 0.
+- **Whitespace / Git Check:** `git diff --check` passed cleanly with 0 warnings.
+
+### 6. Current Repository State & Next Steps
+- Uncommitted on branch `client_`.
+- Ready for bench testing on the Android tablet: open Mission Progress -> expand activity drawer -> tap Edit -> tap Add Point -> tap anywhere on the map: confirm new waypoint marker and connecting trajectory line appear in real time immediately on each tap without pressing Apply.
+
+---
+
+## Entry 050 — Waypoint Layer Ordering & Progress Accuracy Diagnosis
+- **Date & Time:** 2026-11-20 17:33 IST
+- **Working Branch:** `client_`
+- **Agent / Contributor:** Codex
+
+### 1. Objective & Scope
+Make uploaded mission points and their sequence numbers render above the trajectory, then verify why the progress waypoint card can show `Failed / — mm` and can show an earlier-looking value such as `40 mm / Poor` after Clear and a new upload/load.
+
+### 2. Changes Implemented
+- **`src/components/shared/NativeMapLayers.tsx`**:
+  - Added an optional native `aboveLayerID` anchor to waypoint layer groups.
+  - Chained the point glow above the trajectory, the point circle above its glow, and the sequence label above the point circle so Mapbox cannot place the numbered marker beneath the route.
+- **`src/components/shared/FieldMapHost.tsx`**, **`src/components/pathplan/PathPlanMapNative.tsx`**, **`src/components/missionreport/MissionMapNative.tsx`**:
+  - Passed each map's trajectory centre-line ID as the waypoint layer anchor only while that trajectory exists; standalone points retain a valid layer configuration.
+- **`src/components/shared/__tests__/NativeMapLayers.test.tsx`**:
+  - Added assertions for the explicit native layer chain and updated the route-removal serialization expectation.
+- Accuracy behavior was diagnosed only; no mission-result or safety logic was changed.
+
+### 3. Key Architecture & Design Decisions
+- React component order alone was not treated as a sufficient Android/Mapbox z-order guarantee. The native layer relationship is now explicit.
+- The progress card uses stored per-point `position_error_cm`, converted to millimetres. Its bands are: Excellent `<=20`, Good `<=35`, Poor `<=60`, Failed `>60`.
+- `Failed / — mm` is a valid representation when the backend terminal outcome is FAILED but no certified terminal accuracy exists. The backend intentionally stores null overall accuracy for a confirmed RPP `MISSED` result.
+- A stale-display defect remains: Mission Report's successful Clear callback does not reset `pointStatusMap`, terminal RPP fallback, canonical report state, or previous report row cache; `usePointMissionEvents` also does not reset status when the mission run identity changes. Reused waypoint serials can therefore briefly inherit an earlier run's accuracy such as `40 mm / Poor`. This was reported but not changed because the request asked to verify the behavior rather than alter mission-result handling.
+
+### 4. Hardware Safety & Safety Interlocks
+- Display-layer changes only. No PX4, mission execution, E-Stop, spray, AUX, or rover command code changed.
+
+### 5. Verification & Testing
+- **Focused Unit Tests:** `npx jest src/components/shared/__tests__/NativeMapLayers.test.tsx src/components/shared/__tests__/FieldMapHostPress.test.tsx --runInBand --silent` -> **2/2 suites, 8/8 tests passed**.
+- **TypeScript:** `npx tsc --noEmit` -> **0 errors**.
+- **Whitespace:** `git diff --check` -> passed.
+- **Metro / Android tablet:** not run; physical visual confirmation remains pending.
+
+### 6. Current Repository State & Next Steps
+- Existing uncommitted Entry 048/049 work remains in the shared working tree and was preserved.
+- Verify on the Android tablet that every numbered point remains above the route at the operating zoom.
+- If authorized, fix the stale accuracy path by atomically resetting all per-run result caches on confirmed Clear and on a committed run-ID transition, with regression tests for clear -> upload -> load -> start.

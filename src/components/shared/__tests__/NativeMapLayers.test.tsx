@@ -53,6 +53,7 @@ jest.mock("../../../context/FieldMapContext", () => ({
     marking: mockSnapshot,
     mission: mockSnapshot,
     markingPressRef: { current: null },
+    missionPressRef: { current: null },
     sharedCamera: null,
     setSharedCamera: mockSetSharedCamera,
   }),
@@ -156,7 +157,10 @@ test("rover telemetry and preview metadata do not reserialize unchanged mission 
   act(() => { renderer!.update(fieldMap(23)); });
   // An idle preview no longer authorizes a route line; waypoint markers stay.
   expect(renderer!.root.findAllByType("ShapeSource").map((node: any) => node.props.id)).toEqual(["field-points"]);
-  expect(mockSerializeShape).toHaveBeenCalledTimes(4);
+  // Removing the route also removes the points' native above-layer anchor,
+  // so Mapbox receives one intentional point-layer refresh.
+  expect(mockSerializeShape).toHaveBeenCalledTimes(5);
+  expect(mockSerializeShape.mock.calls[4][0]).toBe("field-points");
 });
 
 test("authoring layers retain their source options and visual styles", () => {
@@ -164,7 +168,7 @@ test("authoring layers retain their source options and visual styles", () => {
   act(() => {
     renderer = TestRenderer.create(<>
       <NativeTrajectoryLayer sourceId="path-source" layerId="path-layer" shape={shape} variant="authoring" tolerance={0.00001} maxZoomLevel={22} />
-      <NativeWaypointLayer sourceId="waypoint-source" layerId="waypoint-layer" shape={shape} variant="authoring" tolerance={0.00001} maxZoomLevel={22} />
+      <NativeWaypointLayer sourceId="waypoint-source" layerId="waypoint-layer" shape={shape} variant="authoring" aboveLayerID="path-layer-centre" tolerance={0.00001} maxZoomLevel={22} />
     </>);
   });
   for (const source of renderer!.root.findAllByType("ShapeSource")) {
@@ -198,6 +202,8 @@ test("authoring layers retain their source options and visual styles", () => {
     "waypoint-layer",
   ]);
   expect(circles[0].props.style).toMatchObject({ circleColor: "#38BDF8", circleOpacity: 0.55 });
+  expect(circles[0].props.aboveLayerID).toBe("path-layer-centre");
+  expect(circles[1].props.aboveLayerID).toBe("waypoint-layer-glow");
   expect(circles[1].props.style).toMatchObject({
     circleColor: "#1475EE",
     circleStrokeColor: "#FFFFFF",
@@ -205,6 +211,7 @@ test("authoring layers retain their source options and visual styles", () => {
   });
   expect(renderer!.root.findByType("SymbolLayer").props).toMatchObject({
     id: "waypoint-layer-sequence",
+    aboveLayerID: "waypoint-layer",
     style: { textField: "{sequence}", textAnchor: "center", textColor: "#FFFFFF" },
   });
 });

@@ -8,6 +8,8 @@ interface NativeMapLayerProps {
   layerId: string;
   shape: ShapeSourceProps["shape"];
   variant?: "mission" | "authoring";
+  /** Native map layer that this layer group must render above. */
+  aboveLayerID?: string;
   tolerance?: ShapeSourceProps["tolerance"];
   maxZoomLevel?: ShapeSourceProps["maxZoomLevel"];
 }
@@ -163,6 +165,7 @@ export const NativeWaypointLayer = memo(function NativeWaypointLayer({
   layerId,
   shape,
   variant = "mission",
+  aboveLayerID,
   tolerance,
   maxZoomLevel,
 }: NativeMapLayerProps) {
@@ -176,13 +179,19 @@ export const NativeWaypointLayer = memo(function NativeWaypointLayer({
     >
       <CircleLayer
         id={`${layerId}-glow`}
+        aboveLayerID={aboveLayerID}
         style={authoring ? AUTHORING_POINT_GLOW_STYLE : MISSION_POINT_GLOW_STYLE}
       />
       <CircleLayer
         id={layerId}
+        aboveLayerID={`${layerId}-glow`}
         style={authoring ? AUTHORING_POINT_STYLE : MISSION_POINT_STYLE}
       />
-      <SymbolLayer id={`${layerId}-sequence`} style={WAYPOINT_LABEL_STYLE} />
+      <SymbolLayer
+        id={`${layerId}-sequence`}
+        aboveLayerID={layerId}
+        style={WAYPOINT_LABEL_STYLE}
+      />
     </ShapeSource>
   );
 });

@@ -34,6 +34,7 @@ import {
   buildBackendTrajectoryCollection,
   canDrawBackendLine,
   limitMapPoints,
+  type TrajectoryPreviewPoint,
 } from "../../utils/backendTrajectoryPreview";
 
 const DEFAULT_ZOOM = 16;
@@ -84,6 +85,7 @@ const FieldMapHostBase: React.FC = () => {
     marking,
     mission,
     markingPressRef,
+    missionPressRef,
     sharedCamera,
     setSharedCamera,
   } = useFieldMap();
@@ -223,15 +225,40 @@ const FieldMapHostBase: React.FC = () => {
     fallbackSnapshot.activeWaypointIndex,
   ]);
 
-  const showTrajectory = !authoringChanged && canDrawBackendLine(preview);
+  const isDraftTrajectory = Boolean(
+    fallbackSnapshot.isDraft &&
+      (fallbackSnapshot.trajectoryPoints?.length ??
+        fallbackSnapshot.waypoints.length) >= 2,
+  );
+  const showTrajectory =
+    isDraftTrajectory || (!authoringChanged && canDrawBackendLine(preview));
   const trajectoryCollection = useMemo(() => {
+    if (isDraftTrajectory) {
+      const draftPoints: TrajectoryPreviewPoint[] =
+        fallbackSnapshot.trajectoryPoints &&
+        fallbackSnapshot.trajectoryPoints.length >= 2
+          ? fallbackSnapshot.trajectoryPoints
+          : fallbackSnapshot.waypoints.map((wp) => ({
+              latitude: wp.lat,
+              longitude: wp.lon,
+            }));
+      return buildBackendTrajectoryCollection(
+        draftPoints,
+        BACKEND_LINE_RENDER,
+      );
+    }
     if (!showTrajectory) return null;
     return buildBackendTrajectoryCollection(preview.points, BACKEND_LINE_RENDER);
-  }, [showTrajectory, preview.points]);
+  }, [
+    isDraftTrajectory,
+    fallbackSnapshot.trajectoryPoints,
+    fallbackSnapshot.waypoints,
+    showTrajectory,
+    preview.points,
+  ]);
 
-  // Only the rover backend may provide a navigation route.  The uploaded
-  // points remain visible as markers, but they are never joined locally into
-  // a line while trajectory_generator is preparing the real path.
+  // When drafting/authoring, the real-time draft trajectory connects the draft
+  // points immediately. Once committed, the confirmed backend trajectory replaces it.
   const visibleRouteCollection = trajectoryCollection;
 
   const handleToggleMapStyle = useCallback(() => {
@@ -331,13 +358,19 @@ const FieldMapHostBase: React.FC = () => {
 
   const handlePress = useCallback(
     (event: any) => {
-      if (activeSurface !== "marking") return;
-      const press = markingPressRef.current;
       const coords = event?.geometry?.coordinates;
-      if (!press || !coords || coords.length < 2) return;
-      press({ longitude: coords[0], latitude: coords[1] });
+      if (!coords || coords.length < 2) return;
+      const lon = coords[0];
+      const lat = coords[1];
+      if (!isValidLngLat(lon, lat)) return;
+      const coord = { longitude: lon, latitude: lat };
+      if (activeSurface === "marking") {
+        markingPressRef.current?.(coord);
+      } else if (activeSurface === "mission") {
+        missionPressRef.current?.(coord);
+      }
     },
-    [activeSurface, markingPressRef],
+    [activeSurface, markingPressRef, missionPressRef],
   );
 
   const handleCameraChanged = useCallback(
@@ -457,6 +490,7 @@ const FieldMapHostBase: React.FC = () => {
               layerId="field-points-layer"
               shape={waypointCollection as any}
               variant="authoring"
+              aboveLayerID={visibleRouteCollection ? "field-trajectory-layer-centre" : undefined}
             />
           )}
 

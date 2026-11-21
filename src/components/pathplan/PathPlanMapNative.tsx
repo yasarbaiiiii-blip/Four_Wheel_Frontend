@@ -197,6 +197,7 @@ export const PathPlanMapNative: React.FC<any> = ({
             layerId="path-layer"
             shape={trajectoryGeoJSON as any}
             variant="authoring"
+            aboveLayerID={trajectoryGeoJSON ? "path-layer-centre" : undefined}
             tolerance={0.00001}
             maxZoomLevel={22}
           />

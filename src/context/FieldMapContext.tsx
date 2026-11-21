@@ -29,12 +29,15 @@ export interface FieldMapSnapshot {
   statusMap?: Record<number, { status?: string }>;
   activeWaypointIndex?: number | null;
   trajectoryPoints?: Array<{ latitude: number; longitude: number }>;
+  isDraft?: boolean;
 }
 
-export type MarkingPressHandler = (coord: {
+export type MapPressHandler = (coord: {
   longitude: number;
   latitude: number;
 }) => void;
+
+export type MarkingPressHandler = MapPressHandler;
 
 export interface FieldMapContextValue {
   activeSurface: FieldMapSurface;
@@ -49,6 +52,7 @@ export interface FieldMapContextValue {
     source: FieldMapSurface,
   ) => void;
   markingPressRef: MutableRefObject<MarkingPressHandler | null>;
+  missionPressRef: MutableRefObject<MapPressHandler | null>;
 }
 
 const EMPTY_SNAPSHOT: FieldMapSnapshot = {
@@ -70,6 +74,7 @@ export function FieldMapProvider({
     null,
   );
   const markingPressRef = useRef<MarkingPressHandler | null>(null);
+  const missionPressRef = useRef<MapPressHandler | null>(null);
 
   const setActiveSurface = useCallback((surface: FieldMapSurface) => {
     setActiveSurfaceState(surface);
@@ -81,6 +86,7 @@ export function FieldMapProvider({
       statusMap: snapshot.statusMap,
       activeWaypointIndex: snapshot.activeWaypointIndex,
       trajectoryPoints: snapshot.trajectoryPoints,
+      isDraft: snapshot.isDraft,
     });
   }, []);
 
@@ -90,6 +96,7 @@ export function FieldMapProvider({
       statusMap: snapshot.statusMap,
       activeWaypointIndex: snapshot.activeWaypointIndex,
       trajectoryPoints: snapshot.trajectoryPoints,
+      isDraft: snapshot.isDraft,
     });
   }, []);
 
@@ -141,6 +148,7 @@ export function FieldMapProvider({
       sharedCamera,
       setSharedCamera,
       markingPressRef,
+      missionPressRef,
     }),
     [
       activeSurface,

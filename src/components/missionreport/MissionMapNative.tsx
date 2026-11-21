@@ -349,6 +349,7 @@ const MissionMapNativeBase: React.FC<Props> = ({
             sourceId="mission-points"
             layerId="mission-points-layer"
             shape={waypointCollection as any}
+            aboveLayerID={trajectoryCollection ? "generated-trajectory-line-centre" : undefined}
           />
         )}
 
