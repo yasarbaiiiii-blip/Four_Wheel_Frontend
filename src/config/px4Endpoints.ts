@@ -54,9 +54,6 @@ export const PX4_MISSION = {
   // Multipart CSV upload. Saves file and starts preview generation.
   UPLOAD: "/api/mission/upload",
 
-  // Confirm the generated preview so START may be enabled. No file.
-  LOAD: "/api/mission/load",
-
   // Restore a completed mission from the backend archive.
   RESTORE: "/api/mission/restore",
 
@@ -76,6 +73,9 @@ export const PX4_MISSION = {
 
   // Active mission.csv.
   FILE: "/api/mission/file",
+
+  // Answer operator question for 31-35mm tolerance marking.
+  MARKING_ANSWER: "/api/mission/marking-answer",
 
   // Mission execution mode.
   EXECUTION_MODE: "/api/mission/execution-mode",

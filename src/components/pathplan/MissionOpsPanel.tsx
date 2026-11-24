@@ -13,7 +13,6 @@ type Props = {
     /** optional rover position supplied by the parent screen */
     roverPosition?: { lat: number; lon: number; alt?: number } | null;
     onUpdateWaypoints?: (waypoints: PathPlanWaypoint[]) => void;
-    onLoadMission?: () => void | Promise<void>;
     isFullScreen?: boolean;
     onToggleFullScreen?: () => void;
     isDeleteMode?: boolean;
@@ -30,8 +29,6 @@ type Props = {
      * Called to request upload (host should open a native file picker and then call onUpdateWaypoints)
      */
     onRequestUpload?: () => void;
-    /** The edited point order differs from the backend-verified trajectory. */
-    planNeedsUpload?: boolean;
     /** A settled editor revision is being staged with the rover. */
     trajectoryUpdating?: boolean;
     /** Row extension as the rover reports it (or the choice held for upload). */
@@ -52,16 +49,6 @@ type Props = {
     /** True while the card is being dragged — injected by DraggableCard */
     isDraggingActive?: boolean;
     onClose?: () => void;
-    /** When set, Load Mission is blocked (Continue Offline / no rover). */
-    roverUploadBlockedReason?: string | null;
-    /** True when the rover purple preview is on the map. */
-    loadEnabled?: boolean;
-    /** The generated preview is ready to be shown to the operator. */
-    loadVisible?: boolean;
-    /** A mission previously loaded under this backend mission ID. */
-    loadAgain?: boolean;
-    /** An archived mission is regenerating its preview after Load Again. */
-    loadPreparing?: boolean;
     /** Clears the staged or loaded runtime mission from controller and app. */
     onClearMission?: () => void;
     /** Clear is enabled when connected, disarmed, not running, and mission exists. */
@@ -73,7 +60,6 @@ const MissionOpsPanel = React.memo(({
     waypoints,
     roverPosition = null,
     onUpdateWaypoints,
-    onLoadMission,
     isFullScreen,
     onToggleFullScreen,
     isDeleteMode = false,
@@ -83,7 +69,6 @@ const MissionOpsPanel = React.memo(({
     onBulkDelete = () => { },
     onExportMission,
     onRequestUpload,
-    planNeedsUpload = false,
     trajectoryUpdating = false,
     extensionOn = false,
     extensionLabel = 'OFF',
@@ -94,17 +79,11 @@ const MissionOpsPanel = React.memo(({
     dragGesture,
     isDraggingActive,
     onClose,
-    roverUploadBlockedReason = null,
-    loadEnabled = false,
-    loadVisible = false,
-    loadAgain = false,
-    loadPreparing = false,
     onClearMission,
     clearEnabled = false,
     clearInProgress = false,
 }: Props) => {
     const { missionMode, setMissionMode } = useRover();
-    const [isLoadingMission, setIsLoadingMission] = useState(false);
     const [showExportDialog, setShowExportDialog] = useState(false);
     const [selectedExportFormat, setSelectedExportFormat] = useState<'qgc' | 'csv' | 'dxf'>('qgc');
     const [showFilenameDialog, setShowFilenameDialog] = useState(false);
@@ -237,88 +216,6 @@ const MissionOpsPanel = React.memo(({
         }
     };
 
-    const handleLoadMission = async () => {
-        console.log('[MissionOpsPanel] 🚀 Load Mission button clicked');
-        console.log('[MissionOpsPanel] Waypoints count:', waypoints.length);
-        console.log('[MissionOpsPanel] Current mission mode:', missionMode);
-
-        if (roverUploadBlockedReason) {
-            Alert.alert('Connect Rover', roverUploadBlockedReason);
-            return;
-        }
-
-        if (waypoints.length === 0) {
-            console.log('[MissionOpsPanel] ❌ No waypoints to load');
-            return;
-        }
-
-        if (!loadEnabled) {
-            return;
-        }
-
-        setIsLoadingMission(true);
-        try {
-            await onLoadMission?.();
-        } finally {
-            setIsLoadingMission(false);
-        }
-        return;
-
-        /*
-        // Map frontend mode to backend mode
-        let backendMode: 'auto' | 'continuous' | 'dash' = 'auto';
-        let modeConfig = {};
-
-        if (missionMode === 'Continuous') {
-            backendMode = 'continuous';
-        } else if (missionMode === 'Dash') {
-            backendMode = 'dash';
-            modeConfig = {
-                dash_servo_on_time: dashDistance,
-                dash_servo_off_time: dashGap,
-            };
-        }
-
-        console.log('[MissionOpsPanel] Backend mode:', backendMode);
-        console.log('[MissionOpsPanel] Mode config:', modeConfig);
-
-        // First, set the mission mode on backend
-        try {
-            console.log('[MissionOpsPanel] 📡 Setting mission mode on backend...');
-            const modeResult = await setBackendMissionMode({ mode: backendMode, ...modeConfig });
-            console.log('[MissionOpsPanel] Mode result:', modeResult);
-
-            if (!modeResult.success) {
-                console.log('[MissionOpsPanel] ⚠️ Failed to set mission mode:', modeResult.error);
-                // Continue anyway - the mode might be set later
-            } else {
-                console.log('[MissionOpsPanel] ✅ Mission mode set to:', backendMode, modeConfig);
-            }
-        } catch (error) {
-            console.log('[MissionOpsPanel] ❌ Error setting mission mode:', error);
-            console.log('[MissionOpsPanel] Error details:', {
-                message: (error as any)?.message,
-                code: (error as any)?.code,
-                stack: (error as any)?.stack,
-            });
-            // Continue anyway
-        }
-
-        // Then load the mission
-        console.log('[MissionOpsPanel] 📋 Showing confirmation alert...');
-        Alert.alert('Load Mission', `Load mission with ${waypoints.length} marking points in ${missionMode} mode?`, [
-            { text: 'Cancel', style: 'cancel', onPress: () => console.log('[MissionOpsPanel] User cancelled load') },
-            {
-                text: 'Load',
-                onPress: () => {
-                    console.log('[MissionOpsPanel] ✅ User confirmed load, calling onLoadMission...');
-                    onLoadMission?.();
-                }
-            },
-        ]);
-        */
-    };
-
     const lastWaypoint = waypoints.length ? waypoints[waypoints.length - 1] : null;
 
     // Handle exit from manual control mode
@@ -445,32 +342,6 @@ const MissionOpsPanel = React.memo(({
                     </TouchableOpacity>
                 );
             })()}
-
-            {/* The button exists only after a preview. Its label belongs to that mission ID. */}
-            {loadVisible && (
-                <TouchableOpacity
-                    style={[styles.loadButton, waypoints.length && !roverUploadBlockedReason && loadEnabled ? styles.loadActive : styles.disabledBtn, loadPreparing && styles.loadPreparing]}
-                    onPress={handleLoadMission}
-                    activeOpacity={0.8}
-                    disabled={waypoints.length === 0 || Boolean(roverUploadBlockedReason) || !loadEnabled || isLoadingMission || loadPreparing}
-                >
-                    <MaterialCommunityIcons name="folder-open" size={20} color="#fff" />
-                    <Text style={styles.loadText}>
-                        {planNeedsUpload
-                            ? "Waiting for update…"
-                            : isLoadingMission
-                                ? "Loading..."
-                                : loadPreparing
-                                    ? "Preparing..."
-                                    : loadAgain
-                                        ? "Load Again"
-                                        : "Load"}
-                    </Text>
-                    <View style={styles.loadCountBadge}>
-                        <Text style={styles.loadCountText}>{waypoints.length}</Text>
-                    </View>
-                </TouchableOpacity>
-            )}
 
             {/* Dash Mode Config Dialog */}
             <DashConfigDialog
@@ -677,42 +548,6 @@ const styles = StyleSheet.create({
     },
     extensionValueOn: {
         color: '#FBBF24',
-    },
-
-    // ── LOAD MISSION ──
-    loadButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        borderRadius: 8,
-        borderWidth: 1,
-        height: 64,
-    },
-    loadActive: {
-        backgroundColor: colors.blueBtn,
-        borderColor: 'rgba(103, 232, 249, 0.3)',
-    },
-    loadText: {
-        color: '#ffffff',
-        fontWeight: '700',
-        fontSize: 14,
-        letterSpacing: 0.5,
-    },
-    loadCountBadge: {
-        backgroundColor: 'rgba(255,255,255,0.15)',
-        borderRadius: 8,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-    },
-    loadCountText: {
-        color: '#ffffff',
-        fontSize: 10,
-        fontWeight: '700',
-        fontVariant: ['tabular-nums'] as any,
-    },
-    loadPreparing: {
-        opacity: 0.72,
     },
 
     // ── MODALS ──

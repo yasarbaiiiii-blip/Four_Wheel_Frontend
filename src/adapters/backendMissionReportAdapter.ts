@@ -31,7 +31,7 @@ export interface MissionReportRowStatus {
  * Mission Report row.
  *
  * Intentionally contains NO remark or accuracy fields.
- * GET /api/mission/report remains the only authority for those.
+ * GET /api/mission/report remains the authoritative source for those.
  */
 export interface MissionReportFallbackStatus {
   reached?: boolean;
@@ -66,8 +66,8 @@ const EMPTY_ACCURACY_REMARK =
  * 2. A terminal runtime row may temporarily replace only a missing
  *    or non-terminal canonical status.
  * 3. Runtime remark / locally calculated accuracy is NEVER copied.
- * 4. Once the next report poll contains the terminal row + RPP
- *    accuracy, that canonical row naturally replaces this fallback.
+ * 4. Once the next report poll contains the terminal row + GNSS
+ *    survey accuracy, that canonical row naturally replaces this fallback.
  */
 export function reconcileMissionReportRow(
   reportRow:

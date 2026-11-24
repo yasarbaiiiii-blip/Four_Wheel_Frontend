@@ -140,19 +140,25 @@ export interface MissionRuntimeState {
    */
   trajectory_ready?: boolean;
 
-  /**
-   * True after POST /api/mission/load. START stays off until this is true.
-   */
+  /** Backend-owned readiness flag; true when the prepared mission may START. */
   accepted_for_start?: boolean;
 
-  /** Read-only Jetson START availability for the acknowledged signed mission. */
+  /** Read-only Jetson START availability for the prepared signed mission. */
   start_available?: boolean;
 
   /** Exact backend-owned reason START is currently disabled. */
   start_blocker?: string | null;
   start_blocker_message?: string | null;
 
-  /** STOP never erases the selected mission; LOAD is required after release. */
+  /** Operator inquiry for points settling within 31-35mm tolerance. */
+  asking_operator?: boolean;
+  ask_point_id?: string | null;
+  ask_radial_mm?: number | null;
+
+  /** Reason the run ended: COMPLETED or OPERATOR_STOP. */
+  run_end?: "COMPLETED" | "OPERATOR_STOP" | string | null;
+
+  /** STOP never erases the selected mission; it remains available in READY. */
   mission_preserved?: boolean;
   requires_reload?: boolean;
   emergency_stop?: boolean;
@@ -286,7 +292,6 @@ export interface MissionControlResponse {
 
   operation:
     | "prepare"
-    | "load"
     | "start"
     | "pause"
     | "resume"
@@ -340,10 +345,12 @@ export type RppTerminalOutcome =
 
 export interface MissionReportAccuracy {
   /**
-   * RPP is the ONLY final marking-accuracy authority.
+   * Measurement authority: "RAW_GNSS_SURVEY" or legacy "RPP_TERMINAL_RESULT".
    */
-  measurement_source:
-    "RPP_TERMINAL_RESULT";
+  measurement_source?:
+    | "RPP_TERMINAL_RESULT"
+    | "RAW_GNSS_SURVEY"
+    | string;
 
   /**
    * True only when an RPP terminal result exists
@@ -482,6 +489,12 @@ export interface CanonicalMissionReport {
   generated_at: string;
 
   state: string;
+
+  /** Run end termination reason: "COMPLETED" | "OPERATOR_STOP". */
+  run_end?: "COMPLETED" | "OPERATOR_STOP" | string | null;
+
+  /** Concluding statement / narrative for the mission run. */
+  statement?: string | null;
 
   summary:
     MissionReportSummary;
@@ -765,14 +778,6 @@ export async function applyMissionExtension(
   );
 }
 
-export async function loadMission(missionId?: string): Promise<MissionControlResponse> {
-  return apiPost<MissionControlResponse>(
-    PX4_MISSION.LOAD,
-    missionId ? { mission_id: missionId } : undefined,
-    { timeoutMs: 15_000 },
-  );
-}
-
 /**
  * The current C++ backend does not implement POST /api/mission/restore.
  * Keep the request disabled until the backend route exists, so no screen can
@@ -946,9 +951,22 @@ export async function clearMission(
   );
 }
 
+/**
+ * Answers the operator question for a point settling 31-35mm out.
+ * true = mark point anyway; false = skip point.
+ */
+export async function answerMarking(
+  mark: boolean,
+): Promise<{ success: boolean; message?: string }> {
+  return apiPost<{ success: boolean; message?: string }>(
+    PX4_MISSION.MARKING_ANSWER,
+    { mark },
+    { timeoutMs: 10_000 },
+  );
+}
+
 export default {
   uploadMissionCsv,
-  loadMission,
   restoreMission,
 
   getMissionStatus,
@@ -969,5 +987,5 @@ export default {
   skipMissionPoint,
   stopMission,
   clearMission,
-
+  answerMarking,
 };

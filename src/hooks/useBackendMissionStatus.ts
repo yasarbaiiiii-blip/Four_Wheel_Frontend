@@ -81,6 +81,14 @@ export interface BackendMissionStatus {
   pauseReason: string | null;
   resumeAvailable: boolean;
 
+  /** Operator inquiry for 31-35mm tolerance marking decision */
+  askingOperator: boolean;
+  askPointId: string | null;
+  askRadialMm: number | null;
+
+  /** Run end termination reason: COMPLETED | OPERATOR_STOP */
+  runEnd: string | null;
+
   recoveryRequired: boolean;
   recoveryAvailable: boolean;
   recoveryState: string;
@@ -181,6 +189,11 @@ const EMPTY_MISSION: BackendMissionStatus = {
 
   pauseReason: null,
   resumeAvailable: false,
+
+  askingOperator: false,
+  askPointId: null,
+  askRadialMm: null,
+  runEnd: null,
 
   recoveryRequired: false,
   recoveryAvailable: false,
@@ -721,6 +734,23 @@ function mergeMissionPayload(
       source.resume_available !== undefined
         ? toBoolean(source.resume_available)
         : previous.resumeAvailable,
+
+    askingOperator:
+      source.asking_operator !== undefined
+        ? toBoolean(source.asking_operator)
+        : previous.askingOperator,
+    askPointId:
+      source.ask_point_id !== undefined
+        ? toStringOrNull(source.ask_point_id)
+        : previous.askPointId,
+    askRadialMm:
+      source.ask_radial_mm !== undefined
+        ? toFiniteNumberOrNull(source.ask_radial_mm)
+        : previous.askRadialMm,
+    runEnd:
+      source.run_end !== undefined
+        ? toStringOrNull(source.run_end)
+        : previous.runEnd,
 
     recoveryRequired:
       source.recovery_required !== undefined

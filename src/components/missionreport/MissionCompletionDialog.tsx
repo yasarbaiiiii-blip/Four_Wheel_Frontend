@@ -34,6 +34,8 @@ interface MissionCompletionDialogProps {
     MissionCompletionDialogProps['statusMap'] | null
   >;
   fetchExportTiming?: () => Promise<ReportTiming | null>;
+  runEnd?: "COMPLETED" | "OPERATOR_STOP" | string | null;
+  statement?: string | null;
 }
 
 /** A compact acknowledgement card shown after the rover confirms completion. */
@@ -47,6 +49,8 @@ export const MissionCompletionDialog: React.FC<MissionCompletionDialogProps> = (
   missionMode,
   fetchExportData,
   fetchExportTiming,
+  runEnd,
+  statement,
 }) => {
   const {
     totalWaypoints,
@@ -54,6 +58,8 @@ export const MissionCompletionDialog: React.FC<MissionCompletionDialogProps> = (
     skippedWaypoints,
     missionDuration,
   } = missionStats;
+
+  const isOperatorStop = runEnd === "OPERATOR_STOP";
 
   return (
     <Modal
@@ -67,15 +73,23 @@ export const MissionCompletionDialog: React.FC<MissionCompletionDialogProps> = (
         <View
           style={styles.dialog}
           accessibilityViewIsModal
-          accessibilityLabel="Mission complete"
+          accessibilityLabel={isOperatorStop ? "Operator stop report" : "Mission complete"}
         >
           <View style={styles.header}>
-            <View style={styles.successIcon}>
-              <MaterialIcons name="check" size={25} color="#052E1A" />
+            <View style={[styles.successIcon, isOperatorStop && styles.stopIcon]}>
+              <MaterialIcons
+                name={isOperatorStop ? "stop" : "check"}
+                size={25}
+                color={isOperatorStop ? "#78350F" : "#052E1A"}
+              />
             </View>
             <View style={styles.heading}>
-              <Text style={styles.eyebrow}>MISSION COMPLETE</Text>
-              <Text style={styles.title}>All done</Text>
+              <Text style={[styles.eyebrow, isOperatorStop && styles.stopEyebrow]}>
+                {isOperatorStop ? "OPERATOR STOP REPORT" : "MISSION COMPLETE"}
+              </Text>
+              <Text style={styles.title}>
+                {isOperatorStop ? "Mission stopped" : "All done"}
+              </Text>
             </View>
             <TouchableOpacity
               onPress={onDismiss}
@@ -89,7 +103,10 @@ export const MissionCompletionDialog: React.FC<MissionCompletionDialogProps> = (
           </View>
 
           <Text style={styles.message}>
-            The rover has finished processing this mission.
+            {statement ||
+              (isOperatorStop
+                ? "Operator requested stop during the mission. Points marked before stop are recorded."
+                : "The rover has finished processing this mission.")}
           </Text>
 
           <View style={styles.metrics}>
@@ -169,6 +186,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
+  stopIcon: {
+    backgroundColor: '#FDE68A',
+  },
   heading: {
     flex: 1,
   },
@@ -177,6 +197,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.1,
+  },
+  stopEyebrow: {
+    color: '#F59E0B',
   },
   title: {
     color: '#F8FAFC',

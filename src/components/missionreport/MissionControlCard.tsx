@@ -44,13 +44,16 @@ export type MissionControlCardProps = {
   onNext?: () => Promise<any>;
   onSkip?: () => Promise<any>;
   onBulkSkip?: () => Promise<any>;
-  onLoadMission?: () => Promise<void>;
   onRestart?: () => void;
   mode: "AUTO" | "MANUAL" | "CONTINUOUS" | "DASH";
   onSetMode: (mode: "AUTO" | "MANUAL") => Promise<any> | void;
   markingTool?: "LASER" | "SPRAY";
   laserHoldMode?: "STEADY" | "BLINK" | null;
   laserHoldPointId?: string | null;
+  askingOperator?: boolean;
+  askPointId?: string | null;
+  askRadialMm?: number | null;
+  onAnswerMarking?: (mark: boolean) => Promise<any> | void;
   remainingPointCount?: number | null;
   missionMode?: string; // Backend mission mode (DGPS Mark, Dash, Continuous, etc.)
   isMissionActive?: boolean;
@@ -141,7 +144,6 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   onNext,
   onSkip,
   onBulkSkip,
-  onLoadMission,
   mode,
   onSetMode,
   missionMode = "DGPS Mark",
@@ -155,6 +157,10 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
   markingTool = "SPRAY",
   laserHoldMode = null,
   laserHoldPointId = null,
+  askingOperator = false,
+  askPointId = null,
+  askRadialMm = null,
+  onAnswerMarking,
   isMissionLoaded = false,
   isMissionReady = false,
   isPreparing = false,
@@ -171,7 +177,6 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
     selectMissionControlLive,
     shallowEqual,
   );
-  const [isLoadingMission, setIsLoadingMission] = React.useState(false);
 
   const [isStarting, setIsStarting] = React.useState(false);
   const [isStopping, setIsStopping] = React.useState(false);
@@ -676,6 +681,37 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
         </View>
       </OptionalGestureDetector>
       <View style={styles.cardPadding}>
+        {/* 31–35 mm Question Decision Prompt */}
+        {askingOperator && (
+          <View style={styles.toleranceQuestionBanner}>
+            <View style={styles.toleranceQuestionHeader}>
+              <MaterialCommunityIcons name="help-circle" size={16} color="#D97706" />
+              <Text style={styles.toleranceQuestionTitle}>TOLERANCE CHECK (31–35 mm)</Text>
+            </View>
+            <Text style={styles.toleranceQuestionText}>
+              {`${askPointId || "Point"} stopped ${askRadialMm != null ? Math.round(askRadialMm) : 33} mm from target (limit 30 mm). Mark anyway?`}
+            </Text>
+            <View style={styles.toleranceQuestionActions}>
+              <TouchableOpacity
+                style={[styles.toleranceQuestionBtn, styles.toleranceQuestionSkip]}
+                onPress={() => onAnswerMarking?.(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Skip Point"
+              >
+                <Text style={styles.toleranceQuestionSkipText}>Skip Point</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.toleranceQuestionBtn, styles.toleranceQuestionMark]}
+                onPress={() => onAnswerMarking?.(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Mark Anyway"
+              >
+                <Text style={styles.toleranceQuestionMarkText}>Mark Anyway</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Control Buttons */}
           {laserBannerMessage && (
             <View style={[styles.laserBanner, laserHoldMode === "STEADY" ? styles.laserBannerSafe : styles.laserBannerUnsafe]}>
@@ -859,19 +895,6 @@ const MissionControlCard: React.FC<MissionControlCardProps> = ({
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Loading Mission Modal */}
-        <Modal transparent visible={isLoadingMission} animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <ActivityIndicator size="large" color={colors.accent} />
-              <Text style={styles.modalTitle}>Loading Mission</Text>
-              <Text style={styles.modalText}>
-                Sending waypoints to controller...
-              </Text>
-            </View>
-          </View>
-        </Modal>
 
         {/* Start Mission Modal */}
         <Modal
@@ -1905,6 +1928,62 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     letterSpacing: 2,
+  },
+  toleranceQuestionBanner: {
+    backgroundColor: "#FFFBEB",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#F59E0B",
+    padding: 12,
+    marginBottom: 10,
+  },
+  toleranceQuestionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  toleranceQuestionTitle: {
+    color: "#B45309",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  toleranceQuestionText: {
+    color: "#78350F",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginBottom: 8,
+  },
+  toleranceQuestionActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  toleranceQuestionBtn: {
+    flex: 1,
+    height: 36,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  toleranceQuestionSkip: {
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  toleranceQuestionSkipText: {
+    color: "#DC2626",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  toleranceQuestionMark: {
+    backgroundColor: "#D97706",
+  },
+  toleranceQuestionMarkText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
   },
 });
 

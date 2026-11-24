@@ -94,8 +94,6 @@ import { useBackendTrajectory } from "../context/BackendTrajectoryContext";
 import { isOfflineMode } from "../config";
 import {
   TRAJECTORY_COPY,
-  canDrawBackendLine,
-  canLoadBackendPreview,
 } from "../utils/backendTrajectoryPreview";
 import {
   validateWaypoints,
@@ -117,7 +115,6 @@ import { useWaypointHistory } from "../hooks/pathplan/useWaypointHistory";
 import { useClearMission } from "../hooks/useClearMission";
 import {
   uploadMissionCsv,
-  loadMission,
   getMissionStatus,
   getMissionHistory,
   restoreMission,
@@ -358,8 +355,6 @@ interface PathPlanScreenProps {
   setIsStatisticsVisible?: (val: boolean) => void;
   isBottomTableVisible?: boolean;
   setIsBottomTableVisible?: (val: boolean) => void;
-  /** Moves to Mission Progress after a confirmed Load. */
-  onLoadMissionSuccess?: () => void;
   /** Returns to the modern mission home after a direct file upload. */
   onMissionUploadSuccess?: () => void;
   /** Returns to the modern mission home if a direct file upload is canceled or fails. */
@@ -410,7 +405,6 @@ export default function PathPlanScreen({
   setIsStatisticsVisible: propSetIsStatisticsVisible,
   isBottomTableVisible: propIsBottomTableVisible,
   setIsBottomTableVisible: propSetIsBottomTableVisible,
-  onLoadMissionSuccess,
   onMissionUploadSuccess,
   onMissionUploadCancel,
 }: PathPlanScreenProps) {
@@ -461,7 +455,6 @@ export default function PathPlanScreen({
     invalidateForUpload,
     resumePreviewAfterFailedUpload,
     clearTrajectory,
-    markLoadAccepted,
     refreshNow,
   } = useBackendTrajectory();
   const roverUploadBlockedReason =
@@ -470,33 +463,10 @@ export default function PathPlanScreen({
       : null;
 
   const [globalServoEnabled, setGlobalServoEnabled] = useState(true);
-  const [isReloadPreparing, setIsReloadPreparing] = useState(false);
-  // Restoring an archived run and loading it are separate backend operations.
-  // Keep the intent across the asynchronous preview regeneration, then perform
-  // the real Load exactly once when the backend says that preview is ready.
-  const pendingReloadMissionIdRef = useRef<string | null>(null);
-  const loadInFlightRef = useRef(false);
   const [isAutoTrajectoryUpdating, setIsAutoTrajectoryUpdating] = useState(false);
   const [isRestoringMission, setIsRestoringMission] = useState(false);
   const [isImportingFile, setIsImportingFile] = useState(false);
   const autoTrajectoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const missionId = pendingReloadMissionIdRef.current;
-    if (
-      !isReloadPreparing ||
-      !missionId ||
-      preview.missionId !== missionId ||
-      !canLoadBackendPreview(preview)
-    ) {
-      return;
-    }
-
-    // Clear before invoking the handler so a status push or a React effect
-    // replay cannot submit the same Load request twice.
-    pendingReloadMissionIdRef.current = null;
-    void handleLoadMissionToController();
-  }, [isReloadPreparing, preview]);
 
   // Component mounted flag to prevent state updates after unmount
   const mountedRef = useRef(true);
@@ -1339,7 +1309,7 @@ export default function PathPlanScreen({
       showPathPlanToast(
         "success",
         "Manual Connect Complete",
-        `Connected ${reordered.length} marking points. Tap Load Mission to send the preview.`,
+        `Connected ${reordered.length} marking points. The route will be ready to start after upload.`,
       );
     },
     [recordAndApply, setShowManualConnectionCanvas, waypoints],
@@ -2662,72 +2632,6 @@ export default function PathPlanScreen({
     }
   }
 
-  async function handleLoadMissionToController(): Promise<void> {
-    // One LOAD at a time: a double tap must not send a second LOAD.
-    if (loadInFlightRef.current) return;
-    if (roverUploadBlockedReason) {
-      Alert.alert("Connect Rover", roverUploadBlockedReason);
-      return;
-    }
-
-    if (waypoints.length < 2) {
-      return;
-    }
-
-    loadInFlightRef.current = true;
-    try {
-      if (!canLoadBackendPreview(preview)) {
-        if (!preview.acceptedForStart || !preview.missionId) return;
-        // Already acknowledged by Jetson; "Load Again" needs the unsupported
-        // restore route, so do nothing instead of sending it.
-        if (!MISSION_RESTORE_SUPPORTED) return;
-        setIsReloadPreparing(true);
-        const restored = await restoreMission(preview.missionId);
-        if (!restored?.success) {
-          throw new Error(restored?.message || "The rover rejected Load Again.");
-        }
-        // `restoreMission` only rehydrates the completed mission. It is not a
-        // successful Load, so do not navigate yet. The effect above waits for
-        // the authoritative ready flags and then submits `loadMission`.
-        pendingReloadMissionIdRef.current = preview.missionId;
-        // Release the guard so the deferred LOAD effect is not dropped.
-        loadInFlightRef.current = false;
-        await refreshNow();
-        return;
-      }
-
-      if (!missionExtension.missionId || missionExtension.missionId !== preview.missionId) {
-        throw new Error("Wait for the rover's current mission settings and path before loading it.");
-      }
-      const response = await loadMission(preview.missionId ?? undefined);
-      if (!response.success) {
-        throw new Error(response.message || "The rover rejected Load Mission.");
-      }
-      markLoadAccepted();
-      setIsReloadPreparing(false);
-      onLoadMissionSuccess?.();
-      // Keep the status synchronized, but never turn a confirmed load into
-      // an error merely because the following refresh is unavailable.
-      void refreshNow().catch((refreshError) =>
-        console.warn("[PathPlan] Mission status refresh after Load failed:", refreshError),
-      );
-    } catch (error) {
-      pendingReloadMissionIdRef.current = null;
-      setIsReloadPreparing(false);
-      const detail = extensionErrorDetail(error);
-      if (detail.code === "MISSION_CHANGED") {
-        void missionExtension.refresh();
-        void refreshNow();
-      }
-      const message = detail.code === "MISSION_CHANGED"
-        ? "The mission changed on the rover. Wait for the current path and try again."
-        : detail.message;
-      Alert.alert("Load Failed", message);
-    } finally {
-      loadInFlightRef.current = false;
-    }
-  }
-
   useEffect(() => {
     if (autoTrajectoryTimerRef.current) {
       clearTimeout(autoTrajectoryTimerRef.current);
@@ -2786,8 +2690,8 @@ export default function PathPlanScreen({
       allowPersistedReplacement = false,
     }: { silent?: boolean; allowPersistedReplacement?: boolean } = {}): Promise<boolean> => {
     // /api/mission/restore is not implemented by the C++ backend. Do not touch
-    // history, status or the uploaded waypoints; the upload/extension/LOAD
-    // workflow is the only supported path.
+    // history, status or the uploaded waypoints; direct upload is the only
+    // supported path.
     if (!MISSION_RESTORE_SUPPORTED) return false;
     if (isRestoringMissionRef.current) return false;
     isRestoringMissionRef.current = true;
@@ -2875,7 +2779,7 @@ export default function PathPlanScreen({
       updateWaypoints(restoredWaypoints);
       await refreshNow();
       if (!silent) {
-        Alert.alert("Mission Ready", "The last mission is loaded. You can press Load Mission.");
+        Alert.alert("Mission Ready", "The last mission is ready to start.");
       }
       return true;
     } catch (error) {
@@ -3893,24 +3797,12 @@ export default function PathPlanScreen({
                       : { lat: 0, lon: 0, alt: 0 }
                   }
                   onRequestUpload={handleRequestUpload}
-                  planNeedsUpload={planNeedsUpload}
                   trajectoryUpdating={isAutoTrajectoryUpdating}
                   extensionOn={extensionDialogChoice.enabled}
                   extensionLabel={extensionPanelLabel}
                   onOpenExtension={() => setShowMissionExtensionDistanceDialog(true)}
                   uploadBusy={isRestoringMission || isImportingFile}
                   uploadBusyLabel={isRestoringMission ? "Preparing…" : "Opening…"}
-                  onLoadMission={handleLoadMissionToController}
-                  roverUploadBlockedReason={roverUploadBlockedReason}
-                  loadEnabled={
-                    !planNeedsUpload &&
-                    !missionExtension.applying &&
-                    missionExtension.missionId === preview.missionId &&
-                    canLoadBackendPreview(preview)
-                  }
-                  loadVisible={canDrawBackendLine(preview) && preview.missionId !== null}
-                  loadAgain={false}
-                  loadPreparing={isReloadPreparing}
                   onClearMission={handleClearControllerMission}
                   clearEnabled={canClearControllerMission}
                   clearInProgress={isClearingControllerMission}

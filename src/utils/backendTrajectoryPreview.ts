@@ -63,11 +63,11 @@ export interface TrajectoryPreviewState {
   navigationPointCount: number;
   previewTruncated: boolean;
   epoch: number;
-  /** Last STATUS `loaded` flag. Load Mission uses this, not the retained line. */
+  /** Last STATUS `loaded` flag, retained for backend compatibility. */
   liveLoaded: boolean;
   /** Last STATUS `trajectory_ready` flag. */
   liveTrajectoryReady: boolean;
-  /** Backend confirmation that this exact mission has already been loaded. */
+  /** Authoritative backend flag that START is allowed for this mission. */
   acceptedForStart?: boolean;
   /** Identity of the path currently held that came from the verified push. */
   pushMeta?: TrajectoryPushMeta;
@@ -157,7 +157,6 @@ export type TrajectoryPreviewEvent =
       epoch: number;
       mission: MissionTrajectorySnapshot;
     }
-  | { type: "LOAD_ACCEPTED" }
   | {
       type: "PREVIEW";
       epoch: number;
@@ -287,7 +286,7 @@ export function shouldFetchLoadedPath(args: {
 }): boolean {
   return (
     shouldPollMissionStatus(args) &&
-    // C++ reports loaded=false until LOAD; the generated path exists before it.
+    // The generated path exists as soon as the backend reports it ready.
     args.trajectoryReady === true &&
     args.pathRefreshRequested === true
   );
@@ -297,23 +296,6 @@ export function canDrawBackendLine(
   state: Pick<TrajectoryPreviewState, "phase" | "points">,
 ): boolean {
   return state.phase === "ready" && state.points.length >= 2;
-}
-
-/**
- * Load Mission confirms a live rover preview. A line kept after a finished
- * run is display-only and must not re-enable Load.
- */
-export function canLoadBackendPreview(
-  state: Pick<
-    TrajectoryPreviewState,
-    "phase" | "points" | "liveLoaded" | "liveTrajectoryReady" | "acceptedForStart"
-  >,
-): boolean {
-  return (
-    canDrawBackendLine(state) &&
-    state.liveTrajectoryReady === true &&
-    state.acceptedForStart !== true
-  );
 }
 
 function isFinishedMissionState(state: string): boolean {
@@ -585,17 +567,10 @@ function reduceCore(
       const trajectoryReady = mission.trajectory_ready === true;
       const navCount = Number(mission.navigation_point_count ?? 0);
       const safeNavCount = Number.isFinite(navCount) ? Math.max(0, navCount) : 0;
-      // The label is bound to the backend mission ID, not to a temporary
-      // terminal state. Restoring the same archived ID must still say
-      // "Load Again"; only a different upload resets it to "Load".
-      const retainsAcceptedLoad =
-        previous.acceptedForStart === true &&
-        (missionId === null || missionId === previous.missionId);
       const liveFlags = {
         liveLoaded: loaded,
         liveTrajectoryReady: trajectoryReady,
-        acceptedForStart:
-          mission.accepted_for_start === true || retainsAcceptedLoad,
+        acceptedForStart: mission.accepted_for_start === true,
       };
 
       if (state === "ERROR" || (typeof mission.error === "string" && mission.error.trim())) {
@@ -727,12 +702,6 @@ function reduceCore(
       };
     }
 
-    case "LOAD_ACCEPTED":
-      return {
-        ...previous,
-        acceptedForStart: true,
-      };
-
     case "STATUS_ERROR":
       if (canDrawBackendLine(previous)) {
         return previous;
@@ -759,7 +728,7 @@ function reduceCore(
 //    ignored while a pushed path is held.
 //  * Invalid clears remove the line. Ordinary lifecycle clears retain the
 //    existing STATUS history rules (Stop/Complete keep the path).
-//  * Load/Start eligibility is untouched: it still comes from STATUS flags.
+//  * Start eligibility is untouched: it still comes from STATUS flags.
 
 function isFiniteNumberArray(value: unknown): value is number[] {
   return (

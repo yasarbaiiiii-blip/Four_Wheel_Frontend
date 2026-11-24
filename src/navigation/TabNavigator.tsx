@@ -57,7 +57,7 @@ function OperationsWorkspace() {
             </ErrorBoundary>
           </View>
 
-          {/* OLD PLANNER PANELS: disabled, code kept. The home screen now runs Load and
+          {/* OLD PLANNER PANELS: disabled, code kept. The home screen now runs
               Row Extension, and PathPlanScreen still runs hidden below for file upload.
           {isPlannerVisible ? (
             <View style={styles.overlayScreen} pointerEvents="box-none" collapsable={false}>
@@ -75,7 +75,6 @@ function OperationsWorkspace() {
                   setIsStatisticsVisible={setIsStatisticsVisible}
                   isBottomTableVisible={isBottomTableVisible}
                   setIsBottomTableVisible={setIsBottomTableVisible}
-                  onLoadMissionSuccess={() => { setPlanOpenIntent(null); setIsPlanningRoute(false); }}
                   onMissionUploadSuccess={() => { setPlanOpenIntent(null); setIsPlanningRoute(false); }}
                 />
               </ErrorBoundary>

@@ -5,7 +5,6 @@ import {
   BACKEND_LINE_RENDER,
   limitMapPoints,
   canDrawBackendLine,
-  canLoadBackendPreview,
   filterLoadedPathPoints,
   parseTrajectoryPathCleared,
   parseTrajectoryPathPush,
@@ -245,7 +244,6 @@ describe("backend trajectory display contract", () => {
     expect(completed.points).toEqual(backendPoints);
     expect(completed.phase).toBe("ready");
     expect(canDrawBackendLine(completed)).toBe(true);
-    expect(canLoadBackendPreview(completed)).toBe(false);
 
     const emptied = reduceTrajectoryPreview(completed, {
       type: "STATUS",
@@ -260,7 +258,6 @@ describe("backend trajectory display contract", () => {
 
     expect(emptied.points).toEqual(backendPoints);
     expect(canDrawBackendLine(emptied)).toBe(true);
-    expect(canLoadBackendPreview(emptied)).toBe(false);
     expect(
       selectMapLine({
         localWaypoints: markingDots,
@@ -270,7 +267,7 @@ describe("backend trajectory display contract", () => {
     ).toBe("backend");
   });
 
-  test("a loaded mission retains its identity and Load Again state", () => {
+  test("acceptedForStart mirrors the latest backend status", () => {
     const ready: TrajectoryPreviewState = {
       ...EMPTY_TRAJECTORY_PREVIEW,
       phase: "ready",
@@ -279,8 +276,6 @@ describe("backend trajectory display contract", () => {
       liveLoaded: true,
       liveTrajectoryReady: true,
     };
-
-    expect(canLoadBackendPreview(ready)).toBe(true);
 
     const refreshedReadyStatus = reduceTrajectoryPreview(ready, {
       type: "STATUS",
@@ -296,7 +291,6 @@ describe("backend trajectory display contract", () => {
 
     expect(refreshedReadyStatus.missionId).toBe("m1");
     expect(refreshedReadyStatus.acceptedForStart).toBe(true);
-    expect(canLoadBackendPreview(refreshedReadyStatus)).toBe(false); // Already LOADed
 
     const completed = reduceTrajectoryPreview(refreshedReadyStatus, {
       type: "STATUS",
@@ -310,7 +304,7 @@ describe("backend trajectory display contract", () => {
     });
 
     expect(completed.missionId).toBe("m1");
-    expect(completed.acceptedForStart).toBe(true);
+    expect(completed.acceptedForStart).toBe(false);
 
     const restored = reduceTrajectoryPreview(completed, {
       type: "STATUS",
@@ -324,7 +318,7 @@ describe("backend trajectory display contract", () => {
       },
     });
 
-    expect(restored.acceptedForStart).toBe(true);
+    expect(restored.acceptedForStart).toBe(false);
   });
 
   test("default map rendering omits interpolation point markers", () => {
@@ -805,17 +799,17 @@ describe("verified backend push (trajectory_path)", () => {
     expect(parseTrajectoryPathCleared({ schema_version: 1 })).toBeNull();
   });
 
-  test("push does not change Load/Start eligibility: STATUS flags still decide", () => {
+  test("push does not change Start eligibility: STATUS flags still decide", () => {
     const pushed = reduceTrajectoryPreview(known("m1"), {
       type: "PUSH_PATH",
       push: makePush(1),
     });
     expect(canDrawBackendLine(pushed)).toBe(true);
-    expect(canLoadBackendPreview(pushed)).toBe(false); // liveLoaded/Ready not yet reported
+    expect(pushed.acceptedForStart).toBe(false);
 
     const ready = reduceTrajectoryPreview(pushed, status("m1"));
     expect(ready.points).toHaveLength(5); // STATUS keeps the pushed line
-    expect(canLoadBackendPreview(ready)).toBe(true);
+    expect(ready.acceptedForStart).toBe(false);
   });
 
   test("a transient not-ready STATUS for the same mission keeps the pushed line", () => {
@@ -903,7 +897,6 @@ describe("pending vs invalid display contract", () => {
       `${TRAJECTORY_COPY.reprepare} (prepared_origin_changed)`,
     );
     expect(canDrawBackendLine(state)).toBe(false);
-    expect(canLoadBackendPreview(state)).toBe(false);
   });
 
   test("ordinary lifecycle clears still keep the path (Stop/Complete history)", () => {

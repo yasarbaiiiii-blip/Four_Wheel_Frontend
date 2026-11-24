@@ -6,7 +6,6 @@
 import {
   EMPTY_TRAJECTORY_PREVIEW,
   canDrawBackendLine,
-  canLoadBackendPreview,
   filterLoadedPathPoints,
   reduceTrajectoryPreview,
   type TrajectoryPreviewState,
@@ -27,23 +26,16 @@ const EMPTY_STATUS = {
 
 const READY_STATUS = {
   state: "READY",
-  loaded: false,
-  ready: false,
+  loaded: true,
+  ready: true,
   trajectory_ready: true,
-  accepted_for_start: false,
-  message: "Path ready. Load the mission to continue.",
+  accepted_for_start: true,
+  start_available: true,
+  message: "Mission ready. START is available from Jetson.",
   error: null,
   mission_id: MISSION_ID,
   mission_run_id: MISSION_ID,
   navigation_point_count: 1292,
-};
-
-const LOADED_STATUS = {
-  ...READY_STATUS,
-  loaded: true,
-  ready: true,
-  accepted_for_start: true,
-  message: "Mission loaded. START is available from Jetson.",
 };
 
 const PATH_POINTS = [
@@ -91,10 +83,10 @@ describe("path preview with C++ backend responses", () => {
       statusEvent(EMPTY_STATUS, 0),
     );
     expect(canDrawBackendLine(state)).toBe(false);
-    expect(canLoadBackendPreview(state)).toBe(false);
+    expect(state.acceptedForStart).toBe(false);
   });
 
-  it("does not enable Load until the path has arrived", () => {
+  it("keeps START blocked until the path has arrived", () => {
     const beforePath = reduceTrajectoryPreview(
       reduceTrajectoryPreview(EMPTY_TRAJECTORY_PREVIEW, {
         type: "UPLOAD_STARTED",
@@ -102,30 +94,23 @@ describe("path preview with C++ backend responses", () => {
       }),
       statusEvent(READY_STATUS, 1),
     );
-    expect(canLoadBackendPreview(beforePath)).toBe(false);
+    expect(canDrawBackendLine(beforePath)).toBe(false);
+    expect(beforePath.acceptedForStart).toBe(true);
   });
 
-  it("draws the line and enables Load after upload", () => {
+  it("draws the line and accepts START directly after upload", () => {
     const state = uploadedState();
     expect(state.phase).toBe("ready");
     expect(state.missionId).toBe(MISSION_ID);
     expect(state.navigationPointCount).toBe(1292);
     expect(state.previewTruncated).toBe(false);
     expect(canDrawBackendLine(state)).toBe(true);
-    expect(canLoadBackendPreview(state)).toBe(true);
-    expect(state.acceptedForStart).toBe(false);
-  });
-
-  it("confirms the load only when the rover reports it", () => {
-    const state = reduceTrajectoryPreview(uploadedState(), statusEvent(LOADED_STATUS, 1));
     expect(state.acceptedForStart).toBe(true);
-    expect(canDrawBackendLine(state)).toBe(true);
-    expect(canLoadBackendPreview(state)).toBe(false); // Already acknowledged
   });
 
-  it("does not offer Load once the rover no longer holds the mission", () => {
+  it("blocks START once the rover no longer holds the mission", () => {
     const state = reduceTrajectoryPreview(uploadedState(), statusEvent(EMPTY_STATUS, 1));
-    expect(canLoadBackendPreview(state)).toBe(false);
+    expect(state.acceptedForStart).toBe(false);
   });
 
   it("shows a mismatch reported by the backend as a failure", () => {
@@ -141,6 +126,6 @@ describe("path preview with C++ backend responses", () => {
       ),
     );
     expect(state.phase).toBe("failed");
-    expect(canLoadBackendPreview(state)).toBe(false);
+    expect(state.acceptedForStart).toBe(false);
   });
 });

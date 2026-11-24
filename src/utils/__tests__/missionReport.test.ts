@@ -154,6 +154,16 @@ describe("generateReportCsv", () => {
     expect(line).toContain('"A ""north"", 2"');
     expect(line).toContain(",8,Excellent,");
   });
+
+  it("includes operator stop headers when timing has runEnd and statement", () => {
+    const { rows } = model();
+    const csv = generateReportCsv(rows, {
+      runEnd: "OPERATOR_STOP",
+      statement: "Operator requested stop during leg 2 of 4. 3/8 points marked before stop.",
+    });
+    expect(csv).toContain("# Run End: OPERATOR_STOP");
+    expect(csv).toContain("# Statement: Operator requested stop during leg 2 of 4. 3/8 points marked before stop.");
+  });
 });
 
 describe("generatePDFHTML", () => {
@@ -170,6 +180,21 @@ describe("generatePDFHTML", () => {
     for (const label of ["Excellent", "Good", "Poor", "Failed"]) {
       expect(html).toContain(label);
     }
+  });
+
+  it("renders OPERATOR STOP banner when runEnd is OPERATOR_STOP", () => {
+    const html = generatePDFHTML(
+      model({
+        timing: {
+          startedAt: "2026-10-12T05:12:07Z",
+          finishedAt: "2026-10-12T05:20:00Z",
+          runEnd: "OPERATOR_STOP",
+          statement: "Operator requested stop during leg 2 of 4. 3/8 points marked before stop.",
+        },
+      }),
+    );
+    expect(html).toContain("OPERATOR STOP REPORT");
+    expect(html).toContain("Operator requested stop during leg 2 of 4. 3/8 points marked before stop.");
   });
 
   it("no longer shows Along, Cross or Overall", () => {

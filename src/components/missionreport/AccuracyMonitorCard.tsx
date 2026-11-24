@@ -273,7 +273,7 @@ export const AccuracyMonitorCard: React.FC<AccuracyMonitorCardProps> = ({
             {actualSpeedText}
           </Text>
           <Text numberOfLines={1} style={styles.metricStatus}>
-            {acceptsLiveData ? "RPP ODOM" : liveDataStateLabel(resolvedDataState)}
+            {acceptsLiveData ? "ODOM" : liveDataStateLabel(resolvedDataState)}
           </Text>
         </View>
         <View style={styles.verticalDivider} />
@@ -297,7 +297,7 @@ export const AccuracyMonitorCard: React.FC<AccuracyMonitorCardProps> = ({
             {headingErrorText}
           </Text>
           <Text numberOfLines={1} style={styles.metricStatus}>
-            {acceptsLiveData ? "FINAL RPP ERROR" : liveDataStateLabel(resolvedDataState)}
+            {acceptsLiveData ? "FINAL GNSS ERROR" : liveDataStateLabel(resolvedDataState)}
           </Text>
         </View>
         <View style={styles.verticalDivider} />
@@ -307,7 +307,7 @@ export const AccuracyMonitorCard: React.FC<AccuracyMonitorCardProps> = ({
             {distanceToGoalText}
           </Text>
           <Text numberOfLines={1} style={styles.metricStatus}>
-            {acceptsLiveData ? "ACTIVE RPP GOAL" : liveDataStateLabel(resolvedDataState)}
+            {acceptsLiveData ? "ACTIVE GOAL" : liveDataStateLabel(resolvedDataState)}
           </Text>
         </View>
       </View>

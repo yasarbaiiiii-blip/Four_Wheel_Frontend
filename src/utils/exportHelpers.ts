@@ -57,6 +57,10 @@ export interface ReportTiming {
   startedAt?: string | null;
   /** ISO text from the rover's report (`mission.completed_at`). */
   finishedAt?: string | null;
+  /** Run termination reason: "COMPLETED" | "OPERATOR_STOP" */
+  runEnd?: string | null;
+  /** Concluding statement / narrative for the mission run */
+  statement?: string | null;
 }
 
 // ── Model ────────────────────────────────────────────────────────────────────
@@ -107,6 +111,7 @@ export interface MissionStats {
 export interface MissionReportModel {
   rows: ExportRow[];
   stats: MissionStats;
+  timing?: ReportTiming | null;
 }
 
 const DASH = '—';
@@ -256,7 +261,7 @@ export function buildMissionReportModel(input: {
     attention,
   };
 
-  return { rows, stats };
+  return { rows, stats, timing: input.timing };
 }
 
 /** Row group heading, e.g. "Row 01 · Block A". */
@@ -285,8 +290,15 @@ function csvCell(value: string | number): string {
 }
 
 /** Same ten columns as the Excel sheet, plain text, UTF-8 with BOM for Excel. */
-export function generateReportCsv(rows: ExportRow[]): string {
-  const lines = [REPORT_COLUMNS.map(csvCell).join(',')];
+export function generateReportCsv(rows: ExportRow[], timing?: ReportTiming): string {
+  const headerLines: string[] = [];
+  if (timing?.runEnd) {
+    headerLines.push(`# Run End: ${timing.runEnd}`);
+  }
+  if (timing?.statement) {
+    headerLines.push(`# Statement: ${timing.statement}`);
+  }
+  const lines = [...headerLines, REPORT_COLUMNS.map(csvCell).join(',')];
   for (const r of rows) {
     lines.push(
       [
@@ -414,6 +426,18 @@ export const generatePDFHTML = (model: MissionReportModel): string => {
         .join('')}</div>`
     : '';
 
+  const runEndBanner =
+    model.timing?.runEnd === 'OPERATOR_STOP'
+      ? `<div style="border: 1.5px solid #F59E0B; background: #FFFBEB; border-radius: 6px; padding: 10px 14px; margin: 14px 0; color: #92400E;">
+          <strong style="display:block; font-size:11px; margin-bottom:3px; letter-spacing:0.5px; color:#B45309;">OPERATOR STOP REPORT</strong>
+          ${esc(model.timing.statement || 'Mission stopped by operator before completion.')}
+        </div>`
+      : model.timing?.statement
+        ? `<div style="border: 1px solid #DDE8F7; background: #F8FAFC; border-radius: 6px; padding: 8px 12px; margin: 12px 0; color: #1E293B;">
+            ${esc(model.timing.statement)}
+          </div>`
+        : '';
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -478,6 +502,8 @@ export const generatePDFHTML = (model: MissionReportModel): string => {
     )}</small></div>
     <div class="when-h"><b>Generated</b>${esc(stats.generatedAt)}</div>
   </div>
+
+  ${runEndBanner}
 
   <div class="kpis">
     <div class="kpi big"><small>Total mission time</small><strong>${esc(

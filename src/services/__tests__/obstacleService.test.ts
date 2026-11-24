@@ -45,6 +45,11 @@ describe("obstacle service", () => {
     expect(await getObstacleStatus()).toBeNull();
   });
 
+  it("returns null and suppresses error when endpoint returns 404 (feature unserved)", async () => {
+    get.mockRejectedValue(new Error("Request failed with status code 404"));
+    expect(await getObstacleStatus()).toBeNull();
+  });
+
   it("sends only the requested change and returns the rover's state", async () => {
     post.mockResolvedValue({ success: true, message: "Obstacle settings saved.", status: { ...LIVE, enabled: true } });
     const result = await setObstacleConfig({ enabled: true });

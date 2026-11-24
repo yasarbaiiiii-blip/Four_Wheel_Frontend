@@ -37,7 +37,6 @@ export interface BackendTrajectoryContextValue {
   resumePreviewAfterFailedUpload: () => void;
   /** Clear the local trajectory identity after the rover mission is deleted. */
   clearTrajectory: () => void;
-  markLoadAccepted: () => void;
   refreshNow: () => Promise<void>;
 }
 
@@ -93,8 +92,8 @@ export function BackendTrajectoryProvider({
     lastReadyRef.current = false;
     holdPreviewRef.current = true;
     missionIdAtHoldRef.current = previewRef.current.missionId;
-    // Keep Load and Start blocked until a path generated for this exact editor
-    // revision returns from the backend.
+    // Keep Start blocked until a path generated for this exact editor revision
+    // returns from the backend with its authoritative readiness flags.
     awaitingAuthoringVersionRef.current = authoringVersionRef.current;
     pathRefreshRequestedRef.current = true;
     apply({ type: "UPLOAD_STARTED", epoch: epochRef.current });
@@ -148,10 +147,6 @@ export function BackendTrajectoryProvider({
     }
   }, [preview.phase, preview.points.length, preview.pendingPush]);
 
-  const markLoadAccepted = useCallback(() => {
-    apply({ type: "LOAD_ACCEPTED" });
-  }, [apply]);
-
   const pollOnce = useCallback(async (): Promise<void> => {
     const offline = isOfflineMode();
     if (
@@ -190,7 +185,8 @@ export function BackendTrajectoryProvider({
         missionState === "COMPLETED" ||
         missionState === "STOPPED" ||
         missionState === "EMPTY" ||
-        missionState === "LOADED";
+        missionState === "LOADED" ||
+        mission.completed === true;
 
       // A finished run often drops trajectory_ready. That is not a new
       // upload — keep the preview epoch so the last path stays drawn.
@@ -380,7 +376,6 @@ export function BackendTrajectoryProvider({
       invalidateForUpload,
       resumePreviewAfterFailedUpload,
       clearTrajectory,
-      markLoadAccepted,
       refreshNow,
     }),
     [
@@ -390,7 +385,6 @@ export function BackendTrajectoryProvider({
       invalidateForUpload,
       resumePreviewAfterFailedUpload,
       clearTrajectory,
-      markLoadAccepted,
       refreshNow,
     ],
   );

@@ -156,6 +156,7 @@ export function useClearMission(
   const hasRuntimeMission = Boolean(
     currentMission?.loaded ||
       currentMission?.ready ||
+      currentMission?.completed ||
       currentMission?.accepted_for_start ||
       (currentMission?.mission_id && !EMPTY_STATES.has(effectiveState)) ||
       verifiedMissionId ||

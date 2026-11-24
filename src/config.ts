@@ -194,7 +194,6 @@ export const SOCKET_CONFIG = {
  * Do not call these routes; use PX4_API_ENDPOINTS / px4Endpoints.ts instead.
  *
  * MISSION_UPLOAD: '/api/mission/upload',
- * MISSION_LOAD: '/api/mission/load',              // client waypoint upload
  * MISSION_LOAD_CONTROLLER: '/api/mission/load_controller',
  * MISSION_DOWNLOAD: '/api/mission/download',
  * MISSION_NEXT: '/api/mission/next',

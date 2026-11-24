@@ -168,7 +168,6 @@ import {
   getMissionStatus,
   getMissionReport,
   uploadMissionCsv,
-  loadMission,
   setMissionExecutionMode,
   startMission,
   pauseMission,
@@ -176,6 +175,7 @@ import {
   nextMissionPoint,
   skipMissionPoint,
   stopMission,
+  answerMarking,
   getMissionExtension,
   type MissionRuntimeState,
   type CanonicalMissionReport,
@@ -190,7 +190,6 @@ import {
   extensionPointFeatures,
   type ExtensionChoice,
 } from "../utils/missionExtension";
-import { canLoadBackendPreview } from "../utils/backendTrajectoryPreview";
 import { MissionExtensionDistanceDialog } from "../components/pathplan/MissionExtensionDistanceDialog";
 import { useMissionExtension } from "../hooks/pathplan/useMissionExtension";
 import { downloadFileToDevice, getMimeType } from "../utils/downloadHelper";
@@ -223,6 +222,8 @@ import {
 } from "../components/missionreport/MissionDeckControls";
 import { MissionEditToolbar } from "../components/missionreport/MissionEditToolbar";
 import { MissionExportSheet } from "../components/missionreport/MissionExportSheet";
+import { MissionToolsActionTrio } from "../components/missionreport/MissionToolsActionTrio";
+import { MarkingQuestionBanner } from "../components/missionreport/MarkingQuestionBanner";
 import MissionReportExport from "../components/missionreport/MissionReportExport";
 
 import {
@@ -341,12 +342,11 @@ export default function MissionReportScreen({
     resumePreviewAfterFailedUpload,
     clearTrajectory,
     refreshNow,
-    markLoadAccepted,
   } = useBackendTrajectory();
   const { services, connectionState } = useConnection();
 
-  // Home-screen Load and Row Extension. The old planner panels are disabled,
-  // so these are the operator's only way to reach both actions.
+  // Home-screen Row Extension. The old planner panels are disabled, so this is
+  // the operator's direct entry point for extension changes.
   const missionExtension = useMissionExtension({
     missionId: preview.missionId,
     trajectoryReady: preview.liveTrajectoryReady,
@@ -357,7 +357,6 @@ export default function MissionReportScreen({
   const [heldExtensionChoice, setHeldExtensionChoice] =
     useState<ExtensionChoice>(DEFAULT_EXTENSION_CHOICE);
   const [isApplyingHomeExtension, setIsApplyingHomeExtension] = useState(false);
-  const [isLoadingHomeMission, setIsLoadingHomeMission] = useState(false);
   const homeMissionRequestRef = useRef(false);
   const extensionDialogChoice = useMemo(
     (): ExtensionChoice =>
@@ -3492,6 +3491,10 @@ export default function MissionReportScreen({
       },
     });
 
+    if (result.success) {
+      void refreshCanonicalMissionReport();
+    }
+
     return result;
   };
 
@@ -3577,6 +3580,49 @@ export default function MissionReportScreen({
     }
   };
 
+  const [isAnsweringMarking, setIsAnsweringMarking] = useState(false);
+  const handleAnswerMarking = useCallback(
+    async (mark: boolean) => {
+      setIsAnsweringMarking(true);
+      try {
+        console.log(
+          `[MissionReportScreen] Answering marking tolerance question: mark=${mark}`,
+        );
+        const response = await answerMarking(mark);
+        if (response.success) {
+          showNotification(
+            "info",
+            mark ? "Mark Approved" : "Point Skipped",
+            response.message ||
+              (mark
+                ? "The rover will mark this point."
+                : "The point will be skipped."),
+          );
+        } else {
+          showNotification(
+            "error",
+            "Marking Answer Refused",
+            response.message || "The rover refused the marking answer.",
+          );
+        }
+        void refreshBackendMission();
+        return response;
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to send marking answer.";
+        console.error("[MissionReportScreen] Answer marking failed:", error);
+        void refreshBackendMission();
+        showNotification("error", "Answer Failed", message, 5000);
+        return { success: false, message };
+      } finally {
+        setIsAnsweringMarking(false);
+      }
+    },
+    [refreshBackendMission],
+  );
+
   // Save the mission currently shown in the app (including any applied edits)
   // as a CSV the rover can accept again.
   const exportInFlightRef = useRef(false);
@@ -3630,72 +3676,6 @@ export default function MissionReportScreen({
           () => undefined,
         );
       }
-    }
-  };
-
-  // Confirms the rover's prepared path, exactly as the planner's Load did, but
-  // stays on the home screen. Success shows only after the rover confirms it.
-  const handleHomeLoadMission = async (): Promise<void> => {
-    if (homeMissionRequestRef.current) return;
-    if (connectionState !== "connected") {
-      showNotification("error", "Connect Rover", "Connect to the rover first.", 5000);
-      return;
-    }
-    if (preview.acceptedForStart) {
-      showNotification("info", "Already Loaded", "This mission is already loaded on the rover.", 4500);
-      return;
-    }
-    if (!canLoadBackendPreview(preview)) {
-      showNotification("info", "Not Ready", "The rover is still preparing the path. Try again shortly.", 4500);
-      return;
-    }
-
-    homeMissionRequestRef.current = true;
-    setIsLoadingHomeMission(true);
-    try {
-      if (!missionExtension.missionId || missionExtension.missionId !== preview.missionId) {
-        throw new Error("Wait for the rover's current mission settings and path before loading it.");
-      }
-      const response = await loadMission(preview.missionId ?? undefined);
-      if (!response.success) {
-        throw new Error(
-          response.message ||
-          response.mission?.message ||
-          response.mission?.error ||
-          "The rover rejected Load Mission.",
-        );
-      }
-      markLoadAccepted();
-      // LOAD response already identifies the exact signed mission installed
-      // on Jetson. Synchronize Mission Progress immediately, not only through
-      // an eventually scheduled status poll.
-      if (response.mission) setBackendMission(response.mission, { fresh: true });
-      showNotification("success", "Mission Loaded", "The rover has the mission. It has not started.", 4500);
-      // Keep status in step, but a failed refresh must not undo a confirmed Load.
-      void refreshBackendMission().catch((error: unknown) =>
-        console.warn("[MissionReport] Mission refresh after Load failed:", error),
-      );
-      void refreshNow().catch((error: unknown) =>
-        console.warn("[MissionReport] Preview refresh after Load failed:", error),
-      );
-    } catch (error) {
-      const detail = extensionErrorDetail(error);
-      if (detail.code === "MISSION_CHANGED") {
-        void missionExtension.refresh();
-        void refreshBackendMission();
-        void refreshNow();
-      }
-      showNotification(
-        "error",
-        "Load Failed",
-        detail.code === "MISSION_CHANGED"
-          ? "The mission changed on the rover. Wait for the current path and try again."
-          : detail.message,
-        6000,
-      );
-    } finally {
-      homeMissionRequestRef.current = false;
-      setIsLoadingHomeMission(false);
     }
   };
 
@@ -5601,6 +5581,10 @@ export default function MissionReportScreen({
             markingTool={backendMission?.marking_tool}
             laserHoldMode={backendMission?.laser_hold_mode}
             laserHoldPointId={backendMission?.laser_hold_point_id}
+            askingOperator={backendMission?.asking_operator}
+            askPointId={backendMission?.ask_point_id}
+            askRadialMm={backendMission?.ask_radial_mm}
+            onAnswerMarking={handleAnswerMarking}
             remainingPointCount={backendMission?.remaining_points}
             onStart={handleStart}
             onPause={handlePause}
@@ -5703,9 +5687,9 @@ export default function MissionReportScreen({
           canClearMission={canClearMission}
           isClearingMission={isClearingMission}
           onOpenPlan={onOpenPlan ?? (() => undefined)}
-          onLoadMission={() => { void handleHomeLoadMission(); }}
-          loadBusy={isLoadingHomeMission}
           onOpenExtension={() => setShowExtensionDialog(true)}
+          runEnd={canonicalMissionReport?.run_end || backendMission?.run_end}
+          statement={canonicalMissionReport?.statement}
           onStart={() => handleStart()}
           onPause={() => handlePause()}
           onResume={() => handleResume()}
@@ -5738,7 +5722,7 @@ export default function MissionReportScreen({
               ? backendMission.start_blocker_message.trim()
               : null) ||
             (!canStartMission && !hasUploadedMission
-              ? "Upload and Load a mission first."
+              ? "Upload a mission first."
               : !backendMission?.ready && backendMission?.loaded
               ? "The rover is preparing. Wait for READY."
               : null)
@@ -5883,6 +5867,15 @@ export default function MissionReportScreen({
             ? undefined
             : "Clear the saved point status and timing for this mission? The mission plan stays loaded."
         }
+      />
+
+      {/* 31–35 mm Question Decision Banner */}
+      <MarkingQuestionBanner
+        visible={backendMission?.asking_operator === true}
+        pointId={backendMission?.ask_point_id}
+        radialMm={backendMission?.ask_radial_mm}
+        onAnswer={handleAnswerMarking}
+        isSubmitting={isAnsweringMarking}
       />
     </SafeAreaView>
   );
@@ -6044,9 +6037,11 @@ interface MissionActivityExperienceProps {
   canClearMission?: boolean;
   isClearingMission?: boolean;
   onOpenPlan: (intent?: PlanOpenIntent) => void;
-  onLoadMission: () => void;
-  loadBusy: boolean;
+  onLoadMission?: () => void;
+  loadBusy?: boolean;
   onOpenExtension: () => void;
+  runEnd?: "COMPLETED" | "OPERATOR_STOP" | string | null;
+  statement?: string | null;
   onStart: DeckAction;
   onPause: DeckAction;
   onResume: DeckAction;
@@ -6243,7 +6238,8 @@ function commandAccuracyTier(accMm: number | null): { label: string; color: stri
 function MissionActivityExperience({
   waypoints, statusMap, currentIndex, missionStartTime, missionEndTime,
   isMissionActive,
-  hasMissionLoaded, onClearMission, canClearMission, isClearingMission, onOpenPlan, onLoadMission, loadBusy, onOpenExtension,
+  hasMissionLoaded, onClearMission, canClearMission, isClearingMission, onOpenPlan, onOpenExtension,
+  runEnd, statement,
   onStart, onPause, onResume, onStop,
   canStart, isPreparing, isMissionPaused, missionState, isStarting,
   pauseAvailable, skipAvailable, nextAvailable, canChangeMode, stopLatched, onEmergencyStopRecorded,
@@ -6824,14 +6820,34 @@ function MissionActivityExperience({
           <CommandMeta icon="map-marker-radius-outline" text={`${activityWaypoints.length} ${isDemoPoints ? "sample points" : "points"}`} />
           <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
         </View>
+        {runEnd === "OPERATOR_STOP" && (
+          <View style={fieldExperienceStyles.operatorStopNoticeCard}>
+            <View style={fieldExperienceStyles.operatorStopNoticeHeader}>
+              <MaterialCommunityIcons name="alert-octagon" size={20} color="#D97706" />
+              <Text style={fieldExperienceStyles.operatorStopNoticeTitle}>Operator stop report</Text>
+            </View>
+            <Text style={fieldExperienceStyles.operatorStopNoticeStatement}>
+              {statement || "Operator requested stop during the mission. Points marked before stop are recorded."}
+            </Text>
+            <TouchableOpacity
+              style={fieldExperienceStyles.operatorStopNoticeBtn}
+              onPress={onExportReport}
+              accessibilityRole="button"
+              accessibilityLabel="View operator stop report"
+            >
+              <MaterialCommunityIcons name="file-document-outline" size={16} color="#B45309" />
+              <Text style={fieldExperienceStyles.operatorStopNoticeBtnText}>View / Export Report</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
           <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{stopLatched ? "Emergency stop active — press Release" : hasMissionLoaded ? (canStart ? "Mission ready to start" : (startBlockerMessage || "Mission ready to use")) : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{onClearMission && (<TouchableOpacity style={[fieldExperienceStyles.clearMissionCompact, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactDisabled]} onPress={onClearMission} disabled={!canClearMission || isClearingMission} accessibilityRole="button" accessibilityLabel="Clear Mission"><MaterialCommunityIcons name="eraser-variant" size={15} color={!canClearMission || isClearingMission ? "rgba(217,74,66,0.4)" : "#D94A42"} /><Text style={[fieldExperienceStyles.clearMissionCompactText, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactTextDisabled]}>Clear Mission</Text></TouchableOpacity>)}</View></View>
-          <View style={fieldExperienceStyles.missionToolGrid}>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, fieldExperienceStyles.missionToolTilePrimary]} onPress={() => openPlanGuarded("upload")} accessibilityRole="button" accessibilityLabel="Upload mission plan"><MaterialCommunityIcons name="file-upload-outline" size={24} color="#FFFFFF" /><Text style={fieldExperienceStyles.missionToolTilePrimaryText}>Upload</Text></TouchableOpacity>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, !hasMissionLoaded && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => runWithoutDraft(onOpenExtension)} disabled={!hasMissionLoaded} accessibilityRole="button" accessibilityLabel="Open mission extension tools" accessibilityState={{ disabled: !hasMissionLoaded }}><MaterialCommunityIcons name="vector-polyline-plus" size={24} color={hasMissionLoaded ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, !hasMissionLoaded && fieldExperienceStyles.missionToolTileTextDisabled]}>Extension</Text></TouchableOpacity>
-            <TouchableOpacity style={[fieldExperienceStyles.missionToolTile, (!hasMissionLoaded || stopLatched) && fieldExperienceStyles.missionToolTileDisabled]} onPress={() => runWithoutDraft(onLoadMission)} disabled={!hasMissionLoaded || loadBusy || stopLatched} accessibilityRole="button" accessibilityLabel={stopLatched ? "Load disabled while emergency stop is active" : "Load mission plan"} accessibilityState={{ disabled: !hasMissionLoaded || loadBusy || stopLatched, busy: loadBusy }}><MaterialCommunityIcons name="tray-arrow-down" size={24} color={hasMissionLoaded && !stopLatched ? "#1475EE" : "#9BAABD"} /><Text style={[fieldExperienceStyles.missionToolTileText, (!hasMissionLoaded || stopLatched) && fieldExperienceStyles.missionToolTileTextDisabled]}>Load</Text></TouchableOpacity>
-            <TouchableOpacity style={fieldExperienceStyles.missionToolTile} onPress={() => setIsExportSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Open export and logs menu"><MaterialCommunityIcons name="file-export-outline" size={24} color="#1475EE" /><Text style={fieldExperienceStyles.missionToolTileText}>Export</Text></TouchableOpacity>
-          </View>
+          <MissionToolsActionTrio
+            hasMissionLoaded={hasMissionLoaded}
+            onUpload={() => openPlanGuarded("upload")}
+            onOpenExtension={() => runWithoutDraft(onOpenExtension)}
+            onOpenExport={() => setIsExportSheetOpen(true)}
+          />
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionActivityCard]} onLayout={(event) => { setActivityCardHeight(Math.round(event.nativeEvent.layout.height)); setActivityCardWidth(Math.round(event.nativeEvent.layout.width)); }}>
           <View style={fieldExperienceStyles.activityHeader}>
@@ -7206,6 +7222,27 @@ function MissionActivityExperience({
                 </View>
               )}
 
+              {/* Operator Stop Banner */}
+              {runEnd === "OPERATOR_STOP" && (
+                <View style={fieldExperienceStyles.deckOperatorStopBanner}>
+                  <MaterialCommunityIcons name="alert-octagon" size={18} color="#D97706" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={fieldExperienceStyles.deckOperatorStopTitle}>Operator stop report</Text>
+                    <Text style={fieldExperienceStyles.deckOperatorStopText} numberOfLines={2}>
+                      {statement || "Operator requested stop during the mission. Points marked before stop are recorded."}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={fieldExperienceStyles.deckOperatorStopBtn}
+                    onPress={onExportReport}
+                    accessibilityRole="button"
+                    accessibilityLabel="Export report"
+                  >
+                    <Text style={fieldExperienceStyles.deckOperatorStopBtnText}>Report</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               {/* Route Progress Header */}
               <View style={fieldExperienceStyles.progressHeaderRowMinimal}>
                 <View style={fieldExperienceStyles.progressHeaderLeft}>
@@ -7452,6 +7489,92 @@ function MissionActivityExperience({
 
 const fieldExperienceStyles = StyleSheet.create({
   host: { ...StyleSheet.absoluteFillObject, zIndex: 21 },
+  operatorStopNoticeCard: {
+    backgroundColor: "#FFFBEB",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#F59E0B",
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: "#78350F",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  operatorStopNoticeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  operatorStopNoticeTitle: {
+    color: "#B45309",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  operatorStopNoticeStatement: {
+    color: "#92400E",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  operatorStopNoticeBtn: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  operatorStopNoticeBtnText: {
+    color: "#B45309",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  deckOperatorStopBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#FFFBEB",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#F59E0B",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  deckOperatorStopTitle: {
+    color: "#B45309",
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  deckOperatorStopText: {
+    color: "#92400E",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  deckOperatorStopBtn: {
+    backgroundColor: "#D97706",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  deckOperatorStopBtnText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
+  },
   missionToolSection: { padding: 16, marginBottom: 8, backgroundColor: "#FCFDFF", shadowColor: "#315987", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 10, elevation: 3 }, missionToolHeading: { flexDirection: "row", alignItems: "center", gap: 9, flex: 1 }, missionToolHeadingIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF3FF" }, missionToolTitle: { color: "#152A50", fontSize: 15, fontWeight: "900" }, toolSectionSub: { color: "#7A8DA8", fontSize: 9, fontWeight: "700", marginTop: 2 }, toolHeaderActions: { flexDirection: "row", alignItems: "center", gap: 7 }, toolSectionHint: { color: "#7183A1", fontSize: 8, fontWeight: "900", letterSpacing: 0.7 }, clearMissionCompact: { height: 32, paddingHorizontal: 10, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: "#FFF5F3", borderWidth: 1, borderColor: "#FFD9D2" }, clearMissionCompactDisabled: { opacity: 0.45, backgroundColor: "#F1F5F9", borderColor: "#E2E8F0" }, clearMissionCompactText: { color: "#D94A42", fontSize: 9, fontWeight: "900" }, clearMissionCompactTextDisabled: { color: "#94A3B8" },
   missionToolGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 12, marginTop: 14 }, missionToolTile: { width: "48.6%", height: 62, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderRadius: 16, backgroundColor: "#F7FAFF", borderWidth: 1, borderColor: "#D5E3F5", shadowColor: "#315987", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 }, missionToolTilePrimary: { backgroundColor: "#1475EE", borderColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.28, shadowRadius: 9, elevation: 5 }, missionToolTileDisabled: { backgroundColor: "#F3F6FA", borderColor: "#E0E7F0", shadowOpacity: 0, elevation: 0 }, missionToolTileClear: { backgroundColor: "#FFF7F5", borderColor: "#FFD9D2" }, missionToolTileText: { color: "#315987", fontSize: 13, fontWeight: "900", letterSpacing: 0.1 }, missionToolTileTextDisabled: { color: "#9BAABD" }, missionToolTilePrimaryText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", letterSpacing: 0.1 }, missionToolTileClearText: { color: "#D94A42", fontSize: 11, fontWeight: "900", letterSpacing: 0.1 },
   uploadMissionOnly: { height: 58, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 11, borderRadius: 14, backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.24, shadowRadius: 8, elevation: 3 }, uploadMissionOnlyIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" }, uploadMissionOnlyTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" }, uploadMissionOnlySub: { color: "#DCEBFF", fontSize: 10, fontWeight: "600", marginTop: 2 },

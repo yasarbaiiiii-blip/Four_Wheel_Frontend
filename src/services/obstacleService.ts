@@ -27,11 +27,16 @@ export interface ObstacleConfigChanges {
   warning_mm?: number;
 }
 
-/** Current rover status; null when obstacle_monitor has not reported yet. */
+/** Current rover status; null when obstacle_monitor has not reported yet or feature unserved (404). */
 export async function getObstacleStatus(): Promise<ObstacleView | null> {
-  const response = await apiGet<ObstacleStatusResponse>(PX4_OBSTACLE.STATUS);
-  if (!response?.available) return null;
-  return toObstacleView(response.status);
+  try {
+    const response = await apiGet<ObstacleStatusResponse>(PX4_OBSTACLE.STATUS);
+    if (!response?.available) return null;
+    return toObstacleView(response.status);
+  } catch {
+    // Treat 404 / connection error as feature disabled/unavailable on this rover.
+    return null;
+  }
 }
 
 /** Apply settings on the rover; resolves with the status the rover now reports. */
