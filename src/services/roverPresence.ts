@@ -24,6 +24,7 @@ const failures = new Map<string, number>();
 export interface RoverHealthBody {
   ok: boolean;
   type?: string;
+  service?: string;
   rover_id?: string;
   rover_name?: string;
   port?: number;
@@ -35,9 +36,10 @@ export function isRoverHealth(body: unknown): body is RoverHealthBody {
     return false;
   }
   const value = body as RoverHealthBody;
+  const kind = value.type ?? value.service;
   return (
     value.ok === true &&
-    value.type === "rover_backend" &&
+    kind === "rover_backend" &&
     typeof value.rover_id === "string" &&
     value.rover_id.length > 0
   );
