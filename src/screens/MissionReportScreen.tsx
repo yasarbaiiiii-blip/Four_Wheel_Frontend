@@ -6820,26 +6820,6 @@ function MissionActivityExperience({
           <CommandMeta icon="map-marker-radius-outline" text={`${activityWaypoints.length} ${isDemoPoints ? "sample points" : "points"}`} />
           <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
         </View>
-        {runEnd === "OPERATOR_STOP" && (
-          <View style={fieldExperienceStyles.operatorStopNoticeCard}>
-            <View style={fieldExperienceStyles.operatorStopNoticeHeader}>
-              <MaterialCommunityIcons name="alert-octagon" size={20} color="#D97706" />
-              <Text style={fieldExperienceStyles.operatorStopNoticeTitle}>Operator stop report</Text>
-            </View>
-            <Text style={fieldExperienceStyles.operatorStopNoticeStatement}>
-              {statement || "Operator requested stop during the mission. Points marked before stop are recorded."}
-            </Text>
-            <TouchableOpacity
-              style={fieldExperienceStyles.operatorStopNoticeBtn}
-              onPress={onExportReport}
-              accessibilityRole="button"
-              accessibilityLabel="View operator stop report"
-            >
-              <MaterialCommunityIcons name="file-document-outline" size={16} color="#B45309" />
-              <Text style={fieldExperienceStyles.operatorStopNoticeBtnText}>View / Export Report</Text>
-            </TouchableOpacity>
-          </View>
-        )}
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
           <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{stopLatched ? "Emergency stop active — press Release" : hasMissionLoaded ? (canStart ? "Mission ready to start" : (startBlockerMessage || "Mission ready to use")) : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{onClearMission && (<TouchableOpacity style={[fieldExperienceStyles.clearMissionCompact, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactDisabled]} onPress={onClearMission} disabled={!canClearMission || isClearingMission} accessibilityRole="button" accessibilityLabel="Clear Mission"><MaterialCommunityIcons name="eraser-variant" size={15} color={!canClearMission || isClearingMission ? "rgba(217,74,66,0.4)" : "#D94A42"} /><Text style={[fieldExperienceStyles.clearMissionCompactText, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactTextDisabled]}>Clear Mission</Text></TouchableOpacity>)}</View></View>
           <MissionToolsActionTrio
@@ -6847,6 +6827,7 @@ function MissionActivityExperience({
             onUpload={() => openPlanGuarded("upload")}
             onOpenExtension={() => runWithoutDraft(onOpenExtension)}
             onOpenExport={() => setIsExportSheetOpen(true)}
+            isOperatorStop={runEnd === "OPERATOR_STOP"}
           />
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionActivityCard]} onLayout={(event) => { setActivityCardHeight(Math.round(event.nativeEvent.layout.height)); setActivityCardWidth(Math.round(event.nativeEvent.layout.width)); }}>
@@ -7489,56 +7470,6 @@ function MissionActivityExperience({
 
 const fieldExperienceStyles = StyleSheet.create({
   host: { ...StyleSheet.absoluteFillObject, zIndex: 21 },
-  operatorStopNoticeCard: {
-    backgroundColor: "#FFFBEB",
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "#F59E0B",
-    padding: 14,
-    marginBottom: 10,
-    shadowColor: "#78350F",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  operatorStopNoticeHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 6,
-  },
-  operatorStopNoticeTitle: {
-    color: "#B45309",
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-  },
-  operatorStopNoticeStatement: {
-    color: "#92400E",
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "600",
-    marginBottom: 10,
-  },
-  operatorStopNoticeBtn: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#FEF3C7",
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  operatorStopNoticeBtnText: {
-    color: "#B45309",
-    fontSize: 11,
-    fontWeight: "800",
-  },
   deckOperatorStopBanner: {
     flexDirection: "row",
     alignItems: "center",
