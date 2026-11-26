@@ -6,8 +6,12 @@ import {
   enableSpray,
   getSprayConfig,
   setSprayDuration,
+  setSprayPwm,
+  sprayPwmError,
   testSpray,
   SPRAY_DURATION_MAX_SEC,
+  SPRAY_PWM_MAX_US,
+  SPRAY_PWM_MIN_US,
 } from "../services/sprayConfigService";
 
 export const SPRAY_DURATION_MIN_MS = 100;
@@ -48,8 +52,14 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
 
   // Hardware telemetry (read-only from rover)
   const [channel, setChannel] = useState(5);
-  const [pressPwmUs, setPressPwmUs] = useState(2000);
+  // Spray PWM: "applied" = what the rover uses now; "saved" = kept for every start; "draft" = being edited here.
+  const [pressPwmUs, setPressPwmUs] = useState(2000); // applied
   const [releasePwmUs, setReleasePwmUs] = useState(1500);
+  const [savedPressPwmUs, setSavedPressPwmUs] = useState(2000);
+  const [savedReleasePwmUs, setSavedReleasePwmUs] = useState(1500);
+  const [draftPressPwmUs, setDraftPressPwmUsState] = useState(2000);
+  const [draftReleasePwmUs, setDraftReleasePwmUsState] = useState(1500);
+  const [sprayValueSource, setSprayValueSource] = useState<string | null>(null);
   const [controllerState, setControllerState] = useState<string | null>(null);
 
   // Loading states
@@ -67,9 +77,15 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
   const safetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Dirty tracking: true if draft differs from saved state
+  const isPwmDirty =
+    draftPressPwmUs !== savedPressPwmUs ||
+    draftReleasePwmUs !== savedReleasePwmUs ||
+    sprayValueSource === "unsaved";
+  const pwmError = sprayPwmError(draftPressPwmUs, draftReleasePwmUs);
   const isDirty =
     draftServoEnabled !== savedServoEnabled ||
-    draftDurationMs !== savedDurationMs;
+    draftDurationMs !== savedDurationMs ||
+    isPwmDirty;
 
   // 1. Fetch hardware configuration from rover
   const refreshConfig = useCallback(async () => {
@@ -93,12 +109,23 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
 
       setChannel(5); // Contractually AUX5
 
-      if (typeof config.press_pwm_us === "number" && Number.isFinite(config.press_pwm_us)) {
-        setPressPwmUs(config.press_pwm_us);
+      if (
+        typeof config.press_pwm_us === "number" && Number.isFinite(config.press_pwm_us) &&
+        typeof config.release_pwm_us === "number" && Number.isFinite(config.release_pwm_us)
+      ) {
+        const press = Math.round(config.press_pwm_us);
+        const release = Math.round(config.release_pwm_us);
+        setPressPwmUs(press);
+        setReleasePwmUs(release);
+        setDraftPressPwmUsState(press);
+        setDraftReleasePwmUsState(release);
+        // Values only applied for a test are not the saved ones; keep the saved baseline from before.
+        if (config.spray_value_source !== "unsaved") {
+          setSavedPressPwmUs(press);
+          setSavedReleasePwmUs(release);
+        }
       }
-      if (typeof config.release_pwm_us === "number" && Number.isFinite(config.release_pwm_us)) {
-        setReleasePwmUs(config.release_pwm_us);
-      }
+      setSprayValueSource(config.spray_value_source ?? null);
       if (config.controller_state) {
         setControllerState(config.controller_state);
       }
@@ -156,6 +183,27 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
     setDraftDurationMs(clamped);
   }, []);
 
+  const clampPwm = (us: number) => Math.min(SPRAY_PWM_MAX_US, Math.max(SPRAY_PWM_MIN_US, Math.round(us)));
+  const setDraftPressPwmUs = useCallback((us: number) => {
+    if (Number.isFinite(us)) setDraftPressPwmUsState(clampPwm(us));
+  }, []);
+  const setDraftReleasePwmUs = useCallback((us: number) => {
+    if (Number.isFinite(us)) setDraftReleasePwmUsState(clampPwm(us));
+  }, []);
+
+  // Apply the draft PWM on the rover (not saved) so that the next test uses it.
+  const applyDraftPwm = useCallback(async (save: boolean) => {
+    const res = await setSprayPwm(draftPressPwmUs, draftReleasePwmUs, save);
+    if (!res.success) throw new Error(res.message || "Rover rejected the spray PWM");
+    setPressPwmUs(draftPressPwmUs);
+    setReleasePwmUs(draftReleasePwmUs);
+    setSprayValueSource(res.config?.spray_value_source ?? (save ? "saved" : "unsaved"));
+    if (save) {
+      setSavedPressPwmUs(draftPressPwmUs);
+      setSavedReleasePwmUs(draftReleasePwmUs);
+    }
+  }, [draftPressPwmUs, draftReleasePwmUs]);
+
   // 3. Safety interlocks for spray test (Option B Policy)
   // Permitted while DISARMED (bench testing); blocked if armed and moving or mission running.
   const isMoving = groundSpeed >= 0.1;
@@ -172,6 +220,8 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
     disabledTestReason = "Enable spray controller switch first";
   } else if (inFlightRef.current || isTesting) {
     disabledTestReason = "Test pulse in progress";
+  } else if (pwmError) {
+    disabledTestReason = pwmError;
   }
 
   const canTestSpray = disabledTestReason === null;
@@ -228,6 +278,10 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
     }, draftDurationMs + 300);
 
     try {
+      // Test the PWM being edited: apply it on the rover first (not saved until Save).
+      if (draftPressPwmUs !== pressPwmUs || draftReleasePwmUs !== releasePwmUs) {
+        await applyDraftPwm(false);
+      }
       const response = await testSpray(durationSec);
       if (!response.success) {
         throw new Error(response.message || "Rover rejected test spray");
@@ -254,7 +308,7 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
       inFlightRef.current = false;
       setIsTesting(false);
     }
-  }, [canTestSpray, disabledTestReason, draftDurationMs, emergencyRelease]);
+  }, [applyDraftPwm, canTestSpray, disabledTestReason, draftDurationMs, draftPressPwmUs, draftReleasePwmUs, emergencyRelease, pressPwmUs, releasePwmUs]);
 
   // 6. Commit changes to rover (Option B Save Model + Option A Laser Policy)
   const commitSpraySettings = useCallback(
@@ -275,6 +329,11 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
             throw new Error(switchRes.message || "Failed to set spray power");
           }
           setSavedServoEnabled(draftServoEnabled);
+        }
+
+        if (isPwmDirty) {
+          if (pwmError) throw new Error(pwmError);
+          await applyDraftPwm(true); // applied and kept for every start
         }
 
         if (draftDurationMs !== savedDurationMs) {
@@ -301,14 +360,26 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
         return { success: false, message: msg };
       }
     },
-    [draftDurationMs, draftServoEnabled, onSuccessMessage, savedDurationMs, savedServoEnabled],
+    [applyDraftPwm, draftDurationMs, draftServoEnabled, isPwmDirty, onSuccessMessage, pwmError, savedDurationMs, savedServoEnabled],
   );
 
   // 7. Discard draft changes
   const discardDraft = useCallback(() => {
     setDraftServoEnabled(savedServoEnabled);
     setDraftDurationMs(savedDurationMs);
-  }, [savedDurationMs, savedServoEnabled]);
+    setDraftPressPwmUsState(savedPressPwmUs);
+    setDraftReleasePwmUsState(savedReleasePwmUs);
+    // A tested but unsaved PWM is still in use on the rover: put the saved values back.
+    if (pressPwmUs !== savedPressPwmUs || releasePwmUs !== savedReleasePwmUs) {
+      void setSprayPwm(savedPressPwmUs, savedReleasePwmUs, true)
+        .then(() => {
+          setPressPwmUs(savedPressPwmUs);
+          setReleasePwmUs(savedReleasePwmUs);
+          setSprayValueSource("saved");
+        })
+        .catch(() => undefined);
+    }
+  }, [pressPwmUs, releasePwmUs, savedDurationMs, savedPressPwmUs, savedReleasePwmUs, savedServoEnabled]);
 
   return {
     // Draft & saved values
@@ -323,6 +394,14 @@ export function useSprayActuator(options: UseSprayActuatorOptions = {}) {
     channel,
     pressPwmUs,
     releasePwmUs,
+    draftPressPwmUs,
+    draftReleasePwmUs,
+    setDraftPressPwmUs,
+    setDraftReleasePwmUs,
+    savedPressPwmUs,
+    savedReleasePwmUs,
+    sprayValueSource,
+    pwmError,
     controllerState,
     configLoaded,
     isLoadingConfig,

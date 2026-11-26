@@ -18,9 +18,14 @@ jest.mock("../../services/sprayConfigService", () => ({
   enableSpray: jest.fn(),
   disableSpray: jest.fn(),
   setSprayDuration: jest.fn(),
+  setSprayPwm: jest.fn(),
+  saveSprayPwm: jest.fn(),
+  sprayPwmError: jest.fn(() => null),
   testSpray: jest.fn(),
   cancelSprayTest: jest.fn(),
   SPRAY_DURATION_MAX_SEC: 3.0,
+  SPRAY_PWM_MIN_US: 1200,
+  SPRAY_PWM_MAX_US: 2000,
 }));
 
 function renderHook<T>(useHook: () => T) {
@@ -72,6 +77,9 @@ describe("useSprayActuator hook", () => {
     (sprayConfigService.enableSpray as jest.Mock).mockResolvedValue({ success: true });
     (sprayConfigService.disableSpray as jest.Mock).mockResolvedValue({ success: true });
     (sprayConfigService.setSprayDuration as jest.Mock).mockResolvedValue({ success: true });
+    (sprayConfigService.setSprayPwm as jest.Mock).mockResolvedValue({ success: true });
+    (sprayConfigService.saveSprayPwm as jest.Mock).mockResolvedValue({ success: true });
+    (sprayConfigService.sprayPwmError as jest.Mock).mockReturnValue(null);
     (sprayConfigService.testSpray as jest.Mock).mockResolvedValue({ success: true });
     (sprayConfigService.cancelSprayTest as jest.Mock).mockResolvedValue({ success: true });
   });

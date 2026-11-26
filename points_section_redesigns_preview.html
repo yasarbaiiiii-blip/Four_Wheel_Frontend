@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Points Section Redesign - 6 Design Concepts</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* Strictly clean typography - 400 and 500 weights */
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.04);
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #CBD5E1;
+      border-radius: 4px;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.92); opacity: 0.9; }
+      50% { transform: scale(1.15); opacity: 0.3; }
+      100% { transform: scale(0.92); opacity: 0.9; }
+    }
+    .pulse-ring {
+      animation: pulse-ring 2s infinite ease-in-out;
+    }
+    .active-concept-tab {
+      background: #1475EE !important;
+      color: #FFFFFF !important;
+      box-shadow: 0 2px 6px rgba(20, 117, 238, 0.35);
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-[#10244B] antialiased m-0 p-3">
+
+  <!-- Main Container -->
+  <div class="max-w-6xl mx-auto bg-white border border-[#DDE7F3] rounded-2xl shadow-xl overflow-hidden flex flex-col" style="min-height: 820px;">
+
+    <!-- Top Showcase Header -->
+    <header class="bg-[#10244B] text-white px-5 py-3.5 border-b border-[#1E3A8A] flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-[#1475EE] flex items-center justify-center font-bold text-base shadow-sm">
+          📍
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-sm font-semibold tracking-wide">POINTS SECTION REDESIGN EXPLORER</h1>
+            <span class="px-2 py-0.5 text-[10px] bg-[#16B980]/20 text-[#34D399] border border-[#16B980]/40 rounded-full font-medium">6 Concepts</span>
+            <span class="px-2 py-0.5 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full font-medium">Review Only · Do Not Apply</span>
+          </div>
+          <p class="text-xs text-slate-300 mt-0.5">DYX 4WD Rover Companion · Solving coordinate clutter, cramped touch targets & field complexity</p>
+        </div>
+      </div>
+
+      <!-- Quick Concept Selector Navigation -->
+      <div class="flex flex-wrap items-center gap-1.5 bg-[#0A1630] p-1.5 rounded-xl border border-white/10 text-xs">
+        <button onclick="switchConcept(1)" id="tab-1" class="concept-btn px-3 py-1.5 rounded-lg font-medium text-slate-300 hover:text-white transition active-concept-tab">
+          1. Field Touch Cards
+        </button>
+        <button onclick="switchConcept(2)" id="tab-2" class="concept-btn px-3 py-1.5 rounded-lg font-medium text-slate-300 hover:text-white transition">
+          2. Row & Pile Tree
+        </button>
+        <button onclick="switchConcept(3)" id="tab-3" class="concept-btn px-3 py-1.5 rounded-lg font-medium text-slate-300 hover:text-white transition">
+          3. Route Timeline
+        </button>
+        <button onclick="switchConcept(4)" id="tab-4" class="concept-btn px-3 py-1.5 rounded-lg font-medium text-slate-300 hover:text-white transition">
+          4. Split Nudge Console
+        </button>
+        <button onclick="switchConcept(5)" id="tab-5" class="concept-btn px-3 py-1.5 rounded-lg font-medium text-slate-300 hover:text-white transition">
+          5. Matrix & Batch
+        </button>
+        <button onclick="switchConcept(6)" id="tab-6" class="concept-btn px-3 py-1.5 rounded-lg font-medium text-slate-300 hover:text-white transition">
+          6. Floating Capsule
+        </button>
+        <div class="h-4 w-px bg-white/20 mx-1"></div>
+        <button onclick="switchConcept(0)" id="tab-0" class="concept-btn px-2.5 py-1.5 rounded-lg font-medium text-amber-300 hover:text-white bg-amber-500/10 border border-amber-500/30 transition">
+          ⚖️ Compare All
+        </button>
+      </div>
+    </header>
+
+    <!-- Context Info Bar -->
+    <div class="bg-slate-50 border-b border-[#E2E8F0] px-5 py-2.5 flex items-center justify-between text-xs text-[#536D97]">
+      <div class="flex items-center gap-4">
+        <span class="flex items-center gap-1.5 font-medium text-[#10244B]">
+          <span class="w-2 h-2 rounded-full bg-[#16B980]"></span> Current Mission: Solar Farm Row Survey (48 Pts)
+        </span>
+        <span class="border-l border-slate-300 pl-4">Covered: <strong class="text-[#10244B]">14 / 48 Pts</strong></span>
+        <span class="border-l border-slate-300 pl-4">Remaining Dist: <strong class="text-[#10244B]">186.4 m</strong></span>
+        <span class="border-l border-slate-300 pl-4">RTK: <strong class="text-[#16B980]">FIX 3D (14mm)</strong></span>
+      </div>
+      <div id="concept-summary-badge" class="font-medium text-[#1475EE] bg-[#EEF5FF] border border-[#CDE1FB] px-2.5 py-0.5 rounded-md">
+        Concept 1 of 6: Card-based glanceable touch feed
+      </div>
+    </div>
+
+    <!-- Active Concept Canvas Area -->
+    <div class="flex-1 bg-slate-50/50 p-5 overflow-y-auto custom-scroll flex flex-col">
+
+      <!-- ========================================================
+           CONCEPT 1: FIELD PILL CAROUSEL & TOUCH CARDS
+           ======================================================== -->
+      <div id="concept-view-1" class="concept-view space-y-4">
+        <!-- Rationale Callout -->
+        <div class="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 flex items-start gap-3">
+          <span class="text-xl">📱</span>
+          <div class="text-xs">
+            <h3 class="font-semibold text-blue-900 text-sm">Concept 1: Field Touch Cards & Glanceable Feed</h3>
+            <p class="text-blue-800 mt-0.5 leading-relaxed">
+              <strong>Core Fix:</strong> Replaces the dense 7-column spreadsheet with large, tactile cards designed for direct sunlight and gloved thumbs. 8-digit GPS coordinates are tucked into an on-demand reveal chip. Large 48px hit areas allow instant marking toggle (SPRAY/PASS), skipping, or row inspection.
+            </p>
+          </div>
+        </div>
+
+        <!-- Layout Preview (Tablet Frame) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <!-- Main Points Feed (2 Cols) -->
+          <div class="lg:col-span-2 bg-white border border-[#DDE7F3] rounded-xl shadow-sm overflow-hidden flex flex-col">
+            <!-- Header with Quick Filter -->
+            <div class="p-3.5 border-b border-[#DDE7F3] bg-white flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold text-[#10244B]">MISSION WAYPOINTS</span>
+                <span class="px-2 py-0.5 text-[11px] bg-slate-100 text-slate-700 rounded-full font-medium">48 Total</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-xs">
+                <button class="px-2.5 py-1 bg-[#EEF5FF] text-[#1475EE] border border-[#CDE1FB] rounded-lg font-medium">All (48)</button>
+                <button class="px-2.5 py-1 bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 rounded-lg">Spray Only (36)</button>
+                <button class="px-2.5 py-1 bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 rounded-lg">Remaining (34)</button>
+              </div>
+            </div>
+
+            <!-- List of Cards -->
+            <div class="p-3 space-y-2.5 max-h-[500px] overflow-y-auto custom-scroll">
+              
+              <!-- Card 1: Completed -->
+              <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between opacity-75 hover:opacity-100 transition">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs border border-emerald-300">
+                    ✓ 01
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-semibold text-slate-700">Row A · Pile 01</span>
+                      <span class="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 font-medium">Marked (0.5s)</span>
+                    </div>
+                    <div class="text-[11px] text-slate-500 mt-0.5">Start Base · Lat 11.084729, Lon 77.129384 · Settle 0.28s</div>
+                  </div>
+                </div>
+                <div class="text-right text-xs">
+                  <span class="text-slate-400 font-mono">0.0m</span>
+                  <div class="text-[10px] text-emerald-600 font-medium">Completed</div>
+                </div>
+              </div>
+
+              <!-- Card 2: Completed -->
+              <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between opacity-75 hover:opacity-100 transition">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs border border-emerald-300">
+                    ✓ 02
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-semibold text-slate-700">Row A · Pile 02</span>
+                      <span class="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 font-medium">Marked (0.5s)</span>
+                    </div>
+                    <div class="text-[11px] text-slate-500 mt-0.5">+6.0m spacing · Accuracy 11mm</div>
+                  </div>
+                </div>
+                <div class="text-right text-xs">
+                  <span class="text-slate-400 font-mono">6.0m</span>
+                  <div class="text-[10px] text-emerald-600 font-medium">Completed</div>
+                </div>
+              </div>
+
+              <!-- Card 3: CURRENT ACTIVE TARGET -->
+              <div class="p-3.5 bg-gradient-to-r from-blue-50/90 to-indigo-50/70 border-2 border-[#1475EE] rounded-xl shadow-md flex items-center justify-between relative overflow-hidden">
+                <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-[#1475EE]"></div>
+                <div class="flex items-center gap-3 pl-1.5">
+                  <div class="relative">
+                    <div class="w-10 h-10 rounded-xl bg-[#1475EE] text-white flex items-center justify-center font-bold text-sm shadow">
+                      03
+                    </div>
+                    <div class="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white pulse-ring"></div>
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm font-bold text-[#10244B]">Row A · Pile 03</span>
+                      <span class="px-2 py-0.5 text-[10px] bg-[#1475EE] text-white rounded-full font-semibold tracking-wide">ACTIVE TARGET</span>
+                    </div>
+                    <div class="flex items-center gap-2 mt-1">
+                      <span class="text-xs text-[#1475EE] font-medium">Remaining: <strong>2.4 m</strong></span>
+                      <span class="text-slate-300">•</span>
+                      <span class="text-xs text-slate-600">Speed: 0.38 m/s</span>
+                      <span class="text-slate-300">•</span>
+                      <button onclick="toggleCoordChip('c1-coord-3')" class="text-[10px] text-slate-500 hover:text-[#1475EE] underline">View GPS</button>
+                    </div>
+                    <div id="c1-coord-3" class="hidden text-[10px] font-mono text-slate-600 bg-white/80 px-2 py-0.5 rounded border border-blue-200 mt-1">
+                      Lat: 11.0848371 | Lon: 77.1294950 | Alt: 50.2m
+                    </div>
+                  </div>
+                </div>
+                <!-- Inline Action Buttons -->
+                <div class="flex items-center gap-2">
+                  <button class="h-9 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm flex items-center gap-1.5 transition">
+                    <span>🔫 Spray ON</span>
+                  </button>
+                  <button class="h-9 px-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-medium transition" title="Skip to Next">
+                    ⏭ Skip
+                  </button>
+                  <button class="h-9 w-9 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-sm flex items-center justify-center transition">
+                    ⋮
+                  </button>
+                </div>
+              </div>
+
+              <!-- Card 4: Upcoming -->
+              <div class="p-3 bg-white border border-[#DDE7F3] rounded-xl flex items-center justify-between hover:border-blue-300 transition">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs border border-slate-200">
+                    04
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-semibold text-[#10244B]">Row A · Pile 04</span>
+                      <span class="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200 font-medium">Spray 0.5s</span>
+                    </div>
+                    <div class="text-[11px] text-slate-500 mt-0.5">+6.0m spacing · Straight track</div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-slate-500 font-mono">+8.4m</span>
+                  <div class="flex items-center gap-1">
+                    <button class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px]">Edit</button>
+                    <button class="px-2 py-1 bg-slate-100 hover:bg-red-50 text-red-600 rounded text-[11px]">✕</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 5: Upcoming Turnaround -->
+              <div class="p-3 bg-amber-50/50 border border-amber-200/80 rounded-xl flex items-center justify-between hover:border-amber-300 transition">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs border border-amber-300">
+                    05
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-semibold text-[#10244B]">Row A End · Turnaround</span>
+                      <span class="text-[10px] text-amber-700 bg-amber-100/60 px-1.5 py-0.2 rounded border border-amber-300 font-medium">TRANSIT ONLY</span>
+                    </div>
+                    <div class="text-[11px] text-amber-700 mt-0.5">Pivot 90° Right → Connect to Row B</div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-slate-500 font-mono">+14.4m</span>
+                  <span class="text-[11px] text-slate-400 font-medium">No Spray</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Side Quick-Actions & Stats (1 Col) -->
+          <div class="space-y-4">
+            <div class="bg-white border border-[#DDE7F3] rounded-xl p-4 shadow-sm">
+              <h4 class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Fast Field Controls</h4>
+              <div class="grid grid-cols-2 gap-2 mt-3">
+                <button class="h-10 bg-[#1475EE] hover:bg-blue-600 text-white rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 shadow-sm">
+                  <span>➕ Add Point</span>
+                </button>
+                <button class="h-10 bg-slate-100 hover:bg-slate-200 text-[#10244B] rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 border border-slate-200">
+                  <span>⇅ Reverse All</span>
+                </button>
+                <button class="h-10 bg-slate-100 hover:bg-slate-200 text-[#10244B] rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 border border-slate-200">
+                  <span>🔫 Spray All</span>
+                </button>
+                <button class="h-10 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 border border-rose-200">
+                  <span>🗑 Clear All</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="bg-white border border-[#DDE7F3] rounded-xl p-4 shadow-sm text-xs">
+              <h4 class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Why It Works in Field</h4>
+              <ul class="mt-2.5 space-y-2 text-slate-600">
+                <li class="flex items-start gap-1.5"><span class="text-emerald-500 font-bold">✓</span> No more squinting at 8-digit latitude/longitude floats outdoors.</li>
+                <li class="flex items-start gap-1.5"><span class="text-emerald-500 font-bold">✓</span> Giant 44px touch targets won't mis-tap when riding on the rover or wearing gloves.</li>
+                <li class="flex items-start gap-1.5"><span class="text-emerald-500 font-bold">✓</span> Clear visual status: Completed (Green), Active Target (Blue border + Pulse), Upcoming (Slate).</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 2: HIERARCHICAL ROW & PILE TREE ACCORDION
+           ======================================================== -->
+      <div id="concept-view-2" class="concept-view space-y-4 hidden">
+        <div class="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3.5 flex items-start gap-3">
+          <span class="text-xl">🗂</span>
+          <div class="text-xs">
+            <h3 class="font-semibold text-emerald-900 text-sm">Concept 2: Hierarchical Row & Pile Tree (Civil / Solar Focus)</h3>
+            <p class="text-emerald-800 mt-0.5 leading-relaxed">
+              <strong>Core Fix:</strong> In agricultural marking or solar pile-driving, points naturally belong to <em>Rows</em> and <em>Blocks</em>. Instead of a flat list of 200 points, this groups points into collapsible Rows with row-level progress bars, row reversal, and row spray controls.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <!-- Accordion Tree List -->
+          <div class="lg:col-span-2 bg-white border border-[#DDE7F3] rounded-xl shadow-sm overflow-hidden p-3.5 space-y-3">
+            
+            <!-- Row 1 Accordion (Completed) -->
+            <div class="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
+              <div class="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition" onclick="toggleAccordion('row-acc-1')">
+                <div class="flex items-center gap-3">
+                  <span class="w-7 h-7 rounded-lg bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">✓</span>
+                  <div>
+                    <div class="text-xs font-bold text-[#10244B]">ROW 01 · 12 Piles (Block A)</div>
+                    <div class="text-[11px] text-emerald-700 font-medium">100% Complete · 72.0m total · 12/12 Sprayed</div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-slate-400">12 pts</span>
+                  <span class="text-slate-400 text-xs">▼</span>
+                </div>
+              </div>
+              <div id="row-acc-1" class="hidden border-t border-slate-200 p-2.5 bg-white text-xs space-y-1.5">
+                <div class="flex justify-between items-center text-slate-600 px-2 py-1 bg-slate-50 rounded">
+                  <span>Pile 1 to 12 marked accurately (mean error: 14mm)</span>
+                  <button class="text-blue-600 text-[11px] font-medium hover:underline">Inspect Details</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Row 2 Accordion (IN PROGRESS - EXPANDED) -->
+            <div class="border-2 border-[#1475EE] rounded-xl overflow-hidden bg-white shadow-sm">
+              <div class="p-3 bg-blue-50/70 border-b border-blue-100 flex items-center justify-between cursor-pointer" onclick="toggleAccordion('row-acc-2')">
+                <div class="flex items-center gap-3">
+                  <div class="relative">
+                    <span class="w-7 h-7 rounded-lg bg-[#1475EE] text-white flex items-center justify-center text-xs font-bold">R2</span>
+                    <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border border-white pulse-ring"></span>
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-bold text-[#10244B]">ROW 02 · 12 Piles (Block A)</span>
+                      <span class="px-2 py-0.2 bg-[#1475EE] text-white text-[10px] rounded font-semibold">IN PROGRESS</span>
+                    </div>
+                    <div class="text-[11px] text-slate-500 mt-0.5">Pile 07 of 12 · 36.0m / 72.0m · Estimated 4 min left</div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <!-- Row Level Batch Action -->
+                  <button onclick="event.stopPropagation(); alert('Reversing Row 2 points order...')" class="px-2 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded text-[11px] text-[#10244B] font-medium shadow-xs">
+                    ⇅ Reverse Row
+                  </button>
+                  <span class="text-slate-400 text-xs">▲</span>
+                </div>
+              </div>
+
+              <!-- Expanded Row 2 Piles -->
+              <div id="row-acc-2" class="p-2 space-y-1.5 bg-white">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
+                  <!-- Pile 05: Done -->
+                  <div class="p-2 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between opacity-75">
+                    <div class="flex items-center gap-2">
+                      <span class="w-5 h-5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center justify-center">✓</span>
+                      <span class="font-medium text-slate-700">Pile 05</span>
+                    </div>
+                    <span class="text-[10px] text-slate-500 font-mono">24.0m</span>
+                  </div>
+                  <!-- Pile 06: Done -->
+                  <div class="p-2 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between opacity-75">
+                    <div class="flex items-center gap-2">
+                      <span class="w-5 h-5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center justify-center">✓</span>
+                      <span class="font-medium text-slate-700">Pile 06</span>
+                    </div>
+                    <span class="text-[10px] text-slate-500 font-mono">30.0m</span>
+                  </div>
+                  <!-- Pile 07: TARGET -->
+                  <div class="p-2.5 bg-blue-50 border-2 border-[#1475EE] rounded-lg flex items-center justify-between col-span-full shadow-xs">
+                    <div class="flex items-center gap-2.5">
+                      <span class="w-6 h-6 rounded bg-[#1475EE] text-white text-[11px] font-bold flex items-center justify-center">07</span>
+                      <div>
+                        <div class="font-bold text-[#10244B]">Pile 07 (Active Target)</div>
+                        <div class="text-[10px] text-slate-500">Spacing: 6.0m · Spray: 0.5s</div>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-bold text-[#1475EE]">2.8m left</span>
+                      <button class="px-2 py-1 bg-white border border-slate-300 rounded text-[10px] hover:bg-slate-50">Skip</button>
+                    </div>
+                  </div>
+                  <!-- Pile 08: Upcoming -->
+                  <div class="p-2 bg-white border border-slate-200 rounded-lg flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span class="w-5 h-5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold flex items-center justify-center">08</span>
+                      <span class="font-medium text-slate-700">Pile 08</span>
+                    </div>
+                    <span class="text-[10px] text-slate-500 font-mono">42.0m</span>
+                  </div>
+                  <!-- Pile 09: Upcoming -->
+                  <div class="p-2 bg-white border border-slate-200 rounded-lg flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span class="w-5 h-5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold flex items-center justify-center">09</span>
+                      <span class="font-medium text-slate-700">Pile 09</span>
+                    </div>
+                    <span class="text-[10px] text-slate-500 font-mono">48.0m</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Row 3 Accordion (Pending) -->
+            <div class="border border-slate-200 rounded-xl overflow-hidden bg-white">
+              <div class="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition" onclick="toggleAccordion('row-acc-3')">
+                <div class="flex items-center gap-3">
+                  <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-bold">R3</span>
+                  <div>
+                    <div class="text-xs font-bold text-[#10244B]">ROW 03 · 12 Piles (Block A)</div>
+                    <div class="text-[11px] text-slate-500">0% Complete · 72.0m total · 12 Piles Pending</div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-slate-400">12 pts</span>
+                  <span class="text-slate-400 text-xs">▼</span>
+                </div>
+              </div>
+              <div id="row-acc-3" class="hidden border-t border-slate-200 p-2.5 bg-white text-xs">
+                <p class="text-slate-500">Row 3 will start after Turnaround 2 completes.</p>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Why It Works -->
+          <div class="bg-white border border-[#DDE7F3] rounded-xl p-4 shadow-sm text-xs space-y-3">
+            <h4 class="font-semibold text-slate-500 uppercase tracking-wider">Concept 2 Highlights</h4>
+            <p class="text-slate-600 leading-relaxed">
+              Perfect for surveyors who structure their CAD files in rows. Instead of scrolling past 150 irrelevant points, the operator collapses finished rows and focuses 100% on the active row.
+            </p>
+            <div class="p-3 bg-emerald-50 rounded-lg border border-emerald-200 text-emerald-800">
+              <strong>Batch Row Operations:</strong> Reverse entire row direction with 1 tap without messing up the rest of the mission plan.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 3: TACTICAL ROUTE TIMELINE
+           ======================================================== -->
+      <div id="concept-view-3" class="concept-view space-y-4 hidden">
+        <div class="bg-indigo-50/80 border border-indigo-200 rounded-xl p-3.5 flex items-start gap-3">
+          <span class="text-xl">🛤️</span>
+          <div class="text-xs">
+            <h3 class="font-semibold text-indigo-900 text-sm">Concept 3: Tactical Route Timeline (Aviation / Mission Progression)</h3>
+            <p class="text-indigo-800 mt-0.5 leading-relaxed">
+              <strong>Core Fix:</strong> Treats points as sequential milestones along a physical route ribbon. Shows leg distance, expected rover turns (pivots), straightaways, and spray hold stations.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <!-- Timeline Rail -->
+          <div class="lg:col-span-2 bg-white border border-[#DDE7F3] rounded-xl p-5 shadow-sm">
+            <div class="relative pl-8 space-y-6 before:content-[''] before:absolute before:left-3.5 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-200">
+              
+              <!-- Milestone 1: Done -->
+              <div class="relative flex items-center justify-between">
+                <div class="absolute -left-8 w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold ring-4 ring-white">
+                  ✓
+                </div>
+                <div>
+                  <div class="text-xs font-bold text-slate-700">WP 01 · Base Start (Spray 0.5s)</div>
+                  <div class="text-[11px] text-slate-500">Marked at 09:14:22 · Settle 0.3s</div>
+                </div>
+                <span class="text-xs font-mono text-slate-400">0.0m</span>
+              </div>
+
+              <!-- Leg Info -->
+              <div class="text-[10px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-200 inline-block">
+                Straight Track · 6.0m @ 0.40 m/s (15 sec)
+              </div>
+
+              <!-- Milestone 2: Done -->
+              <div class="relative flex items-center justify-between">
+                <div class="absolute -left-8 w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold ring-4 ring-white">
+                  ✓
+                </div>
+                <div>
+                  <div class="text-xs font-bold text-slate-700">WP 02 · Pile 02 (Spray 0.5s)</div>
+                  <div class="text-[11px] text-slate-500">Marked at 09:14:41 · Accuracy: 9mm</div>
+                </div>
+                <span class="text-xs font-mono text-slate-400">6.0m</span>
+              </div>
+
+              <!-- Leg Info -->
+              <div class="text-[10px] font-medium text-[#1475EE] bg-blue-50 px-2 py-0.5 rounded border border-blue-200 inline-block font-semibold">
+                Approaching Active Target · 2.4m remaining
+              </div>
+
+              <!-- Milestone 3: ACTIVE TARGET (Hero Box) -->
+              <div class="relative p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-[#1475EE] rounded-xl shadow-md">
+                <div class="absolute -left-8 top-3.5 w-7 h-7 rounded-full bg-[#1475EE] text-white flex items-center justify-center text-xs font-bold ring-4 ring-white pulse-ring">
+                  03
+                </div>
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm font-bold text-[#10244B]">WP 03 · Pile 03 (TARGET)</span>
+                      <span class="text-[10px] bg-[#1475EE] text-white px-1.5 py-0.2 rounded font-semibold">SPRAY</span>
+                    </div>
+                    <div class="text-xs text-slate-600 mt-1">Cross-track error: <strong class="text-emerald-600">8 mm</strong> · Heading: 088° E</div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-base font-bold text-[#1475EE]">2.4 m</div>
+                    <div class="text-[10px] text-slate-500">ETA: 6 sec</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Leg Info (Pivot) -->
+              <div class="text-[10px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block">
+                Upcoming: Pivot 90° Right (RD_TRANS_DRV_TRN 45°)
+              </div>
+
+              <!-- Milestone 4: Upcoming Turn -->
+              <div class="relative flex items-center justify-between opacity-80">
+                <div class="absolute -left-8 w-7 h-7 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-xs font-bold ring-4 ring-white">
+                  04
+                </div>
+                <div>
+                  <div class="text-xs font-bold text-[#10244B]">WP 04 · Turn Corner (Transit Only)</div>
+                  <div class="text-[11px] text-slate-500">Pass-through · No Spray Hold</div>
+                </div>
+                <span class="text-xs font-mono text-slate-500">14.2m</span>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Details & Insertion -->
+          <div class="bg-white border border-[#DDE7F3] rounded-xl p-4 shadow-sm text-xs space-y-3">
+            <h4 class="font-semibold text-slate-500 uppercase tracking-wider">Timeline Advantages</h4>
+            <p class="text-slate-600 leading-relaxed">
+              Provides situational awareness of <em>what happens between points</em> (straight drive vs in-place pivot turn). Allows inserting new waypoints directly into the timeline with a simple tap on any leg connector.
+            </p>
+            <button class="w-full py-2.5 bg-[#EEF5FF] text-[#1475EE] hover:bg-blue-100 rounded-lg font-medium border border-[#CDE1FB] transition">
+              ➕ Tap to Insert Intermediate Point
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 4: SPLIT NUDGE CONSOLE
+           ======================================================== -->
+      <div id="concept-view-4" class="concept-view space-y-4 hidden">
+        <div class="bg-purple-50/80 border border-purple-200 rounded-xl p-3.5 flex items-start gap-3">
+          <span class="text-xl">🎛️</span>
+          <div class="text-xs">
+            <h3 class="font-semibold text-purple-900 text-sm">Concept 4: Split Inspector & Micro-Nudge D-Pad</h3>
+            <p class="text-purple-800 mt-0.5 leading-relaxed">
+              <strong>Core Fix:</strong> Master-Detail dock view. Left pane has a compact virtual list; Right pane provides a tactile <strong>Micro-Nudge D-Pad</strong> (N/S/E/W by 5cm or 10cm). Field surveyors can nudge misaligned CAD points on the spot without typing raw decimal coordinates!
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- Left Master List (7 Cols) -->
+          <div class="lg:col-span-7 bg-white border border-[#DDE7F3] rounded-xl shadow-sm overflow-hidden flex flex-col">
+            <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
+              <span class="font-semibold text-[#10244B]">WAYPOINTS MASTER REEL</span>
+              <span class="text-slate-500">Tap to Inspect & Nudge</span>
+            </div>
+            <div class="divide-y divide-slate-100 max-h-[380px] overflow-y-auto custom-scroll text-xs">
+              
+              <div class="p-3 flex items-center justify-between hover:bg-slate-50 cursor-pointer">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-6 h-6 rounded bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px]">01</span>
+                  <span class="font-medium text-slate-800">Pile A-01</span>
+                  <span class="text-[10px] text-emerald-600 font-semibold">[DONE]</span>
+                </div>
+                <span class="text-slate-400 font-mono">0.0m</span>
+              </div>
+
+              <!-- Selected Active Point -->
+              <div class="p-3 flex items-center justify-between bg-blue-50/80 border-l-4 border-[#1475EE] cursor-pointer">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-6 h-6 rounded bg-[#1475EE] text-white font-bold flex items-center justify-center text-[10px]">02</span>
+                  <div>
+                    <span class="font-bold text-[#10244B]">Pile A-02 (Selected)</span>
+                    <div class="text-[10px] text-slate-500">11.084792, 77.129410</div>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <span class="text-xs font-bold text-[#1475EE]">6.0m</span>
+                  <div class="text-[10px] text-emerald-600 font-medium">Ready</div>
+                </div>
+              </div>
+
+              <div class="p-3 flex items-center justify-between hover:bg-slate-50 cursor-pointer">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-6 h-6 rounded bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">03</span>
+                  <span class="font-medium text-slate-800">Pile A-03</span>
+                </div>
+                <span class="text-slate-400 font-mono">12.0m</span>
+              </div>
+
+              <div class="p-3 flex items-center justify-between hover:bg-slate-50 cursor-pointer">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-6 h-6 rounded bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">04</span>
+                  <span class="font-medium text-slate-800">Pile A-04</span>
+                </div>
+                <span class="text-slate-400 font-mono">18.0m</span>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Right Inspector & Nudge D-Pad (5 Cols) -->
+          <div class="lg:col-span-5 bg-white border border-[#DDE7F3] rounded-xl p-4 shadow-sm space-y-3.5">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-2.5">
+              <span class="text-xs font-bold text-[#10244B]">INSPECTOR · WP #02</span>
+              <span class="px-2 py-0.5 text-[10px] bg-blue-100 text-blue-800 rounded font-medium">Spray 0.5s</span>
+            </div>
+
+            <!-- Coordinate Readout -->
+            <div class="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+              <div><span class="text-slate-400">LAT:</span> <span class="font-mono font-medium text-slate-700">11.0847920</span></div>
+              <div><span class="text-slate-400">LON:</span> <span class="font-mono font-medium text-slate-700">77.1294100</span></div>
+              <div><span class="text-slate-400">ROW:</span> <span class="font-medium text-slate-700">Row A</span></div>
+              <div><span class="text-slate-400">PILE:</span> <span class="font-medium text-slate-700">Pile 02</span></div>
+            </div>
+
+            <!-- Micro-Nudge D-Pad -->
+            <div class="text-center pt-1">
+              <div class="text-[11px] font-semibold text-slate-600 mb-2">Tactile Field Micro-Nudge (5cm Step)</div>
+              
+              <div class="inline-flex flex-col items-center gap-1.5 p-3 bg-slate-100/80 rounded-2xl border border-slate-200">
+                <button onclick="nudgePoint('N')" class="w-10 h-9 bg-white hover:bg-blue-50 text-[#10244B] font-bold rounded-lg border border-slate-300 shadow-xs active:bg-blue-200">▲ N</button>
+                <div class="flex gap-1.5">
+                  <button onclick="nudgePoint('W')" class="w-10 h-9 bg-white hover:bg-blue-50 text-[#10244B] font-bold rounded-lg border border-slate-300 shadow-xs active:bg-blue-200">◀ W</button>
+                  <div class="w-10 h-9 bg-[#10244B] text-white text-[9px] font-mono flex items-center justify-center rounded-lg">5cm</div>
+                  <button onclick="nudgePoint('E')" class="w-10 h-9 bg-white hover:bg-blue-50 text-[#10244B] font-bold rounded-lg border border-slate-300 shadow-xs active:bg-blue-200">E ▶</button>
+                </div>
+                <button onclick="nudgePoint('S')" class="w-10 h-9 bg-white hover:bg-blue-50 text-[#10244B] font-bold rounded-lg border border-slate-300 shadow-xs active:bg-blue-200">▼ S</button>
+              </div>
+
+              <div id="nudge-feedback" class="text-[10px] text-emerald-600 font-medium mt-1.5 h-4">Tap direction to nudge point</div>
+            </div>
+
+            <!-- Quick Action Row -->
+            <div class="flex gap-2 pt-1">
+              <button class="flex-1 py-2 bg-[#EEF5FF] text-[#1475EE] rounded-lg text-xs font-semibold hover:bg-blue-100 transition">
+                Toggle Spray
+              </button>
+              <button class="py-2 px-3 bg-rose-50 text-rose-700 rounded-lg text-xs font-semibold hover:bg-rose-100 transition">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 5: MATRIX GRID & BATCH SELECTOR
+           ======================================================== -->
+      <div id="concept-view-5" class="concept-view space-y-4 hidden">
+        <div class="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 flex items-start gap-3">
+          <span class="text-xl">🔲</span>
+          <div class="text-xs">
+            <h3 class="font-semibold text-amber-900 text-sm">Concept 5: High-Density Matrix & Multi-Point Batch Selector</h3>
+            <p class="text-amber-800 mt-0.5 leading-relaxed">
+              <strong>Core Fix:</strong> For high-density missions (100–500 points). Shows waypoints as interactive status tiles. Operators can tap to select ranges (e.g. Points 10 to 24) to batch delete, batch assign to Row 3, or batch toggle spray.
+            </p>
+          </div>
+        </div>
+
+        <div class="bg-white border border-[#DDE7F3] rounded-xl p-4 shadow-sm space-y-4">
+          <!-- Filter & Batch Toolbar -->
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-[#10244B]">MISSION TILES (48 POINTS)</span>
+              <span id="selected-count-badge" class="px-2 py-0.5 text-[10px] bg-blue-100 text-blue-800 rounded-full font-medium">3 Selected</span>
+            </div>
+            <!-- Batch Actions (Active when points are selected) -->
+            <div class="flex items-center gap-2 text-xs">
+              <button onclick="batchAction('spray')" class="px-2.5 py-1.5 bg-[#EEF5FF] text-[#1475EE] border border-[#CDE1FB] rounded-lg font-medium hover:bg-blue-100 transition">
+                🔫 Toggle Spray (3)
+              </button>
+              <button onclick="batchAction('row')" class="px-2.5 py-1.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200 transition">
+                🏷 Set Row
+              </button>
+              <button onclick="batchAction('delete')" class="px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-lg font-medium hover:bg-rose-100 transition">
+                🗑 Delete Selected
+              </button>
+              <button onclick="clearSelection()" class="text-slate-400 hover:text-slate-600 px-1">Clear</button>
+            </div>
+          </div>
+
+          <!-- The Matrix Grid (Responsive Chips) -->
+          <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-2 text-xs">
+            <!-- Pts 1-8: Done -->
+            <button class="h-10 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 font-bold flex flex-col items-center justify-center">
+              <span>01</span>
+              <span class="text-[8px] font-normal">✓ Done</span>
+            </button>
+            <button class="h-10 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 font-bold flex flex-col items-center justify-center">
+              <span>02</span>
+              <span class="text-[8px] font-normal">✓ Done</span>
+            </button>
+            
+            <!-- Pts 3: Active Target -->
+            <button class="h-10 rounded-lg bg-[#1475EE] text-white font-bold flex flex-col items-center justify-center shadow-md ring-2 ring-blue-300 pulse-ring">
+              <span>03</span>
+              <span class="text-[8px] font-normal">🎯 Active</span>
+            </button>
+
+            <!-- Pts 4-6: Selected in Batch -->
+            <button class="h-10 rounded-lg bg-blue-100 border-2 border-[#1475EE] text-[#1475EE] font-bold flex flex-col items-center justify-center shadow-xs">
+              <span>04</span>
+              <span class="text-[8px] font-normal">Selected</span>
+            </button>
+            <button class="h-10 rounded-lg bg-blue-100 border-2 border-[#1475EE] text-[#1475EE] font-bold flex flex-col items-center justify-center shadow-xs">
+              <span>05</span>
+              <span class="text-[8px] font-normal">Selected</span>
+            </button>
+            <button class="h-10 rounded-lg bg-blue-100 border-2 border-[#1475EE] text-[#1475EE] font-bold flex flex-col items-center justify-center shadow-xs">
+              <span>06</span>
+              <span class="text-[8px] font-normal">Selected</span>
+            </button>
+
+            <!-- Pts 7-24: Pending -->
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 hover:border-blue-300 text-slate-700 font-medium flex flex-col items-center justify-center">
+              <span>07</span>
+              <span class="text-[8px] text-slate-400">Spray</span>
+            </button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 hover:border-blue-300 text-slate-700 font-medium flex flex-col items-center justify-center">
+              <span>08</span>
+              <span class="text-[8px] text-slate-400">Spray</span>
+            </button>
+            <button class="h-10 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-medium flex flex-col items-center justify-center" title="Transit Turn">
+              <span>09</span>
+              <span class="text-[8px] text-amber-600">Turn</span>
+            </button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 hover:border-blue-300 text-slate-700 font-medium flex flex-col items-center justify-center">
+              <span>10</span>
+              <span class="text-[8px] text-slate-400">Spray</span>
+            </button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 hover:border-blue-300 text-slate-700 font-medium flex flex-col items-center justify-center">
+              <span>11</span>
+              <span class="text-[8px] text-slate-400">Spray</span>
+            </button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 hover:border-blue-300 text-slate-700 font-medium flex flex-col items-center justify-center">
+              <span>12</span>
+              <span class="text-[8px] text-slate-400">Spray</span>
+            </button>
+
+            <!-- Repetition for visual density -->
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>13</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>14</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>15</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>16</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>17</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>18</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>19</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>20</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>21</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>22</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>23</span><span class="text-[8px] text-slate-400">Spray</span></button>
+            <button class="h-10 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium flex flex-col items-center justify-center"><span>24</span><span class="text-[8px] text-slate-400">Spray</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 6: DYNAMIC ISLAND / FLOATING SMART CAPSULE
+           ======================================================== -->
+      <div id="concept-view-6" class="concept-view space-y-4 hidden">
+        <div class="bg-teal-50/80 border border-teal-200 rounded-xl p-3.5 flex items-start gap-3">
+          <span class="text-xl">🏝️</span>
+          <div class="text-xs">
+            <h3 class="font-semibold text-teal-900 text-sm">Concept 6: Dynamic Floating Island (Minimalist Map-First UI)</h3>
+            <p class="text-teal-800 mt-0.5 leading-relaxed">
+              <strong>Core Fix:</strong> 95% of the screen stays completely free for the live satellite map and rover path. Waypoint info lives in a sleek bottom floating pill that expands into a glass swipe-card when tapped. Zero clutter, maximum map visibility.
+            </p>
+          </div>
+        </div>
+
+        <!-- Simulated Map View with Floating Island -->
+        <div class="relative bg-slate-900 rounded-2xl h-[420px] overflow-hidden border border-slate-700 shadow-inner flex flex-col justify-end p-5">
+          <!-- Background Grid / Fake Map -->
+          <div class="absolute inset-0 opacity-20 bg-[radial-gradient(#60A5FA_1px,transparent_1px)] [background-size:24px_24px]"></div>
+          <div class="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 text-white text-xs flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span>Live Satellite Map Canvas (Full View Unblocked)</span>
+          </div>
+
+          <!-- THE FLOATING ISLAND (Collapsed State) -->
+          <div id="capsule-collapsed" class="mx-auto bg-[#10244B]/95 backdrop-blur-xl border border-white/20 rounded-full px-5 py-2.5 text-white shadow-2xl flex items-center gap-4 cursor-pointer hover:border-blue-400 transition" onclick="toggleCapsuleExpand()">
+            <div class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-[#1475EE] flex items-center justify-center font-bold text-xs">03</span>
+              <span class="text-xs font-semibold">Row A · Pile 03</span>
+            </div>
+            <div class="h-4 w-px bg-white/20"></div>
+            <div class="flex items-center gap-3 text-xs">
+              <span class="text-emerald-400 font-bold">2.4m</span>
+              <span class="text-slate-300">↗ Turn 45°</span>
+              <span class="bg-white/10 px-2 py-0.5 rounded text-[10px] text-blue-200">Spray 0.5s</span>
+            </div>
+            <div class="h-4 w-px bg-white/20"></div>
+            <span class="text-xs text-blue-300 font-medium">Tap to Expand ▲</span>
+          </div>
+
+          <!-- THE FLOATING ISLAND (Expanded Glass Sheet - Toggleable) -->
+          <div id="capsule-expanded" class="hidden mx-auto w-full max-w-md bg-[#10244B]/95 backdrop-blur-xl border border-white/20 rounded-2xl p-4 text-white shadow-2xl space-y-3">
+            <div class="flex items-center justify-between border-b border-white/10 pb-2">
+              <div class="flex items-center gap-2">
+                <span class="w-7 h-7 rounded-lg bg-[#1475EE] flex items-center justify-center font-bold text-xs">03</span>
+                <div>
+                  <div class="text-xs font-bold">TARGET WAYPOINT 03 / 48</div>
+                  <div class="text-[10px] text-slate-300">Row A · Solar Pile 03 · 6.0m Spacing</div>
+                </div>
+              </div>
+              <button onclick="toggleCapsuleExpand()" class="text-slate-400 hover:text-white text-xs px-2 py-1">▼ Collapse</button>
+            </div>
+
+            <!-- Swipe Deck Simulation -->
+            <div class="grid grid-cols-3 gap-2 text-center text-xs pt-1">
+              <div class="p-2 bg-white/5 rounded-xl border border-white/5">
+                <div class="text-[10px] text-slate-400">Distance</div>
+                <div class="font-bold text-emerald-400 text-sm mt-0.5">2.4 m</div>
+              </div>
+              <div class="p-2 bg-white/5 rounded-xl border border-white/5">
+                <div class="text-[10px] text-slate-400">Spray Action</div>
+                <div class="font-bold text-blue-300 text-sm mt-0.5">0.50 s</div>
+              </div>
+              <div class="p-2 bg-white/5 rounded-xl border border-white/5">
+                <div class="text-[10px] text-slate-400">Heading</div>
+                <div class="font-bold text-white text-sm mt-0.5">088° E</div>
+              </div>
+            </div>
+
+            <!-- Fast Action Row -->
+            <div class="flex gap-2 pt-1 text-xs">
+              <button class="flex-1 py-2 bg-[#1475EE] hover:bg-blue-600 rounded-lg font-semibold transition">🔫 Trigger Spray</button>
+              <button class="py-2 px-3 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition">⏭ Skip</button>
+              <button class="py-2 px-3 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition">📜 Open Full List</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ========================================================
+           TAB 0: COMPARATIVE DECISION MATRIX
+           ======================================================== -->
+      <div id="concept-view-0" class="concept-view space-y-4 hidden">
+        <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3">
+          <span class="text-2xl">⚖️</span>
+          <div>
+            <h3 class="font-bold text-[#10244B] text-sm">Design Comparison Matrix & Recommendation</h3>
+            <p class="text-xs text-slate-600 mt-1 leading-relaxed">
+              Evaluating all 6 redesign options against crucial field criteria: Outdoor visibility, touch speed, map preservation, solar/agri alignment, and development complexity in React Native.
+            </p>
+          </div>
+        </div>
+
+        <div class="bg-white border border-[#DDE7F3] rounded-xl overflow-hidden shadow-sm">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr class="bg-slate-100/80 border-b border-slate-200 text-[#10244B]">
+                <th class="p-3 font-semibold">Concept</th>
+                <th class="p-3 font-semibold">Core Strength</th>
+                <th class="p-3 font-semibold">Sunlight & Gloves</th>
+                <th class="p-3 font-semibold">Map Real Estate</th>
+                <th class="p-3 font-semibold">100+ Pts Scalability</th>
+                <th class="p-3 font-semibold">Best Match For</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 text-slate-700">
+              <tr class="hover:bg-slate-50">
+                <td class="p-3 font-bold text-[#1475EE]">1. Field Touch Cards</td>
+                <td class="p-3">Large 48px cards, coordinates hidden until tapped</td>
+                <td class="p-3 text-emerald-600 font-semibold">⭐⭐⭐⭐⭐ Excellent</td>
+                <td class="p-3">Moderate (Side dock / sheet)</td>
+                <td class="p-3">⭐⭐⭐⭐ Good (Virtual list)</td>
+                <td class="p-3 font-medium">Everyday field rover supervision</td>
+              </tr>
+              <tr class="hover:bg-slate-50 bg-emerald-50/20">
+                <td class="p-3 font-bold text-emerald-700">2. Row & Pile Tree</td>
+                <td class="p-3">Grouped accordions by Row & Block with row-level batch tools</td>
+                <td class="p-3 text-emerald-600 font-semibold">⭐⭐⭐⭐⭐ Excellent</td>
+                <td class="p-3">⭐⭐⭐⭐ High (Collapsed rows)</td>
+                <td class="p-3 text-emerald-600 font-bold">⭐⭐⭐⭐⭐ Best (Handles 500+ pts)</td>
+                <td class="p-3 font-medium">Solar farm piles, agriculture, civil corridors</td>
+              </tr>
+              <tr class="hover:bg-slate-50">
+                <td class="p-3 font-bold text-indigo-700">3. Route Timeline</td>
+                <td class="p-3">Vertical subway map highlighting turns & straights</td>
+                <td class="p-3 text-emerald-600">⭐⭐⭐⭐ Very Good</td>
+                <td class="p-3">Moderate</td>
+                <td class="p-3">⭐⭐⭐ Moderate</td>
+                <td class="p-3 font-medium">Complex turning paths, obstacle avoidance</td>
+              </tr>
+              <tr class="hover:bg-slate-50">
+                <td class="p-3 font-bold text-purple-700">4. Split Nudge Console</td>
+                <td class="p-3">Master list + D-Pad to nudge misaligned points by 5cm</td>
+                <td class="p-3 text-emerald-600">⭐⭐⭐⭐ Very Good</td>
+                <td class="p-3">Good (Compact bottom dock)</td>
+                <td class="p-3">⭐⭐⭐⭐ Good</td>
+                <td class="p-3 font-medium">Surveyors doing on-site CAD calibration</td>
+              </tr>
+              <tr class="hover:bg-slate-50">
+                <td class="p-3 font-bold text-amber-700">5. Matrix & Batch</td>
+                <td class="p-3">High-density grid tiles with multi-select range actions</td>
+                <td class="p-3 text-amber-600">⭐⭐⭐ Moderate (Smaller chips)</td>
+                <td class="p-3 text-emerald-600">⭐⭐⭐⭐ Very High</td>
+                <td class="p-3 text-emerald-600 font-bold">⭐⭐⭐⭐⭐ Exceptional for bulk edits</td>
+                <td class="p-3 font-medium">Large-scale bulk point management</td>
+              </tr>
+              <tr class="hover:bg-slate-50">
+                <td class="p-3 font-bold text-teal-700">6. Floating Capsule</td>
+                <td class="p-3">Dynamic bottom island; leaves 95% of map visible</td>
+                <td class="p-3 text-emerald-600 font-semibold">⭐⭐⭐⭐⭐ Superb</td>
+                <td class="p-3 text-emerald-600 font-bold">⭐⭐⭐⭐⭐ Unmatched (Full Map)</td>
+                <td class="p-3">⭐⭐⭐ Focuses on current + next 3 pts</td>
+                <td class="p-3 font-medium">Driving / live tracking without distraction</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Bottom Action Footer -->
+    <footer class="bg-white px-5 py-3 border-t border-[#DDE7F3] flex flex-wrap items-center justify-between text-xs text-[#536D97]">
+      <div>
+        <span>Select your preferred redesign concept above.</span>
+        <strong class="text-[#10244B] ml-1">No code will be modified until you approve a design.</strong>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-slate-400">Artifact: points_section_redesigns.html</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Inline Script for Interactive Concept Switching & Demos -->
+  <script>
+    function switchConcept(index) {
+      // Hide all concept views
+      document.querySelectorAll('.concept-view').forEach(view => view.classList.add('hidden'));
+      // Remove active class from buttons
+      document.querySelectorAll('.concept-btn').forEach(btn => btn.classList.remove('active-concept-tab'));
+
+      // Show selected
+      const targetView = document.getElementById('concept-view-' + index);
+      const targetBtn = document.getElementById('tab-' + index);
+      if (targetView) targetView.classList.remove('hidden');
+      if (targetBtn) targetBtn.classList.add('active-concept-tab');
+
+      // Update badge
+      const badge = document.getElementById('concept-summary-badge');
+      const titles = {
+        1: "Concept 1: Field Touch Cards & Glanceable Feed",
+        2: "Concept 2: Hierarchical Row & Pile Tree",
+        3: "Concept 3: Tactical Route Timeline",
+        4: "Concept 4: Split Inspector & Micro-Nudge D-Pad",
+        5: "Concept 5: High-Density Matrix & Multi-Point Batch",
+        6: "Concept 6: Dynamic Floating Island (Minimalist)",
+        0: "Decision Matrix & Comparative Evaluation"
+      };
+      if (badge && titles[index]) {
+        badge.textContent = titles[index];
+      }
+    }
+
+    function toggleCoordChip(id) {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('hidden');
+    }
+
+    function toggleAccordion(id) {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('hidden');
+    }
+
+    function nudgePoint(direction) {
+      const fb = document.getElementById('nudge-feedback');
+      if (fb) {
+        fb.textContent = `Nudged 5cm ${direction} · Lat/Lon recalculated!`;
+        fb.classList.add('text-[#1475EE]');
+        setTimeout(() => {
+          fb.textContent = 'Tap direction to nudge point';
+          fb.classList.remove('text-[#1475EE]');
+        }, 1800);
+      }
+    }
+
+    function batchAction(action) {
+      alert(`Applied ${action.toUpperCase()} action to 3 selected waypoints!`);
+    }
+
+    function clearSelection() {
+      const badge = document.getElementById('selected-count-badge');
+      if (badge) badge.textContent = '0 Selected';
+    }
+
+    function toggleCapsuleExpand() {
+      const col = document.getElementById('capsule-collapsed');
+      const exp = document.getElementById('capsule-expanded');
+      if (col && exp) {
+        col.classList.toggle('hidden');
+        exp.classList.toggle('hidden');
+      }
+    }
+  </script>
+</body>
+</html>

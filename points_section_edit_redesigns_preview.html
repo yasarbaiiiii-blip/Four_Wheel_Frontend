@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Points & Edit Toolbar Redesigns (Below Upload/Extension/Export)</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; user-select: none; }
+    .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+    .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.4); border-radius: 4px; }
+    .tab-active { background: #1475EE !important; color: #FFFFFF !important; font-weight: 600; box-shadow: 0 2px 6px rgba(20, 117, 238, 0.35); }
+    @keyframes pulse-ring { 0% { transform: scale(0.9); opacity: 0.9; } 50% { transform: scale(1.15); opacity: 0.3; } 100% { transform: scale(0.9); opacity: 0.9; } }
+    .pulse-ring { animation: pulse-ring 2s infinite ease-in-out; }
+  </style>
+</head>
+<body class="bg-slate-100 dark:bg-slate-950 text-[#10244B] dark:text-slate-100 p-2 sm:p-4 text-xs">
+
+  <div class="max-w-4xl mx-auto bg-white dark:bg-slate-900 border border-[#DDE7F3] dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col" style="min-height: 720px;">
+
+    <!-- Top Header -->
+    <header class="bg-[#10244B] text-white px-4 py-3 border-b border-blue-900 flex flex-wrap items-center justify-between gap-2 shrink-0">
+      <div class="flex items-center gap-2.5">
+        <div class="w-7 h-7 rounded-lg bg-[#1475EE] flex items-center justify-center font-bold text-sm shadow">
+          ✍️
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xs sm:text-sm font-bold tracking-wide">POINTS LIST & EDIT TOOLBAR REDESIGN</h1>
+            <span class="px-2 py-0.5 text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full font-medium">6 Concepts</span>
+          </div>
+          <p class="text-[11px] text-slate-300">Section below Upload / Extension / Export · Add Point, Reverse, Undo, Redo, Apply, Discard & Points List</p>
+        </div>
+      </div>
+
+      <!-- Concept Tabs -->
+      <div class="flex items-center gap-1 bg-[#0A1630] p-1 rounded-xl border border-white/10 text-xs">
+        <button onclick="setConcept(1)" id="t-1" class="tab-btn px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition tab-active">
+          1. Slim Dock
+        </button>
+        <button onclick="setConcept(2)" id="t-2" class="tab-btn px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition">
+          2. Drag & Swipe
+        </button>
+        <button onclick="setConcept(3)" id="t-3" class="tab-btn px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition">
+          3. Tactical Steps
+        </button>
+        <button onclick="setConcept(4)" id="t-4" class="tab-btn px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition">
+          4. Compact Batch
+        </button>
+        <button onclick="setConcept(5)" id="t-5" class="tab-btn px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition">
+          5. Slide Sheet
+        </button>
+        <button onclick="setConcept(6)" id="t-6" class="tab-btn px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition">
+          6. Floating HUD
+        </button>
+      </div>
+    </header>
+
+    <!-- Simulated Top Mission Tools (Context Anchor) -->
+    <div class="bg-slate-50 dark:bg-slate-900/60 border-b border-[#DDE7F3] dark:border-slate-800 px-4 py-2 flex items-center justify-between opacity-85">
+      <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-[11px]">
+        <span class="font-bold text-slate-700 dark:text-slate-300">↑ Section Above:</span>
+        <span class="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-[10px]">Upload Plan</span>
+        <span class="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-[10px]">Row Extension</span>
+        <span class="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-[10px]">Export</span>
+      </div>
+      <div id="concept-tagline" class="text-[11px] font-semibold text-[#1475EE]">
+        Concept 1: Single-row icon dock · Sticky bottom apply bar · No wasted vertical space
+      </div>
+    </div>
+
+    <!-- Active Redesign Area -->
+    <div class="flex-1 p-3 sm:p-5 bg-slate-100/50 dark:bg-slate-950/40 overflow-y-auto custom-scroll flex justify-center">
+
+      <!-- ========================================================
+           CONCEPT 1: SLIM ACTION DOCK & FLOATING COMMIT BAR
+           ======================================================== -->
+      <div id="view-1" class="view-panel w-full max-w-md bg-white dark:bg-slate-900 border border-[#DDE7F3] dark:border-slate-800 rounded-2xl shadow-md overflow-hidden flex flex-col" style="height: 590px;">
+        
+        <!-- Card Header with Integrated Icon Bar -->
+        <div class="p-3.5 bg-white dark:bg-slate-900 border-b border-[#DDE7F3] dark:border-slate-800 flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-md bg-[#1475EE] text-white flex items-center justify-center font-bold text-xs">📍</span>
+            <div>
+              <div class="font-bold text-xs text-[#10244B] dark:text-white leading-tight">Mission Activity</div>
+              <div class="text-[10px] text-slate-400">24 points · 144m route</div>
+            </div>
+          </div>
+
+          <!-- Slim Single-Row Toolbar (Replaces the 2 bulky stacked rows) -->
+          <div class="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+            <button onclick="triggerSim('Add Point')" class="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 hover:bg-blue-50 text-[#1475EE] flex items-center justify-center shadow-xs border border-slate-200 dark:border-slate-600" title="Add Point on Map">
+              ➕
+            </button>
+            <button onclick="triggerSim('Reverse')" class="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 hover:bg-blue-50 text-[#1475EE] flex items-center justify-center shadow-xs border border-slate-200 dark:border-slate-600" title="Reverse Route">
+              ⇅
+            </button>
+            <button onclick="triggerSim('Undo')" class="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 hover:bg-blue-50 text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-xs border border-slate-200 dark:border-slate-600" title="Undo Edit">
+              ↶
+            </button>
+            <button onclick="triggerSim('Redo')" class="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 hover:bg-blue-50 text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-xs border border-slate-200 dark:border-slate-600" title="Redo Edit">
+              ↷
+            </button>
+          </div>
+        </div>
+
+        <!-- Dirty Unsaved Banner (Appears dynamically without breaking layout) -->
+        <div id="c1-dirty" class="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/60 px-3.5 py-1.5 flex items-center justify-between text-[11px] shrink-0">
+          <div class="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 font-medium">
+            <span class="w-2 h-2 rounded-full bg-amber-500 pulse-ring"></span>
+            <span>2 Unsaved Edits</span>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="discardChanges()" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline text-[10px]">Discard</button>
+            <button onclick="applyChanges()" class="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[10px] shadow-xs">✓ Apply</button>
+          </div>
+        </div>
+
+        <!-- Scrollable Points List -->
+        <div class="flex-1 p-3 space-y-2 overflow-y-auto custom-scroll">
+          
+          <!-- Point 1 (Done) -->
+          <div class="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 flex items-center justify-between opacity-75 hover:opacity-100 transition">
+            <div class="flex items-center gap-2.5">
+              <span class="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold flex items-center justify-center text-[10px]">01</span>
+              <div>
+                <div class="font-bold text-slate-800 dark:text-slate-200">Start Point · Base</div>
+                <div class="text-[10px] text-slate-400">Marked 0.5s · Base Settle 0.3s</div>
+              </div>
+            </div>
+            <span class="font-mono text-slate-400 text-[10px]">0.0m</span>
+          </div>
+
+          <!-- Point 2 (ACTIVE TARGET) -->
+          <div class="p-3 rounded-xl border-2 border-[#1475EE] bg-blue-50/90 dark:bg-blue-950/40 shadow-sm flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div class="relative">
+                <span class="w-7 h-7 rounded-lg bg-[#1475EE] text-white font-bold flex items-center justify-center text-xs shadow-xs">02</span>
+                <span class="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full border border-white pulse-ring"></span>
+              </div>
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <span class="font-bold text-slate-900 dark:text-white">Point 02 (Active Target)</span>
+                  <span class="px-1.5 py-0.2 bg-[#1475EE] text-white text-[9px] rounded font-semibold">2.4m</span>
+                </div>
+                <div class="text-[10px] text-slate-500 mt-0.5">Straight · Spray: 0.5s · <button onclick="toggleGps('c1-gps-2')" class="text-blue-600 underline">GPS</button></div>
+                <div id="c1-gps-2" class="hidden text-[9px] font-mono text-slate-600 bg-white/80 dark:bg-black/40 px-1 py-0.5 rounded mt-0.5">11.084792, 77.129410</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-1">
+              <button onclick="triggerSim('Edit Point 2')" class="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-medium hover:bg-slate-50">Edit</button>
+              <button onclick="deletePoint('02')" class="px-2 py-1 bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 rounded text-[10px] font-medium hover:bg-rose-100">✕</button>
+            </div>
+          </div>
+
+          <!-- Point 3 -->
+          <div class="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between hover:border-blue-300 transition">
+            <div class="flex items-center gap-2.5">
+              <span class="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-[10px]">03</span>
+              <div>
+                <div class="font-bold text-slate-800 dark:text-slate-200">Point 03</div>
+                <div class="text-[10px] text-slate-400">+6.0m from previous · Spray 0.5s</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="font-mono text-slate-400 text-[10px]">+6.0m</span>
+              <button onclick="deletePoint('03')" class="w-6 h-6 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center text-xs">🗑</button>
+            </div>
+          </div>
+
+          <!-- Point 4: Turn -->
+          <div class="p-2.5 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <span class="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-300 font-bold flex items-center justify-center text-[10px]">04</span>
+              <div>
+                <div class="font-bold text-slate-800 dark:text-slate-200">Turnaround · Row End</div>
+                <div class="text-[10px] text-amber-700 dark:text-amber-400">Pivot 90° Right · Transit Pass</div>
+              </div>
+            </div>
+            <span class="text-[10px] text-amber-600 dark:text-amber-400 font-medium">No Spray</span>
+          </div>
+
+        </div>
+
+        <!-- Sticky Bottom Quick Add / Status Footer -->
+        <div class="p-2.5 bg-slate-50 dark:bg-slate-900/90 border-t border-[#DDE7F3] dark:border-slate-800 flex items-center justify-between shrink-0">
+          <button onclick="triggerSim('Add Point')" class="flex-1 py-2 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 text-[#1475EE] rounded-xl font-bold text-[11px] flex items-center justify-center gap-1.5 border border-blue-200 dark:border-blue-900 transition">
+            <span>➕ Tap to Add Point on Map</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 2: DRAG-TO-REORDER & SWIPE-TO-DELETE
+           ======================================================== -->
+      <div id="view-2" class="view-panel w-full max-w-md bg-white dark:bg-slate-900 border border-[#DDE7F3] dark:border-slate-800 rounded-2xl shadow-md overflow-hidden flex-col hidden" style="height: 590px;">
+        
+        <!-- Header with Toggle Edit Mode -->
+        <div class="p-3.5 bg-white dark:bg-slate-900 border-b border-[#DDE7F3] dark:border-slate-800 flex items-center justify-between shrink-0">
+          <div>
+            <div class="font-bold text-xs text-[#10244B] dark:text-white">Waypoints List (24)</div>
+            <div class="text-[10px] text-slate-400">Drag handles to resequence</div>
+          </div>
+          <!-- Quick Tools Pill -->
+          <div class="flex items-center gap-1">
+            <button onclick="triggerSim('Undo')" class="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-300 text-[11px] font-semibold" title="Undo">↶ Undo</button>
+            <button onclick="triggerSim('Redo')" class="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-300 text-[11px] font-semibold" title="Redo">↷ Redo</button>
+            <button onclick="triggerSim('Reverse')" class="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-[#1475EE] text-[11px] font-semibold" title="Reverse Order">⇅ Reverse</button>
+          </div>
+        </div>
+
+        <!-- Draggable Reorder List -->
+        <div class="flex-1 p-3 space-y-2 overflow-y-auto custom-scroll">
+          
+          <div class="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="cursor-grab text-slate-400 hover:text-slate-700 text-sm">⠿</span>
+              <span class="w-6 h-6 rounded bg-[#1475EE] text-white font-bold flex items-center justify-center text-[10px]">01</span>
+              <div>
+                <span class="font-bold text-slate-800 dark:text-slate-200">Point 01 (Base)</span>
+                <div class="text-[10px] text-slate-400">Spray 0.5s · 0.0m</div>
+              </div>
+            </div>
+            <button onclick="deletePoint('01')" class="text-rose-500 hover:bg-rose-50 p-1 rounded text-xs">✕</button>
+          </div>
+
+          <div class="p-2 bg-blue-50/80 dark:bg-blue-950/40 rounded-xl border-2 border-[#1475EE] flex items-center justify-between shadow-xs">
+            <div class="flex items-center gap-2">
+              <span class="cursor-grab text-[#1475EE] text-sm font-bold">⠿</span>
+              <span class="w-6 h-6 rounded bg-[#1475EE] text-white font-bold flex items-center justify-center text-[10px]">02</span>
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <span class="font-bold text-slate-900 dark:text-white">Point 02 (Active Target)</span>
+                  <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-ring"></span>
+                </div>
+                <div class="text-[10px] text-slate-500">2.4m remaining · 0.38 m/s</div>
+              </div>
+            </div>
+            <span class="text-xs font-bold text-[#1475EE]">Next ▶</span>
+          </div>
+
+          <!-- Inline In-Between Insert Button -->
+          <div class="flex items-center justify-center my-0.5">
+            <button onclick="triggerSim('Insert between 2 and 3')" class="px-3 py-0.5 bg-slate-100 hover:bg-blue-50 text-slate-500 hover:text-[#1475EE] rounded-full text-[9px] font-semibold border border-dashed border-slate-300 transition">
+              + Insert Point Here
+            </button>
+          </div>
+
+          <div class="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="cursor-grab text-slate-400 hover:text-slate-700 text-sm">⠿</span>
+              <span class="w-6 h-6 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-[10px]">03</span>
+              <div>
+                <span class="font-bold text-slate-800 dark:text-slate-200">Point 03</span>
+                <div class="text-[10px] text-slate-400">Spray 0.5s · +6.0m</div>
+              </div>
+            </div>
+            <button onclick="deletePoint('03')" class="text-rose-500 hover:bg-rose-50 p-1 rounded text-xs">✕</button>
+          </div>
+
+        </div>
+
+        <!-- Sticky Commit Bar -->
+        <div class="p-3 bg-white dark:bg-slate-900 border-t border-[#DDE7F3] dark:border-slate-800 flex items-center gap-2 shrink-0">
+          <button onclick="discardChanges()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-xl font-bold text-xs transition">
+            Discard
+          </button>
+          <button onclick="applyChanges()" class="flex-1 py-2 bg-[#16B980] hover:bg-emerald-600 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
+            <span>✓ Apply to Rover (2 Changes)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 3: TACTICAL ROUTE STEPS
+           ======================================================== -->
+      <div id="view-3" class="view-panel w-full max-w-md bg-white dark:bg-slate-900 border border-[#DDE7F3] dark:border-slate-800 rounded-2xl shadow-md overflow-hidden flex-col hidden" style="height: 590px;">
+        
+        <!-- Header -->
+        <div class="p-3.5 bg-slate-50 dark:bg-slate-900 border-b border-[#DDE7F3] dark:border-slate-800 flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-bold text-[#10244B] dark:text-white">Route Step Chain</span>
+            <span class="px-1.5 py-0.2 bg-blue-100 dark:bg-blue-900 text-[#1475EE] rounded text-[10px] font-bold">24 Legs</span>
+          </div>
+          <div class="flex gap-1.5">
+            <button onclick="triggerSim('Add Point')" class="px-2.5 py-1 bg-[#1475EE] text-white rounded-lg text-[11px] font-bold shadow-xs">+ Add</button>
+            <button onclick="triggerSim('Reverse')" class="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 text-[11px]">Reverse</button>
+          </div>
+        </div>
+
+        <!-- Tactical Ribbon List -->
+        <div class="flex-1 p-3.5 space-y-3 overflow-y-auto custom-scroll relative before:content-[''] before:absolute before:left-6 before:top-4 before:bottom-4 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
+          
+          <div class="relative pl-7 flex items-center justify-between">
+            <span class="absolute left-1 w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[8px] font-bold ring-2 ring-white">✓</span>
+            <div>
+              <div class="font-bold text-slate-800 dark:text-slate-200 text-xs">Step 01 · Base Waypoint</div>
+              <div class="text-[10px] text-slate-400">Spray: 0.5s · Settle: 0.3s</div>
+            </div>
+            <span class="text-emerald-600 font-bold text-[10px]">DONE</span>
+          </div>
+
+          <div class="ml-7 text-[9px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded inline-block">
+            Straight Drive · 6.0m @ 0.40 m/s
+          </div>
+
+          <!-- Step 2: Target Hero -->
+          <div class="relative pl-7">
+            <span class="absolute left-1 top-3 w-4 h-4 rounded-full bg-[#1475EE] ring-2 ring-white pulse-ring"></span>
+            <div class="p-3 bg-blue-50 dark:bg-blue-950/40 border-2 border-[#1475EE] rounded-xl shadow-xs">
+              <div class="flex justify-between items-start">
+                <div>
+                  <div class="font-bold text-[#1475EE] text-xs">Step 02 · Active Target</div>
+                  <div class="text-[10px] text-slate-500 mt-0.5">Distance: <strong>2.4m remaining</strong></div>
+                </div>
+                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] rounded font-bold">SPRAY</span>
+              </div>
+              <div class="flex gap-1.5 mt-2 pt-2 border-t border-blue-200 dark:border-blue-900">
+                <button onclick="triggerSim('Undo')" class="flex-1 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-semibold">↶ Undo</button>
+                <button onclick="triggerSim('Redo')" class="flex-1 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-semibold">↷ Redo</button>
+                <button onclick="deletePoint('02')" class="px-2 py-1 bg-rose-50 text-rose-700 rounded text-[10px] font-semibold">Delete</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="ml-7 text-[9px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded inline-block">
+            Upcoming: Pivot Turn 90°
+          </div>
+
+          <div class="relative pl-7 flex items-center justify-between opacity-75">
+            <span class="absolute left-1 w-4 h-4 rounded-full bg-slate-300 dark:bg-slate-700 ring-2 ring-white"></span>
+            <div>
+              <div class="font-bold text-slate-800 dark:text-slate-200 text-xs">Step 03 · Corner Point</div>
+              <div class="text-[10px] text-slate-400">Pass-through · No Spray</div>
+            </div>
+            <span class="text-slate-400 font-mono text-[10px]">14.2m</span>
+          </div>
+
+        </div>
+
+        <div class="p-3 bg-white dark:bg-slate-900 border-t border-[#DDE7F3] dark:border-slate-800 flex gap-2 shrink-0">
+          <button onclick="discardChanges()" class="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-bold text-xs">Discard</button>
+          <button onclick="applyChanges()" class="flex-1 py-2 bg-[#1475EE] hover:bg-blue-600 text-white rounded-xl font-bold text-xs shadow-sm">✓ Apply to Rover</button>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 4: COMPACT MULTI-SELECT BATCH
+           ======================================================== -->
+      <div id="view-4" class="view-panel w-full max-w-md bg-white dark:bg-slate-900 border border-[#DDE7F3] dark:border-slate-800 rounded-2xl shadow-md overflow-hidden flex-col hidden" style="height: 590px;">
+        
+        <!-- Batch Action Header -->
+        <div class="p-3 bg-slate-50 dark:bg-slate-900 border-b border-[#DDE7F3] dark:border-slate-800 flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="c4-select-all" class="rounded accent-[#1475EE]" onclick="toggleSelectAll()">
+            <label for="c4-select-all" class="font-bold text-xs text-[#10244B] dark:text-white cursor-pointer">2 Selected</label>
+          </div>
+          <!-- Batch Actions that appear when items are selected -->
+          <div class="flex items-center gap-1.5">
+            <button onclick="triggerSim('Batch Delete (2)')" class="px-2 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[10px] font-bold">🗑 Delete (2)</button>
+            <button onclick="triggerSim('Reverse Selected')" class="px-2 py-1 bg-blue-50 text-[#1475EE] border border-blue-200 rounded text-[10px] font-bold">⇅ Reverse</button>
+            <button onclick="triggerSim('Add Point')" class="px-2 py-1 bg-[#1475EE] text-white rounded text-[10px] font-bold">+ Add</button>
+          </div>
+        </div>
+
+        <!-- High-Density Compact List (Fits 8-10 points on screen!) -->
+        <div class="flex-1 divide-y divide-slate-100 dark:divide-slate-800 overflow-y-auto custom-scroll text-xs">
+          
+          <div class="p-2.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50">
+            <div class="flex items-center gap-2.5">
+              <input type="checkbox" class="rounded accent-[#1475EE]">
+              <span class="w-5 h-5 rounded bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px]">01</span>
+              <span class="font-semibold text-slate-800 dark:text-slate-200">Point 01 (Base)</span>
+            </div>
+            <span class="font-mono text-slate-400 text-[10px]">0.0m · Done</span>
+          </div>
+
+          <div class="p-2.5 flex items-center justify-between bg-blue-50/70 dark:bg-blue-950/40">
+            <div class="flex items-center gap-2.5">
+              <input type="checkbox" checked class="rounded accent-[#1475EE]">
+              <span class="w-5 h-5 rounded bg-[#1475EE] text-white font-bold flex items-center justify-center text-[10px]">02</span>
+              <span class="font-bold text-[#10244B] dark:text-white">Point 02 (Active Target)</span>
+            </div>
+            <span class="text-xs font-bold text-[#1475EE]">2.4m</span>
+          </div>
+
+          <div class="p-2.5 flex items-center justify-between bg-blue-50/70 dark:bg-blue-950/40">
+            <div class="flex items-center gap-2.5">
+              <input type="checkbox" checked class="rounded accent-[#1475EE]">
+              <span class="w-5 h-5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-[10px]">03</span>
+              <span class="font-semibold text-slate-800 dark:text-slate-200">Point 03</span>
+            </div>
+            <span class="font-mono text-slate-500 text-[10px]">+6.0m</span>
+          </div>
+
+          <div class="p-2.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50">
+            <div class="flex items-center gap-2.5">
+              <input type="checkbox" class="rounded accent-[#1475EE]">
+              <span class="w-5 h-5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 font-bold flex items-center justify-center text-[10px]">04</span>
+              <span class="font-semibold text-slate-800 dark:text-slate-200">Point 04</span>
+            </div>
+            <span class="font-mono text-slate-500 text-[10px]">+12.0m</span>
+          </div>
+
+          <div class="p-2.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50">
+            <div class="flex items-center gap-2.5">
+              <input type="checkbox" class="rounded accent-[#1475EE]">
+              <span class="w-5 h-5 rounded bg-amber-100 text-amber-800 font-bold flex items-center justify-center text-[10px]">05</span>
+              <span class="font-semibold text-slate-800 dark:text-slate-200">Point 05 (Turn)</span>
+            </div>
+            <span class="font-mono text-slate-500 text-[10px]">+18.0m</span>
+          </div>
+
+        </div>
+
+        <!-- Footer with Undo/Redo & Apply -->
+        <div class="p-2.5 bg-slate-50 dark:bg-slate-900 border-t border-[#DDE7F3] dark:border-slate-800 flex items-center justify-between shrink-0">
+          <div class="flex gap-1">
+            <button onclick="triggerSim('Undo')" class="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-[11px] font-semibold">↶ Undo</button>
+            <button onclick="triggerSim('Redo')" class="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-[11px] font-semibold">↷ Redo</button>
+          </div>
+          <button onclick="applyChanges()" class="px-4 py-1.5 bg-[#16B980] text-white rounded-lg font-bold text-xs shadow-xs">✓ Apply (2)</button>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 5: CLEAN SLIDE-OVER SHEET
+           ======================================================== -->
+      <div id="view-5" class="view-panel w-full max-w-md bg-white dark:bg-slate-900 border border-[#DDE7F3] dark:border-slate-800 rounded-2xl shadow-md overflow-hidden flex-col hidden" style="height: 590px;">
+        
+        <!-- Header -->
+        <div class="p-4 bg-white dark:bg-slate-900 border-b border-[#DDE7F3] dark:border-slate-800 flex items-center justify-between shrink-0">
+          <div>
+            <h3 class="font-bold text-sm text-[#10244B] dark:text-white">Point Sequence Manager</h3>
+            <p class="text-[10px] text-slate-400">Manage, reverse and calibrate route points</p>
+          </div>
+          <button onclick="triggerSim('Close')" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center font-bold">✕</button>
+        </div>
+
+        <!-- Central Action Grid -->
+        <div class="p-3 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 grid grid-cols-4 gap-2 text-center shrink-0">
+          <button onclick="triggerSim('Add Point')" class="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-blue-400 shadow-xs">
+            <div class="text-base">➕</div>
+            <div class="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-1">Add Point</div>
+          </button>
+          <button onclick="triggerSim('Reverse')" class="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-blue-400 shadow-xs">
+            <div class="text-base">⇅</div>
+            <div class="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-1">Reverse</div>
+          </button>
+          <button onclick="triggerSim('Undo')" class="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-blue-400 shadow-xs">
+            <div class="text-base">↶</div>
+            <div class="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-1">Undo</div>
+          </button>
+          <button onclick="triggerSim('Redo')" class="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-blue-400 shadow-xs">
+            <div class="text-base">↷</div>
+            <div class="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-1">Redo</div>
+          </button>
+        </div>
+
+        <!-- Scrollable Points -->
+        <div class="flex-1 p-3 space-y-2 overflow-y-auto custom-scroll">
+          <div class="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 flex justify-between items-center">
+            <span class="font-bold text-slate-800 dark:text-slate-200">#01 Base Point (Start)</span>
+            <span class="text-[10px] text-slate-400">Done</span>
+          </div>
+          <div class="p-2.5 bg-blue-50 dark:bg-blue-950/40 rounded-xl border-2 border-[#1475EE] flex justify-between items-center shadow-xs">
+            <div>
+              <span class="font-bold text-[#1475EE]">#02 Pile 02 (Active Target)</span>
+              <div class="text-[10px] text-slate-500">2.4m remaining</div>
+            </div>
+            <button onclick="deletePoint('02')" class="text-rose-600 text-xs font-bold px-2 py-1 bg-white rounded border">Delete</button>
+          </div>
+          <div class="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 flex justify-between items-center">
+            <span class="font-bold text-slate-800 dark:text-slate-200">#03 Pile 03</span>
+            <span class="text-[10px] text-slate-400">+6.0m</span>
+          </div>
+        </div>
+
+        <!-- Big Apply Footer -->
+        <div class="p-3 bg-white dark:bg-slate-900 border-t border-[#DDE7F3] dark:border-slate-800 shrink-0">
+          <button onclick="applyChanges()" class="w-full py-2.5 bg-[#16B980] hover:bg-emerald-600 text-white rounded-xl font-bold text-xs shadow-md transition">
+            ✓ Apply All Changes to Rover
+          </button>
+        </div>
+      </div>
+
+      <!-- ========================================================
+           CONCEPT 6: FLOATING TACTICAL HUD PILL
+           ======================================================== -->
+      <div id="view-6" class="view-panel w-full max-w-md bg-white dark:bg-slate-900 border border-[#DDE7F3] dark:border-slate-800 rounded-2xl shadow-md overflow-hidden flex-col hidden" style="height: 590px;">
+        
+        <div class="p-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="font-bold text-xs">Floating HUD Drawer</span>
+          </div>
+          <span class="text-[10px] text-slate-400">Minimalist Map Overlay</span>
+        </div>
+
+        <!-- Floating Glass Toolbar -->
+        <div class="p-3 bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0">
+          <!-- Glass Pill -->
+          <div class="flex items-center gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl shadow-xs border border-slate-200 dark:border-slate-700">
+            <button onclick="triggerSim('Add Point')" class="px-2 py-1 hover:bg-blue-50 text-[#1475EE] rounded text-[11px] font-bold">+ Point</button>
+            <button onclick="triggerSim('Reverse')" class="px-2 py-1 hover:bg-blue-50 text-slate-700 dark:text-slate-300 rounded text-[11px] font-semibold">Reverse</button>
+            <button onclick="triggerSim('Undo')" class="w-6 h-6 rounded flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold">↶</button>
+            <button onclick="triggerSim('Redo')" class="w-6 h-6 rounded flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold">↷</button>
+          </div>
+          <button onclick="applyChanges()" class="px-3 py-1.5 bg-[#16B980] text-white rounded-xl font-bold text-[11px] shadow-xs">
+            Apply
+          </button>
+        </div>
+
+        <!-- Focus Point Cards -->
+        <div class="flex-1 p-3 space-y-2.5 overflow-y-auto custom-scroll">
+          
+          <!-- Large Highlight Card for Active Target -->
+          <div class="p-3.5 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/30 border-2 border-[#1475EE] rounded-2xl shadow-sm">
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-[10px] font-bold text-[#1475EE] uppercase tracking-wider">Current Target</span>
+              <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] rounded-full font-bold">SPRAY 0.5s</span>
+            </div>
+            <div class="text-sm font-bold text-[#10244B] dark:text-white">Point 02 · Row A Pile 02</div>
+            <div class="text-xs text-slate-500 mt-0.5">Remaining: <strong class="text-[#1475EE]">2.4m</strong> · Speed: 0.38 m/s</div>
+            
+            <div class="flex gap-2 mt-3 pt-2 border-t border-blue-200 dark:border-blue-900">
+              <button onclick="triggerSim('Skip to 3')" class="flex-1 py-1.5 bg-white dark:bg-slate-800 rounded-lg text-xs font-semibold border">Skip Point</button>
+              <button onclick="deletePoint('02')" class="px-3 py-1.5 bg-rose-50 text-rose-700 rounded-lg text-xs font-semibold">Delete</button>
+            </div>
+          </div>
+
+          <!-- Compact Upcoming Points -->
+          <div class="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-[10px]">03</span>
+              <span class="font-semibold text-slate-800 dark:text-slate-200">Point 03</span>
+            </div>
+            <span class="font-mono text-slate-400 text-[10px]">+6.0m</span>
+          </div>
+
+          <div class="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-[10px]">04</span>
+              <span class="font-semibold text-slate-800 dark:text-slate-200">Point 04 (Turnaround)</span>
+            </div>
+            <span class="font-mono text-slate-400 text-[10px]">+12.0m</span>
+          </div>
+
+        </div>
+
+        <div class="p-2.5 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-center text-[10px] text-slate-400 shrink-0">
+          Tap any point to center map on it
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Live Toast Bar -->
+    <div id="sim-toast" class="bg-[#10244B] text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
+      <span id="sim-toast-text">💡 Switch tabs above to test all 6 redesigned Points & Toolbar layouts.</span>
+      <span class="text-amber-300 font-medium">Review Only · No code applied</span>
+    </div>
+
+  </div>
+
+  <script>
+    function setConcept(idx) {
+      document.querySelectorAll('.view-panel').forEach(v => {
+        v.classList.add('hidden');
+        v.classList.remove('flex');
+      });
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+
+      const v = document.getElementById('view-' + idx);
+      const b = document.getElementById('t-' + idx);
+      if (v) {
+        v.classList.remove('hidden');
+        v.classList.add('flex');
+      }
+      if (b) b.classList.add('tab-active');
+
+      const taglines = {
+        1: "Concept 1: Single-row icon dock · Sticky bottom apply bar · No wasted vertical space",
+        2: "Concept 2: Drag handle to resequence · Insert in-between points · Clear Apply (N) bar",
+        3: "Concept 3: Tactical step milestones · Proximity countdown · Direct leg inspection",
+        4: "Concept 4: Multi-select checkboxes · Bulk delete & reverse · Ultra-compact 34px rows",
+        5: "Concept 5: Dedicated Point Manager sheet · Clean 4-button action grid · Giant Apply CTA",
+        6: "Concept 6: Floating tactical HUD · Minimalist glass toolbar · Highlighted active hero"
+      };
+      const tg = document.getElementById('concept-tagline');
+      if (tg && taglines[idx]) tg.textContent = taglines[idx];
+    }
+
+    function triggerSim(action) {
+      const toast = document.getElementById('sim-toast-text');
+      if (toast) {
+        toast.textContent = `⚡ Triggered: "${action}" — Interactive simulation active.`;
+        setTimeout(() => {
+          toast.textContent = "💡 Switch tabs above to test all 6 redesigned Points & Toolbar layouts.";
+        }, 2200);
+      }
+    }
+
+    function deletePoint(pt) {
+      triggerSim(`Deleted Point #${pt} (Draft edit recorded)`);
+    }
+
+    function applyChanges() {
+      triggerSim("Applied changes to rover successfully!");
+      const d = document.getElementById('c1-dirty');
+      if (d) d.classList.add('hidden');
+    }
+
+    function discardChanges() {
+      triggerSim("Discarded draft changes.");
+      const d = document.getElementById('c1-dirty');
+      if (d) d.classList.add('hidden');
+    }
+
+    function toggleGps(id) {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('hidden');
+    }
+
+    function toggleSelectAll() {
+      const all = document.getElementById('c4-select-all');
+      document.querySelectorAll('#view-4 input[type="checkbox"]').forEach(cb => {
+        cb.checked = all.checked;
+      });
+      triggerSim(all.checked ? "Selected all 24 points" : "Deselected all");
+    }
+  </script>
+</body>
+</html>

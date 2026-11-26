@@ -39,6 +39,8 @@ export interface SprayConfig {
   config_reason?: string | null;
   pwm_min_us?: number;
   pwm_max_us?: number;
+  /** Spray PWM in use: "saved" = kept for every start; "unsaved" = applied for a test, lost on restart; "launch" = rover default. */
+  spray_value_source?: "saved" | "unsaved" | "launch" | null;
   /** "saved" = operator value from POST /duration; "launch" = launch file. */
   spray_duration_source?: "saved" | "launch" | null;
   /** Upper bound for hold time / test duration. */
@@ -125,6 +127,34 @@ export async function setLaserConfig(on_pwm_us: number, off_pwm_us: number): Pro
   return apiPost<SprayConfigResponse>(PX4_SPRAY.LASER_CONFIG, { on_pwm_us, off_pwm_us });
 }
 
+/** Spray servo PWM range on the rover (PX4 PWM_AUX_MINn / MAXn of the spray output must be 1200 / 2000). */
+export const SPRAY_PWM_MIN_US = 1200;
+export const SPRAY_PWM_MAX_US = 2000;
+
+export function sprayPwmError(press_pwm_us: number, release_pwm_us: number): string | null {
+  const ok = (v: number) => Number.isInteger(v) && v >= SPRAY_PWM_MIN_US && v <= SPRAY_PWM_MAX_US;
+  if (!ok(press_pwm_us) || !ok(release_pwm_us)) {
+    return `Spray PWM must be whole numbers between ${SPRAY_PWM_MIN_US} and ${SPRAY_PWM_MAX_US} µs.`;
+  }
+  if (press_pwm_us === release_pwm_us) return "Spray PRESS and RELEASE PWM must be different.";
+  return null;
+}
+
+/**
+ * Spray servo PWM. save=false applies the values at once so they can be tested (lost on restart);
+ * save=true applies AND keeps them on the rover for every start.
+ */
+export async function setSprayPwm(press_pwm_us: number, release_pwm_us: number, save = false): Promise<SprayConfigResponse> {
+  const error = sprayPwmError(press_pwm_us, release_pwm_us);
+  if (error) throw new Error(error);
+  return apiPost<SprayConfigResponse>(PX4_SPRAY.CONFIG, { press_pwm_us, release_pwm_us, save });
+}
+
+/** Keep the spray PWM currently in use (the tested values) for every start. */
+export async function saveSprayPwm(): Promise<SprayConfigResponse> {
+  return apiPost<SprayConfigResponse>(`${PX4_SPRAY.CONFIG}/save`, {});
+}
+
 export async function turnSprayOn(): Promise<SprayBasicResponse> {
   return apiPost<SprayBasicResponse>(PX4_SPRAY.ON);
 }
@@ -141,6 +171,8 @@ export default {
   testSpray,
   cancelSprayTest,
   setLaserConfig,
+  setSprayPwm,
+  saveSprayPwm,
   turnSprayOn,
   turnSprayOff,
 };

@@ -74,7 +74,7 @@ export interface SettingsCategoryItem {
 
 export const ALL_SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: "rtk", title: "GNSS & RTK", subtitle: "Differential fix & NTRIP", iconKey: "categoryRtk" },
-  { id: "mission", title: "Mission Defaults", subtitle: "Marking tool & defaults", iconKey: "categoryMission" },
+  { id: "mission", title: "Spray", subtitle: "Actuator calibration & PWM", iconKey: "toolSpray" },
   { id: "obstacle", title: "Obstacle Safety", subtitle: "Front LiDAR & auto-stop", iconKey: "categoryObstacle" },
   { id: "voice", title: "Voice Feedback", subtitle: "Language & audio updates", iconKey: "categoryVoice" },
   { id: "led", title: "LED Controller", subtitle: "Chassis indicator lights", iconKey: "categoryLed" },
@@ -791,109 +791,66 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                 showsVerticalScrollIndicator={false}
               >
 
-              {/* Mission Mode Defaults Category (Consolidates Spray Actuator Inline) */}
+              {/* Spray Category (Consolidates Spray Actuator & PWM Tuning) */}
               {selectedCategory === "mission" && (
                 <View style={styles.detailCard}>
                   <View style={styles.cardHeader}>
                     <View style={styles.cardHeaderLeft}>
                       <View style={styles.cardHeaderIconBadge}>
-                        <AppIcon name="categoryMission" size="lg" color="#4F46E5" />
+                        <AppIcon name="toolSpray" size="lg" color="#1475EE" />
                       </View>
                       <View>
-                        <Text style={styles.cardEyebrow}>AUTONOMOUS MARKING</Text>
-                        <Text style={styles.cardTitle}>Mission Mode Defaults</Text>
+                        <Text style={styles.cardEyebrow}>ACTUATOR CALIBRATION</Text>
+                        <Text style={styles.cardTitle}>Spray Calibration & PWM</Text>
                       </View>
                     </View>
                   </View>
 
                   <Text style={styles.cardDescription}>
-                    Select the marking tool for the next mission and save it as the rover default. AUTO / MANUAL remains a mission-control choice.
+                    Configure and test physical spray servo pulse parameters (PRESS and RELEASE PWM) and hold duration.
                   </Text>
 
-                  <View style={styles.segmentedContainer}>
-                    {(["LASER", "SPRAY"] as const).map((tool) => {
-                      const isSelected = missionMarkingTool === tool;
-                      return (
-                        <TouchableOpacity
-                          key={tool}
-                          style={[
-                            styles.segmentedButton,
-                            isSelected && styles.segmentedButtonActive,
-                            (isMissionActive || isSavingMissionMode) && styles.disabledControl,
-                          ]}
-                          onPress={() => handleSelectTool(tool)}
-                          disabled={isMissionActive || isSavingMissionMode}
-                        >
-                          <AppIcon
-                            name={tool === "SPRAY" ? "toolSpray" : "toolLaser"}
-                            size="sm"
-                            color={isSelected ? "#FFFFFF" : "#475569"}
-                            style={{ marginRight: 6 }}
-                          />
-                          <Text
-                            style={[
-                              styles.segmentedButtonText,
-                              isSelected && styles.segmentedButtonTextActive,
-                            ]}
-                          >
-                            {tool}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  {/* Inline Spray Actuator or Laser Information Card */}
-                  {missionMarkingTool === "SPRAY" ? (
-                    <SprayActuatorCard
-                      draftServoEnabled={sprayActuator.draftServoEnabled}
-                      onToggleEnabled={sprayActuator.setDraftServoEnabled}
-                      draftDurationMs={sprayActuator.draftDurationMs}
-                      onAdjustDuration={sprayActuator.adjustDuration}
-                      onSetDirectDuration={sprayActuator.setDirectDuration}
-                      isDirty={sprayActuator.isDirty}
-                      channel={sprayActuator.channel}
-                      pressPwmUs={sprayActuator.pressPwmUs}
-                      releasePwmUs={sprayActuator.releasePwmUs}
-                      configLoaded={sprayActuator.configLoaded}
-                      isLoadingConfig={sprayActuator.isLoadingConfig}
-                      isOnline={connectionState === "connected"}
-                      canTestSpray={sprayActuator.canTestSpray}
-                      disabledTestReason={sprayActuator.disabledTestReason}
-                      isTesting={sprayActuator.isTesting}
-                      testStatus={sprayActuator.testStatus}
-                      testErrorMessage={sprayActuator.testErrorMessage}
-                      onExecuteTest={sprayActuator.executeSprayTest}
-                    />
-                  ) : (
-                    <View style={styles.laserInfoCard}>
-                      <View style={styles.laserInfoHeader}>
-                        <AppIcon name="laserInfo" size="md" color="#4F46E5" style={{ marginRight: 6 }} />
-                        <Text style={styles.laserInfoTitle}>Laser Marking Active (Option A)</Text>
-                      </View>
-                      <Text style={styles.laserInfoText}>
-                        Optical Laser Target Marker designated for mission waypoints. Saving will automatically power OFF the AUX5 Spray Controller on the rover to guarantee the chemical actuator remains safely de-energized.
-                      </Text>
-                    </View>
-                  )}
-
-                  <View style={styles.infoWell}>
-                    <Text style={styles.infoWellText}>{missionDefaultSummary}</Text>
-                  </View>
+                  {/* Inline Spray Actuator Card */}
+                  <SprayActuatorCard
+                    draftServoEnabled={sprayActuator.draftServoEnabled}
+                    onToggleEnabled={sprayActuator.setDraftServoEnabled}
+                    draftDurationMs={sprayActuator.draftDurationMs}
+                    onAdjustDuration={sprayActuator.adjustDuration}
+                    onSetDirectDuration={sprayActuator.setDirectDuration}
+                    isDirty={sprayActuator.isDirty}
+                    channel={sprayActuator.channel}
+                    pressPwmUs={sprayActuator.pressPwmUs}
+                    releasePwmUs={sprayActuator.releasePwmUs}
+                    draftPressPwmUs={sprayActuator.draftPressPwmUs}
+                    draftReleasePwmUs={sprayActuator.draftReleasePwmUs}
+                    onChangePressPwm={sprayActuator.setDraftPressPwmUs}
+                    onChangeReleasePwm={sprayActuator.setDraftReleasePwmUs}
+                    pwmError={sprayActuator.pwmError}
+                    sprayValueSource={sprayActuator.sprayValueSource}
+                    configLoaded={sprayActuator.configLoaded}
+                    isLoadingConfig={sprayActuator.isLoadingConfig}
+                    isOnline={connectionState === "connected"}
+                    canTestSpray={sprayActuator.canTestSpray}
+                    disabledTestReason={sprayActuator.disabledTestReason}
+                    isTesting={sprayActuator.isTesting}
+                    testStatus={sprayActuator.testStatus}
+                    testErrorMessage={sprayActuator.testErrorMessage}
+                    onExecuteTest={sprayActuator.executeSprayTest}
+                  />
 
                   <TouchableOpacity
                     style={[
                       styles.primaryActionButton,
                       (isMissionActive ||
                         isSavingMissionMode ||
-                        (missionMarkingTool === "SPRAY" && !sprayActuator.draftServoEnabled)) &&
+                        !sprayActuator.draftServoEnabled) &&
                         styles.disabledControl,
                     ]}
                     onPress={() => void handleSaveMissionMode()}
                     disabled={
                       isMissionActive ||
                       isSavingMissionMode ||
-                      (missionMarkingTool === "SPRAY" && !sprayActuator.draftServoEnabled)
+                      !sprayActuator.draftServoEnabled
                     }
                   >
                     {isSavingMissionMode ? (
@@ -903,8 +860,8 @@ const SettingsScreenComponent: React.FC<SettingsScreenProps> = ({
                     )}
                     <Text style={styles.primaryActionText}>
                       {isSavingMissionMode
-                        ? "Saving Mission Mode..."
-                        : "Save Mission Mode as Rover Default"}
+                        ? "Saving Spray Settings..."
+                        : "Save Spray Settings as Rover Default"}
                     </Text>
                   </TouchableOpacity>
 

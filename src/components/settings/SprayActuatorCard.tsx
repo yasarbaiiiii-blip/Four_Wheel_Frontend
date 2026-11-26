@@ -26,6 +26,12 @@ export interface SprayActuatorCardProps {
   channel: number;
   pressPwmUs: number;
   releasePwmUs: number;
+  draftPressPwmUs?: number;
+  draftReleasePwmUs?: number;
+  onChangePressPwm?: (us: number) => void;
+  onChangeReleasePwm?: (us: number) => void;
+  pwmError?: string | null;
+  sprayValueSource?: string | null;
   configLoaded: boolean;
   isLoadingConfig: boolean;
   isOnline: boolean;
@@ -47,6 +53,12 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
   channel,
   pressPwmUs,
   releasePwmUs,
+  draftPressPwmUs = pressPwmUs,
+  draftReleasePwmUs = releasePwmUs,
+  onChangePressPwm = () => {},
+  onChangeReleasePwm = () => {},
+  pwmError = null,
+  sprayValueSource = null,
   configLoaded,
   isLoadingConfig,
   isOnline,
@@ -57,7 +69,7 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
   testErrorMessage,
   onExecuteTest,
 }) => {
-  // Tap-to-type direct entry state
+  // Tap-to-type direct entry state for Duration
   const [isEditingDuration, setIsEditingDuration] = useState(false);
   const [durationInputText, setDurationInputText] = useState(
     (draftDurationMs / 1000).toFixed(2),
@@ -109,24 +121,30 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
     await onExecuteTest();
   };
 
-  // Stepper boundary checks
   const isMinDuration = draftDurationMs <= SPRAY_DURATION_MIN_MS;
   const isMaxDuration = draftDurationMs >= SPRAY_DURATION_MAX_MS;
 
+  // Calculate percentage deflection (1200 µs = 0%, 2000 µs = 100%)
+  const calcDeflectionPct = (us: number) => {
+    const clamped = Math.min(2000, Math.max(1200, us));
+    return Math.round(((clamped - 1200) / 800) * 100);
+  };
+
   return (
     <View style={styles.cardContainer}>
+      
       {/* 1. Header with Master Power Switch */}
       <View style={styles.cardHeader}>
         <View style={styles.headerLeft}>
           <View style={styles.iconBadge}>
-            <AppIcon name="actuatorSpray" size="sm" color="#1475EE" />
+            <AppIcon name="actuatorSpray" size="sm" color="#38BDF8" />
           </View>
           <View>
             <View style={styles.eyebrowRow}>
               <Text style={styles.eyebrow}>ACTUATOR HARDWARE</Text>
               {isDirty && (
                 <View style={styles.dirtyPill}>
-                  <AppIcon name="circle" size={7} color="#D97706" />
+                  <AppIcon name="circle" size={6} color="#F59E0B" />
                   <Text style={styles.dirtyPillText}>Unsaved Changes</Text>
                 </View>
               )}
@@ -135,139 +153,161 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
           </View>
         </View>
 
-        <View style={styles.switchContainer}>
+        <View style={styles.switchRightContainer}>
+          <View
+            style={[
+              styles.statusPill,
+              draftServoEnabled ? styles.statusPillActive : styles.statusPillInactive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.statusPillText,
+                draftServoEnabled ? styles.statusPillTextActive : styles.statusPillTextInactive,
+              ]}
+            >
+              {draftServoEnabled ? "ENABLED" : "DISABLED"}
+            </Text>
+          </View>
           <Switch
             value={draftServoEnabled}
             onValueChange={onToggleEnabled}
-            trackColor={{ false: "#CBD5E1", true: "#1475EE" }}
+            trackColor={{ false: "#334155", true: "#2563EB" }}
             thumbColor="#FFFFFF"
             accessibilityRole="switch"
-            accessibilityLabel="Spray controller master power switch"
-            accessibilityValue={{ text: draftServoEnabled ? "Enabled" : "Disabled" }}
+            accessibilityLabel="Spray controller power switch"
           />
-        </View>
-      </View>
-
-      {/* Controller Master Switch Description & Live Pill */}
-      <View style={styles.switchRow}>
-        <View style={styles.switchInfo}>
-          <Text style={styles.switchLabel}>Spray Controller Power</Text>
-          <Text style={styles.switchDescription}>
-            Master power gate for AUX5 precision chemical solenoid valve
-          </Text>
-        </View>
-        <View
-          style={[
-            styles.statusPill,
-            draftServoEnabled ? styles.statusPillActive : styles.statusPillInactive,
-          ]}
-        >
-          <Text
-            style={[
-              styles.statusPillText,
-              draftServoEnabled ? styles.statusPillTextActive : styles.statusPillTextInactive,
-            ]}
-          >
-            {draftServoEnabled ? "ENABLED" : "DISABLED"}
-          </Text>
         </View>
       </View>
 
       {/* Validation Warning Banner: SPRAY with Controller OFF */}
       {!draftServoEnabled && (
         <View style={styles.warningBanner}>
-          <AppIcon name="warning" size="sm" color="#D97706" />
+          <AppIcon name="warning" size="sm" color="#F59E0B" />
           <View style={styles.warningBannerContent}>
             <Text style={styles.warningBannerTitle}>Spray Controller Power is OFF</Text>
             <Text style={styles.warningBannerText}>
-              SPRAY is selected as mission default, but master power is OFF. Missions will execute without active spray dispensing.
+              Missions will execute without active spray dispensing
             </Text>
           </View>
         </View>
       )}
 
-      {/* 2. Hardware Mapping Telemetry (Read-Only) */}
-      <View style={styles.telemetryWell}>
-        <View style={styles.telemetryHeader}>
-          <Text style={styles.telemetryEyebrow}>READ-ONLY HARDWARE TELEMETRY</Text>
-          <View style={styles.channelBadge}>
-            <Text style={styles.channelBadgeText}>{`AUX${channel} CHANNEL`}</Text>
-          </View>
+      {/* Offline Alert */}
+      {!isOnline && (
+        <View style={styles.offlineBox}>
+          <AppIcon name="warning" size="xs" color="#EF4444" />
+          <Text style={styles.offlineText}>Telemetry offline — Rover disconnected</Text>
+        </View>
+      )}
+
+      {/* 2. Modern Dual PWM Actuator Gauges */}
+      <View style={styles.sectionBlock}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionLabel}>SERVO PWM CALIBRATION (1200 – 2000 µs)</Text>
+          <Text style={styles.auxChannelBadge}>{`AUX${channel} CHANNEL`}</Text>
         </View>
 
-        <View style={styles.telemetryDivider} />
+        <View style={styles.pwmGrid}>
+          {/* PRESS PWM Card */}
+          <ModernPwmField
+            label="PRESS (SPRAY)"
+            value={draftPressPwmUs}
+            inUse={pressPwmUs}
+            pct={calcDeflectionPct(draftPressPwmUs)}
+            barColor="#38BDF8"
+            onCommit={onChangePressPwm}
+          />
 
-        {isLoadingConfig ? (
-          <View style={styles.telemetryLoadingRow}>
-            <ActivityIndicator size="small" color="#1475EE" />
-            <Text style={styles.telemetryLoadingText}>Inspecting rover parameters...</Text>
-          </View>
-        ) : !isOnline ? (
-          <View style={styles.telemetryOfflineRow}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <AppIcon name="warning" size="xs" color="#DC2626" />
-              <Text style={styles.telemetryOfflineText}>
-                Telemetry offline — Rover disconnected
-              </Text>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.telemetryGrid}>
-            <View style={styles.telemetryItem}>
-              <Text style={styles.telemetryItemLabel}>PRESS PWM</Text>
-              <Text style={styles.telemetryItemValue}>{`${pressPwmUs} µs`}</Text>
-            </View>
-            <View style={styles.telemetryItem}>
-              <Text style={styles.telemetryItemLabel}>RELEASE PWM</Text>
-              <Text style={styles.telemetryItemValue}>{`${releasePwmUs} µs`}</Text>
-            </View>
-            <View style={styles.telemetryItem}>
-              <Text style={styles.telemetryItemLabel}>CURRENT PULSE</Text>
-              <Text style={[styles.telemetryItemValue, { color: "#1475EE" }]}>
-                {`${(draftDurationMs / 1000).toFixed(2)} s`}
-              </Text>
-            </View>
-          </View>
-        )}
+          {/* RELEASE PWM Card */}
+          <ModernPwmField
+            label="RELEASE (REST)"
+            value={draftReleasePwmUs}
+            inUse={releasePwmUs}
+            pct={calcDeflectionPct(draftReleasePwmUs)}
+            barColor="#94A3B8"
+            onCommit={onChangeReleasePwm}
+          />
+        </View>
       </View>
 
-      {/* 3. Duration Stepper Controls */}
-      <View style={styles.stepperContainer}>
-        <View style={styles.stepperHeader}>
-          <View>
-            <Text style={styles.stepperEyebrow}>SPRAY CALIBRATION</Text>
-            <Text style={styles.stepperTitle}>Spray Duration Pulse</Text>
+      {/* 3. Status & Safety Feedback Notice */}
+      {isOnline && !isLoadingConfig && (
+        <View style={styles.statusBox}>
+          <View style={styles.statusRow}>
+            <View
+              style={[
+                styles.statusIndicatorDot,
+                sprayValueSource === "saved"
+                  ? styles.dotSaved
+                  : sprayValueSource === "unsaved"
+                  ? styles.dotUnsaved
+                  : styles.dotDefault,
+              ]}
+            />
+            <Text style={styles.statusTitle}>
+              {sprayValueSource === "saved"
+                ? "Spray PWM: Saved on rover (used on boot)"
+                : sprayValueSource === "unsaved"
+                ? "Spray PWM: Testing on rover (press Save to keep)"
+                : "Spray PWM: Rover default"}
+            </Text>
           </View>
-          <Text style={styles.stepperLimit}>
-            0.10 s – 3.00 s (100 ms step)
-          </Text>
+
+          {pwmError ? (
+            <Text style={styles.errorText}>{pwmError}</Text>
+          ) : (
+            <Text style={styles.hintText}>
+              Note: RELEASE PWM must match PX4 parameters PWM_AUX_DIS1 & PWM_AUX_FAIL1 to avoid arm/disarm servo jumps.
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* 4. Pulse Hold Duration Stepper */}
+      <View style={styles.durationCard}>
+        <View style={styles.durationHeader}>
+          <View>
+            <Text style={styles.durationEyebrow}>TIMING CALIBRATION</Text>
+            <Text style={styles.durationTitle}>Spray Pulse Duration</Text>
+          </View>
+
+          {/* Quick preset chips */}
+          <View style={styles.presetChipsRow}>
+            {[250, 500, 1000].map((ms) => {
+              const active = draftDurationMs === ms;
+              return (
+                <TouchableOpacity
+                  key={ms}
+                  style={[styles.presetChip, active && styles.presetChipActive]}
+                  onPress={() => onSetDirectDuration(ms)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.presetChipText, active && styles.presetChipTextActive]}>
+                    {`${(ms / 1000).toFixed(2)}s`}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
-        <View style={styles.stepperControlsRow}>
-          {/* Decrement Button */}
+        <View style={styles.stepperRow}>
           <TouchableOpacity
-            style={[styles.stepperButton, isMinDuration && styles.stepperButtonDisabled]}
+            style={[styles.stepperBtn, isMinDuration && styles.stepperBtnDisabled]}
             onPressIn={() => startAutoRepeat(-SPRAY_DURATION_STEP_MS)}
             onPressOut={stopAutoRepeat}
             disabled={isMinDuration}
             accessibilityRole="button"
             accessibilityLabel="Decrease spray pulse duration by 100 milliseconds"
           >
-            <AppIcon
-              name="stepperMinus"
-              size="sm"
-              color={isMinDuration ? "#94A3B8" : "#1E293B"}
-            />
+            <AppIcon name="stepperMinus" size="sm" color={isMinDuration ? "#64748B" : "#F8FAFC"} />
           </TouchableOpacity>
 
-          {/* Direct Tap-to-Type Display Box */}
           <TouchableOpacity
             style={styles.durationDisplayBox}
             onPress={() => setIsEditingDuration(true)}
             activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel="Tap to enter spray duration manually"
-            accessibilityValue={{ text: `${(draftDurationMs / 1000).toFixed(2)} seconds` }}
           >
             {isEditingDuration ? (
               <TextInput
@@ -282,104 +322,145 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
                 selectTextOnFocus
               />
             ) : (
-              <View style={styles.durationTextRow}>
-                <Text style={styles.durationValueText}>
-                  {(draftDurationMs / 1000).toFixed(2)}
-                </Text>
-                <Text style={styles.durationUnitText}>seconds</Text>
-                <Text style={styles.durationMsText}>({draftDurationMs} ms)</Text>
+              <View style={styles.durationDisplayContent}>
+                <Text style={styles.durationValText}>{(draftDurationMs / 1000).toFixed(2)}</Text>
+                <Text style={styles.durationUnitText}>sec</Text>
+                <Text style={styles.durationSubMsText}>{`(${draftDurationMs} ms)`}</Text>
               </View>
             )}
           </TouchableOpacity>
 
-          {/* Increment Button */}
           <TouchableOpacity
-            style={[styles.stepperButton, isMaxDuration && styles.stepperButtonDisabled]}
+            style={[styles.stepperBtn, isMaxDuration && styles.stepperBtnDisabled]}
             onPressIn={() => startAutoRepeat(SPRAY_DURATION_STEP_MS)}
             onPressOut={stopAutoRepeat}
             disabled={isMaxDuration}
             accessibilityRole="button"
             accessibilityLabel="Increase spray pulse duration by 100 milliseconds"
           >
-            <AppIcon
-              name="stepperPlus"
-              size="sm"
-              color={isMaxDuration ? "#94A3B8" : "#1E293B"}
-            />
+            <AppIcon name="stepperPlus" size="sm" color={isMaxDuration ? "#64748B" : "#F8FAFC"} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* 4. Safety Hardware Test Pulse Button */}
-      <View style={styles.testPulseContainer}>
-        <View style={styles.testPulseHeader}>
-          <Text style={styles.testPulseEyebrow}>SAFETY HARDWARE TEST</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            {testStatus === "success" && (
-              <AppIcon name="testSuccess" size="xs" color="#059669" />
-            )}
-            {testStatus === "error" && (
-              <AppIcon name="testError" size="xs" color="#DC2626" />
-            )}
-            <Text
-              style={[
-                styles.testStatusText,
-                testStatus === "success" && styles.textSuccess,
-                testStatus === "error" && styles.textError,
-                testStatus === "pulsing" && styles.textPulsing,
-              ]}
-            >
-              {testStatus === "pulsing"
-                ? "Firing AUX5 Pulse..."
-                : testStatus === "success"
-                ? "Pulse Completed"
-                : testStatus === "error"
-                ? "Test Failed"
-                : canTestSpray
-                ? "Ready to test"
-                : disabledTestReason ?? "Unavailable"}
-            </Text>
-          </View>
-        </View>
-
+      {/* 5. Safety Test Spray Button */}
+      <View style={styles.testActionContainer}>
         <TouchableOpacity
           style={[
             styles.testButton,
             !canTestSpray && styles.testButtonDisabled,
-            testStatus === "success" && styles.testButtonSuccess,
             isTesting && styles.testButtonTesting,
           ]}
           onPress={handleTapTest}
           disabled={!canTestSpray || isTesting}
+          activeOpacity={0.8}
           accessibilityRole="button"
           accessibilityLabel={`Test spray pulse on AUX${channel}`}
         >
-          <View style={styles.testButtonContent}>
-            {isTesting ? (
-              <ActivityIndicator color="#1475EE" size="small" />
-            ) : (
-              <AppIcon
-                name="testPulse"
-                size="sm"
-                color={!canTestSpray ? "#94A3B8" : "#B45309"}
-              />
+          <View style={styles.testBtnInner}>
+            {testStatus === "success" && (
+              <AppIcon name="testSuccess" size="xs" color="#10B981" />
             )}
-            <Text
-              style={[
-                styles.testButtonLabel,
-                !canTestSpray && styles.testButtonLabelDisabled,
-              ]}
-            >
+            {testStatus === "error" && (
+              <AppIcon name="testError" size="xs" color="#EF4444" />
+            )}
+            {isTesting ? (
+              <ActivityIndicator color="#0B0F19" size="small" />
+            ) : (
+              <AppIcon name="testPulse" size="sm" color={!canTestSpray ? "#64748B" : "#0B0F19"} />
+            )}
+            <Text style={[styles.testBtnText, !canTestSpray && styles.testBtnTextDisabled]}>
               {isTesting
-                ? `FIRING AUX${channel} PULSE (${(draftDurationMs / 1000).toFixed(2)}s)...`
+                ? `FIRING AUX${channel} (${(draftDurationMs / 1000).toFixed(2)}s)...`
                 : `TEST SPRAY PULSE (AUX${channel})`}
             </Text>
           </View>
         </TouchableOpacity>
 
-        {testErrorMessage && (
-          <Text style={styles.testErrorMessage}>{testErrorMessage}</Text>
+        {testErrorMessage ? (
+          <Text style={styles.testErrorMsg}>{testErrorMessage}</Text>
+        ) : !canTestSpray && disabledTestReason ? (
+          <Text style={styles.testHintMsg}>{disabledTestReason}</Text>
+        ) : null}
+      </View>
+
+    </View>
+  );
+};
+
+// Modern Dual PWM Input with live Deflection Bar & Nudge Buttons
+const ModernPwmField: React.FC<{
+  label: string;
+  value: number;
+  inUse: number;
+  pct: number;
+  barColor: string;
+  onCommit: (us: number) => void;
+}> = ({ label, value, inUse, pct, barColor, onCommit }) => {
+  const [text, setText] = useState(String(value));
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setText(String(value));
+  }, [value, editing]);
+
+  const finish = () => {
+    setEditing(false);
+    const parsed = Number.parseInt(text, 10);
+    if (Number.isFinite(parsed)) onCommit(parsed);
+    else setText(String(value));
+  };
+
+  const nudge = (delta: number) => {
+    const next = Math.min(2000, Math.max(1200, value + delta));
+    onCommit(next);
+  };
+
+  return (
+    <View style={styles.pwmCard}>
+      <View style={styles.pwmCardHeader}>
+        <Text style={styles.pwmCardLabel}>{label}</Text>
+        {inUse !== value ? (
+          <Text style={styles.inUsePill}>{`In use: ${inUse} µs`}</Text>
+        ) : (
+          <Text style={styles.syncedPill}>{`${value} µs`}</Text>
         )}
+      </View>
+
+      <View style={styles.pwmInputRow}>
+        <TextInput
+          style={styles.pwmInputText}
+          value={text}
+          onFocus={() => setEditing(true)}
+          onChangeText={setText}
+          onBlur={finish}
+          onSubmitEditing={finish}
+          keyboardType="number-pad"
+          maxLength={4}
+          selectTextOnFocus
+        />
+        <Text style={styles.pwmMicroSecLabel}>µs</Text>
+
+        <View style={styles.nudgeButtons}>
+          <TouchableOpacity style={styles.nudgeBtn} onPress={() => nudge(-25)}>
+            <Text style={styles.nudgeBtnText}>-</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.nudgeBtn} onPress={() => nudge(25)}>
+            <Text style={styles.nudgeBtnText}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Visual Deflection Progress Bar */}
+      <View style={styles.barContainer}>
+        <View style={styles.barTrack}>
+          <View style={[styles.barFill, { width: `${pct}%`, backgroundColor: barColor }]} />
+        </View>
+        <View style={styles.barLabels}>
+          <Text style={styles.barLabelText}>REST (1200)</Text>
+          <Text style={[styles.barLabelText, { color: barColor }]}>{`${pct}% DEFLECTION`}</Text>
+          <Text style={styles.barLabelText}>FULL (2000)</Text>
+        </View>
       </View>
     </View>
   );
@@ -387,411 +468,452 @@ export const SprayActuatorCard: React.FC<SprayActuatorCardProps> = ({
 
 const styles = StyleSheet.create({
   cardContainer: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#0B0F19",
     borderRadius: 16,
-    borderWidth: 2,
-    borderColor: "#DDE8F7",
+    borderWidth: 1,
+    borderColor: "#1E293B",
     padding: 16,
-    marginTop: 12,
+    marginTop: 10,
     marginBottom: 8,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
   },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1E293B",
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    flex: 1,
+    gap: 12,
   },
   iconBadge: {
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: "#EAF3FF",
+    backgroundColor: "rgba(56, 189, 248, 0.12)",
     borderWidth: 1,
-    borderColor: "#D6E6FF",
+    borderColor: "rgba(56, 189, 248, 0.3)",
     alignItems: "center",
     justifyContent: "center",
-  },
-  iconText: {
-    fontSize: 18,
   },
   eyebrowRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   eyebrow: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
-    color: "#526B93",
-    letterSpacing: 0.5,
+    color: "#38BDF8",
+    letterSpacing: 0.8,
   },
   dirtyPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FEF3C7",
-    borderWidth: 1,
-    borderColor: "#FCD34D",
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 8,
     gap: 4,
-  },
-  dirtyPillDot: {
-    fontSize: 8,
-    color: "#D97706",
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.3)",
   },
   dirtyPillText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#B45309",
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#F59E0B",
   },
   cardTitle: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#10244B",
-    marginTop: 2,
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#F8FAFC",
+    marginTop: 1,
   },
-  switchContainer: {
-    minHeight: 48,
-    minWidth: 48,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  switchRow: {
+  switchRightContainer: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EDF2F7",
-  },
-  switchInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  switchLabel: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#10244B",
-  },
-  switchDescription: {
-    fontSize: 11,
-    color: "#64748B",
-    marginTop: 2,
-    lineHeight: 15,
+    gap: 8,
   },
   statusPill: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 6,
-    borderWidth: 1,
   },
   statusPillActive: {
-    backgroundColor: "#E6F8F1",
-    borderColor: "#A7F3D0",
+    backgroundColor: "rgba(16, 185, 129, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.3)",
   },
   statusPillInactive: {
-    backgroundColor: "#F1F5F9",
-    borderColor: "#CBD5E1",
+    backgroundColor: "#1E293B",
   },
   statusPillText: {
-    fontSize: 10,
-    fontWeight: "900",
+    fontSize: 9,
+    fontWeight: "800",
   },
   statusPillTextActive: {
-    color: "#059669",
+    color: "#10B981",
   },
   statusPillTextInactive: {
     color: "#64748B",
   },
   warningBanner: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    backgroundColor: "#FFFBEB",
-    borderWidth: 1.5,
-    borderColor: "#FDE68A",
-    borderRadius: 10,
-    padding: 10,
-    marginTop: 10,
+    alignItems: "center",
     gap: 8,
-  },
-  warningBannerIcon: {
-    fontSize: 16,
-    marginTop: 1,
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.3)",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
   },
   warningBannerContent: {
     flex: 1,
   },
   warningBannerTitle: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "800",
-    color: "#B45309",
+    color: "#F59E0B",
   },
   warningBannerText: {
-    fontSize: 11,
-    color: "#92400E",
-    marginTop: 2,
-    lineHeight: 15,
-  },
-  telemetryWell: {
-    backgroundColor: "#F8FAFC",
-    borderWidth: 1,
-    borderColor: "#DDE8F7",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 12,
-  },
-  telemetryHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  telemetryEyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#64748B",
-    letterSpacing: 0.5,
-  },
-  channelBadge: {
-    backgroundColor: "#EAF3FF",
-    borderWidth: 1,
-    borderColor: "#BFDBFE",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  channelBadgeText: {
-    fontSize: 10,
-    fontWeight: "900",
-    color: "#1475EE",
-  },
-  telemetryDivider: {
-    height: 1,
-    backgroundColor: "#EDF2F7",
-    marginVertical: 8,
-  },
-  telemetryGrid: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  telemetryItem: {
-    flex: 1,
-  },
-  telemetryItemLabel: {
     fontSize: 9,
-    fontWeight: "800",
-    color: "#64748B",
-    marginBottom: 2,
-  },
-  telemetryItemValue: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: "#10244B",
-    fontFamily: "monospace",
-  },
-  telemetryLoadingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 4,
-  },
-  telemetryLoadingText: {
-    fontSize: 11,
-    color: "#64748B",
-    fontStyle: "italic",
-  },
-  telemetryOfflineRow: {
-    paddingVertical: 4,
-  },
-  telemetryOfflineText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#DC2626",
-  },
-  stepperContainer: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#DDE8F7",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 12,
-  },
-  stepperHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  stepperEyebrow: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#64748B",
-    letterSpacing: 0.5,
-  },
-  stepperTitle: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: "#10244B",
+    color: "#CBD5E1",
     marginTop: 1,
   },
-  stepperLimit: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#64748B",
-  },
-  stepperControlsRow: {
+  offlineBox: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+  },
+  offlineText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#EF4444",
+  },
+  sectionBlock: {
+    marginBottom: 14,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  sectionLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#64748B",
+    letterSpacing: 0.6,
+  },
+  auxChannelBadge: {
+    fontSize: 9,
+    fontWeight: "700",
+    fontFamily: "monospace",
+    color: "#94A3B8",
+    backgroundColor: "#1E293B",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  pwmGrid: {
+    flexDirection: "row",
     gap: 10,
   },
-  stepperButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: "#F1F5F9",
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepperButtonDisabled: {
-    opacity: 0.35,
-  },
-  stepperButtonText: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: "#10244B",
-    lineHeight: 24,
-  },
-  disabledText: {
-    color: "#94A3B8",
-  },
-  durationDisplayBox: {
+  pwmCard: {
     flex: 1,
-    height: 48,
-    backgroundColor: "#F8FAFC",
-    borderWidth: 1.5,
-    borderColor: "#CBD5E1",
+    backgroundColor: "#111827",
+    borderWidth: 1,
+    borderColor: "#1E293B",
     borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+    padding: 12,
   },
-  durationTextRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 4,
-  },
-  durationValueText: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#1475EE",
-  },
-  durationUnitText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#64748B",
-  },
-  durationMsText: {
-    fontSize: 11,
-    color: "#94A3B8",
-    fontFamily: "monospace",
-  },
-  durationInput: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#1475EE",
-    textAlign: "center",
-    width: "100%",
-  },
-  testPulseContainer: {
-    marginTop: 12,
-  },
-  testPulseHeader: {
+  pwmCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 6,
   },
-  testPulseEyebrow: {
-    fontSize: 9,
+  pwmCardLabel: {
+    fontSize: 10,
     fontWeight: "800",
-    color: "#64748B",
+    color: "#CBD5E1",
     letterSpacing: 0.5,
   },
-  testStatusText: {
-    fontSize: 11,
+  inUsePill: {
+    fontSize: 8,
+    fontWeight: "700",
+    fontFamily: "monospace",
+    color: "#F59E0B",
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  syncedPill: {
+    fontSize: 8,
+    fontWeight: "700",
+    fontFamily: "monospace",
+    color: "#64748B",
+  },
+  pwmInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  pwmInputText: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: "800",
+    fontFamily: "monospace",
+    color: "#F8FAFC",
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    backgroundColor: "transparent",
+  },
+  pwmMicroSecLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    fontFamily: "monospace",
+    color: "#64748B",
+    marginRight: 4,
+  },
+  nudgeButtons: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  nudgeBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: "#1E293B",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nudgeBtnText: {
+    color: "#F8FAFC",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  barContainer: {
+    marginTop: 2,
+  },
+  barTrack: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#1E293B",
+    overflow: "hidden",
+  },
+  barFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  barLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 3,
+  },
+  barLabelText: {
+    fontSize: 7,
+    fontFamily: "monospace",
     fontWeight: "700",
     color: "#64748B",
   },
-  textSuccess: {
-    color: "#059669",
-    fontWeight: "800",
+  statusBox: {
+    backgroundColor: "#0F172A",
+    borderWidth: 1,
+    borderColor: "#1E293B",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 14,
   },
-  textError: {
-    color: "#DC2626",
-    fontWeight: "800",
-  },
-  textPulsing: {
-    color: "#1475EE",
-    fontWeight: "900",
-  },
-  testButton: {
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: "#EAF3FF",
-    borderWidth: 2,
-    borderColor: "#1475EE",
-    overflow: "hidden",
+  statusRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
+    gap: 6,
+    marginBottom: 4,
   },
-  testButtonDisabled: {
-    borderColor: "#CBD5E1",
-    backgroundColor: "#F8FAFC",
-    opacity: 0.6,
+  statusIndicatorDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
-  testButtonSuccess: {
-    borderColor: "#10B981",
-    backgroundColor: "#ECFDF5",
+  dotSaved: { backgroundColor: "#10B981" },
+  dotUnsaved: { backgroundColor: "#F59E0B" },
+  dotDefault: { backgroundColor: "#64748B" },
+  statusTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#E2E8F0",
   },
-  testButtonTesting: {
+  errorText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#EF4444",
+    marginTop: 2,
+  },
+  hintText: {
+    fontSize: 9,
+    color: "#94A3B8",
+    lineHeight: 13,
+  },
+  durationCard: {
+    backgroundColor: "#111827",
+    borderWidth: 1,
+    borderColor: "#1E293B",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+  },
+  durationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  durationEyebrow: {
+    fontSize: 8,
+    fontWeight: "800",
+    color: "#64748B",
+    letterSpacing: 0.6,
+  },
+  durationTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#F8FAFC",
+  },
+  presetChipsRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  presetChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: "#1E293B",
+  },
+  presetChipActive: {
+    backgroundColor: "rgba(37, 99, 235, 0.3)",
+    borderWidth: 1,
     borderColor: "#3B82F6",
-    backgroundColor: "#EFF6FF",
   },
-  testButtonContent: {
+  presetChipText: {
+    fontSize: 9,
+    fontFamily: "monospace",
+    fontWeight: "600",
+    color: "#94A3B8",
+  },
+  presetChipTextActive: {
+    color: "#60A5FA",
+    fontWeight: "800",
+  },
+  stepperRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    zIndex: 1,
   },
-  testButtonIcon: {
+  stepperBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: "#1E293B",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepperBtnDisabled: {
+    opacity: 0.4,
+  },
+  durationDisplayBox: {
+    flex: 1,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: "#0B0F19",
+    borderWidth: 1,
+    borderColor: "#1E293B",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  durationDisplayContent: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+  },
+  durationValText: {
     fontSize: 16,
+    fontWeight: "800",
+    fontFamily: "monospace",
+    color: "#38BDF8",
   },
-  testButtonLabel: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: "#1475EE",
-    letterSpacing: 0.3,
-  },
-  testButtonLabelDisabled: {
+  durationUnitText: {
+    fontSize: 11,
+    fontWeight: "700",
     color: "#94A3B8",
   },
-  testErrorMessage: {
-    fontSize: 11,
-    color: "#DC2626",
+  durationSubMsText: {
+    fontSize: 9,
+    fontFamily: "monospace",
+    color: "#64748B",
+  },
+  durationInput: {
+    fontSize: 16,
+    fontWeight: "800",
+    fontFamily: "monospace",
+    color: "#38BDF8",
+    textAlign: "center",
+    width: "100%",
+  },
+  testActionContainer: {
     marginTop: 4,
-    marginLeft: 2,
+  },
+  testButton: {
+    backgroundColor: "#F59E0B",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  testButtonDisabled: {
+    backgroundColor: "#1E293B",
+  },
+  testButtonTesting: {
+    backgroundColor: "#D97706",
+  },
+  testBtnInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  testBtnText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#0B0F19",
+    letterSpacing: 0.5,
+  },
+  testBtnTextDisabled: {
+    color: "#64748B",
+  },
+  testErrorMsg: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#EF4444",
+    textAlign: "center",
+    marginTop: 6,
+  },
+  testHintMsg: {
+    fontSize: 9,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 6,
   },
 });
