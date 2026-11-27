@@ -126,7 +126,12 @@ export function normalizeBackendPointEvent(
   const longitude = finiteNumber(
     payload.lon ?? payload.lng ?? payload.longitude,
   );
-  const position = options.fallbackPosition;
+  // The rover's point events carry an `accuracy` block and, when it measured the
+  // stop, the stop position in lat/lon. Such an event must never take the live
+  // rover position instead: that is where the rover is when the event arrives,
+  // not where it stopped, and it gave a second, different accuracy.
+  const roverMeasured = asRecord(payload.accuracy) !== null;
+  const position = roverMeasured ? null : options.fallbackPosition;
 
   const timestamp =
     isoFromUnixMs(payload.timestamp_unix_ms) ??

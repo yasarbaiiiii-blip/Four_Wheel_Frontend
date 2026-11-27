@@ -5657,8 +5657,8 @@ export default function MissionReportScreen({
         editable={missionExtension.editable}
         lockedReason={missionExtension.lockedReason}
         lockMessage={missionExtension.message}
-        blockedReason={preview.acceptedForStart || effectiveMissionActive
-          ? "The mission is loaded or active. Its row extension cannot be changed."
+        blockedReason={effectiveMissionActive
+          ? "A mission is running. Change the row extension after it stops."
           : preview.missionId && missionExtension.availability !== "available"
             ? missionExtension.message ?? "Wait for the rover's row extension settings."
             : null}
@@ -6261,6 +6261,8 @@ function MissionActivityExperience({
   const editHistory = useDraftHistory<Waypoint[]>();
   const isEditingPoints = editHistory.isEditing;
   const [isAddPointMode, setIsAddPointMode] = useState(false);
+  const [isDeleteSelectMode, setIsDeleteSelectMode] = useState(false);
+  const [selectedDeleteIndices, setSelectedDeleteIndices] = useState<number[]>([]);
 
   useEffect(() => {
     onDraftChange?.(editHistory.draft);
@@ -6462,7 +6464,11 @@ function MissionActivityExperience({
   const { end: endEditing } = editHistory;
 
   const openPointsPanel = useCallback(() => {
-    endEditing();
+    if (!editHistory.isEditing) {
+      editHistory.begin(waypoints.map((point) => ({ ...point })));
+    }
+    setIsDeleteSelectMode(false);
+    setSelectedDeleteIndices([]);
     setIsPointsExpanded(true);
     pointsPanelProgress.setValue(0);
     requestAnimationFrame(() => {
@@ -6473,9 +6479,11 @@ function MissionActivityExperience({
         useNativeDriver: false,
       }).start();
     });
-  }, [pointsPanelProgress, endEditing]);
+  }, [pointsPanelProgress, editHistory, waypoints]);
 
   const closePointsPanel = useCallback(() => {
+    setIsDeleteSelectMode(false);
+    setSelectedDeleteIndices([]);
     Animated.timing(pointsPanelProgress, {
       toValue: 0,
       duration: 280,
@@ -6483,11 +6491,52 @@ function MissionActivityExperience({
       useNativeDriver: false,
     }).start(({ finished }) => {
       if (finished) {
-        endEditing();
         setIsPointsExpanded(false);
       }
     });
-  }, [pointsPanelProgress, endEditing]);
+  }, [pointsPanelProgress]);
+
+  const handleStartAddPointMode = useCallback(() => {
+    if (!editHistory.isEditing) {
+      editHistory.begin(waypoints.map((point) => ({ ...point })));
+    }
+    setIsAddPointMode(true);
+    closePointsPanel();
+    onNotify?.("info", "Add Point Mode", "Tap anywhere on map to place waypoints, then press APPLY in top right corner.");
+  }, [closePointsPanel, editHistory, waypoints, onNotify]);
+
+  const handleToggleDeleteMode = useCallback(() => {
+    if (!isDeleteSelectMode) {
+      setIsDeleteSelectMode(true);
+      setSelectedDeleteIndices([]);
+      onNotify?.("info", "Delete Mode Enabled", "Tap points below to select, then tap Delete again to remove them.");
+    } else {
+      if (selectedDeleteIndices.length > 0) {
+        const current = editHistory.draft ?? waypoints;
+        if (!current) return;
+        if (current.length - selectedDeleteIndices.length < 2) {
+          onNotify?.("info", "Cannot delete", "A mission needs at least 2 points.");
+          return;
+        }
+        const selectedSet = new Set(selectedDeleteIndices);
+        const next = current.filter((_, idx) => !selectedSet.has(idx));
+        draftRef.current = next;
+        editHistory.apply(next);
+        onNotify?.("info", "Points Deleted", `Removed ${selectedDeleteIndices.length} point${selectedDeleteIndices.length > 1 ? "s" : ""}.`);
+        setSelectedDeleteIndices([]);
+        setIsDeleteSelectMode(false);
+      } else {
+        setIsDeleteSelectMode(false);
+        setSelectedDeleteIndices([]);
+      }
+    }
+  }, [isDeleteSelectMode, selectedDeleteIndices, editHistory, waypoints, onNotify]);
+
+  const handleToggleSelectPointForDelete = useCallback((index: number) => {
+    setSelectedDeleteIndices((prev) =>
+      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
+    );
+  }, []);
 
   useEffect(() => () => pointsPanelProgress.stopAnimation(), [pointsPanelProgress]);
   useEffect(() => {
@@ -6807,10 +6856,48 @@ function MissionActivityExperience({
         </View>
         <View style={[fieldExperienceStyles.homeControls, !isLightHeader && fieldExperienceStyles.homeControlsDark]}><EstopControls variant="mission" stopLatched={stopLatched} onStopRecorded={onEmergencyStopRecorded} /><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeThemeButton, !isLightHeader && fieldExperienceStyles.homeThemeButtonDark]} onPress={() => setIsLightHeader((value) => !value)} accessibilityRole="button" accessibilityLabel="Toggle light and dark top bar"><MaterialCommunityIcons name={isLightHeader ? "weather-night" : "white-balance-sunny"} size={19} color="#FFFFFF" /><Text style={fieldExperienceStyles.homeControlLabel}>THEME</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeSettingsButton, !isLightHeader && fieldExperienceStyles.homeControlDark]} onPress={() => setShowSettings(true)} accessibilityRole="button" accessibilityLabel="Open settings"><MaterialCommunityIcons name="tune-variant" size={19} color={isLightHeader ? "#173563" : "#F8FAFC"} /><Text style={[fieldExperienceStyles.homeSettingsLabel, !isLightHeader && fieldExperienceStyles.homeSettingsLabelDark]}>SETTINGS</Text></TouchableOpacity></View>
       </View>
+      {/* Redesigned Aerospace Heading HUD Card */}
       <View style={fieldExperienceStyles.homeHeadingCard}>
-        <View style={fieldExperienceStyles.homeHeadingDial}><MaterialCommunityIcons name="navigation-variant" size={20} color="#1475EE" style={{ transform: [{ rotate: `${headingRotation}deg` }] }} /></View>
-        <View><Text style={fieldExperienceStyles.homeHeadingValue}>{headingValue}</Text><Text style={fieldExperienceStyles.homeHeadingLabel}>HEADING · {headingDirection}</Text></View>
+        <View style={fieldExperienceStyles.homeHeadingDial}>
+          <MaterialCommunityIcons
+            name="navigation"
+            size={20}
+            color="#DC2626"
+            style={{ transform: [{ rotate: `${headingRotation}deg` }] }}
+          />
+        </View>
+        <View style={fieldExperienceStyles.homeHeadingTextGroup}>
+          <Text style={fieldExperienceStyles.homeHeadingValue}>{headingValue}°</Text>
+          <View style={fieldExperienceStyles.homeHeadingSubRow}>
+            <View style={fieldExperienceStyles.homeHeadingDirBadge}>
+              <Text style={fieldExperienceStyles.homeHeadingDirText}>{headingDirection}</Text>
+            </View>
+            <Text style={fieldExperienceStyles.homeHeadingLabel}>HEADING</Text>
+          </View>
+        </View>
       </View>
+
+      {/* Floating Apply Button in Top Right of Map Canvas */}
+      {(isDraftDirty || (isEditingPoints && isAddPointMode)) && (
+        <View style={fieldExperienceStyles.floatingApplyWrap} pointerEvents="box-none">
+          <TouchableOpacity
+            style={[
+              fieldExperienceStyles.floatingApplyButton,
+              isApplyingEdit && fieldExperienceStyles.disabled,
+            ]}
+            onPress={handleApplyEdit}
+            disabled={isApplyingEdit}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Apply changes to rover"
+          >
+            <MaterialCommunityIcons name="check-bold" size={16} color="#FFFFFF" />
+            <Text style={fieldExperienceStyles.floatingApplyText}>
+              {isApplyingEdit ? "APPLYING..." : "APPLY"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <View style={fieldExperienceStyles.overview}>
         <View style={fieldExperienceStyles.railHeader}>
           <View><Text style={fieldExperienceStyles.eyebrow}>MISSION</Text><Text style={fieldExperienceStyles.missionTitle} numberOfLines={1}>Field Survey</Text></View>
@@ -6821,7 +6908,38 @@ function MissionActivityExperience({
           <CommandMeta icon="source-branch" text={`${routeKm.toFixed(1)} km`} />
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionToolSection]}>
-          <View style={fieldExperienceStyles.cardHeading}><View style={fieldExperienceStyles.missionToolHeading}><View style={fieldExperienceStyles.missionToolHeadingIcon}><MaterialCommunityIcons name="toolbox-outline" size={20} color="#1475EE" /></View><View><Text style={fieldExperienceStyles.missionToolTitle}>Mission tools</Text><Text style={fieldExperienceStyles.toolSectionSub}>{stopLatched ? "Emergency stop active — press Release" : hasMissionLoaded ? (canStart ? "Mission ready to start" : (startBlockerMessage || "Mission ready to use")) : "Upload a plan to enable tools"}</Text></View></View><View style={fieldExperienceStyles.toolHeaderActions}><Text style={fieldExperienceStyles.toolSectionHint}>{hasMissionLoaded ? "READY" : "SETUP"}</Text>{onClearMission && (<TouchableOpacity style={[fieldExperienceStyles.clearMissionCompact, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactDisabled]} onPress={onClearMission} disabled={!canClearMission || isClearingMission} accessibilityRole="button" accessibilityLabel="Clear Mission"><MaterialCommunityIcons name="eraser-variant" size={15} color={!canClearMission || isClearingMission ? "rgba(217,74,66,0.4)" : "#D94A42"} /><Text style={[fieldExperienceStyles.clearMissionCompactText, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactTextDisabled]}>Clear Mission</Text></TouchableOpacity>)}</View></View>
+          <View style={fieldExperienceStyles.compactToolHeader}>
+            <View style={fieldExperienceStyles.compactToolTitleRow}>
+              <View style={fieldExperienceStyles.compactToolIconWrap}>
+                <MaterialCommunityIcons name="toolbox-outline" size={17} color="#1475EE" />
+              </View>
+              <View>
+                <Text style={fieldExperienceStyles.compactToolTitle}>Mission Tools</Text>
+                <Text style={fieldExperienceStyles.compactToolSubtitle}>
+                  {stopLatched ? "E-Stop active — release required" : hasMissionLoaded ? "Plan loaded & verified" : "Upload plan to begin"}
+                </Text>
+              </View>
+            </View>
+            <View style={fieldExperienceStyles.toolHeaderActions}>
+              <View style={[fieldExperienceStyles.compactToolStatusBadge, { backgroundColor: hasMissionLoaded ? "#E9F9F2" : "#F1F5FB" }]}>
+                <Text style={[fieldExperienceStyles.compactToolStatusText, { color: hasMissionLoaded ? "#0D825F" : "#64748B" }]}>
+                  {hasMissionLoaded ? "READY" : "SETUP"}
+                </Text>
+              </View>
+              {onClearMission && (
+                <TouchableOpacity
+                  style={[fieldExperienceStyles.clearMissionCompact, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactDisabled]}
+                  onPress={onClearMission}
+                  disabled={!canClearMission || isClearingMission}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear Mission"
+                >
+                  <MaterialCommunityIcons name="eraser-variant" size={14} color={!canClearMission || isClearingMission ? "rgba(217,74,66,0.4)" : "#D94A42"} />
+                  <Text style={[fieldExperienceStyles.clearMissionCompactText, (!canClearMission || isClearingMission) && fieldExperienceStyles.clearMissionCompactTextDisabled]}>Clear</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
           <MissionToolsActionTrio
             hasMissionLoaded={hasMissionLoaded}
             onUpload={() => openPlanGuarded("upload")}
@@ -6832,7 +6950,7 @@ function MissionActivityExperience({
         </View>
         <View style={[fieldExperienceStyles.card, fieldExperienceStyles.missionActivityCard]} onLayout={(event) => { setActivityCardHeight(Math.round(event.nativeEvent.layout.height)); setActivityCardWidth(Math.round(event.nativeEvent.layout.width)); }}>
           <View style={fieldExperienceStyles.activityHeader}>
-            <View style={fieldExperienceStyles.activityTitleGroup}><View style={fieldExperienceStyles.activityTitleIcon}><MaterialCommunityIcons name="map-marker-path" size={22} color="#FFFFFF" /></View><Text style={fieldExperienceStyles.activityTitle}>Mission activity</Text></View>
+            <View style={fieldExperienceStyles.activityTitleGroup}><View style={fieldExperienceStyles.activityTitleIcon}><MaterialCommunityIcons name="map-marker-path" size={22} color="#FFFFFF" /></View><Text style={fieldExperienceStyles.activityTitle}>Mission Points</Text></View>
             <View style={[fieldExperienceStyles.activityStateBadge, isDemoPoints ? fieldExperienceStyles.activityStateDemo : fieldExperienceStyles.activityStateLive]}><View style={[fieldExperienceStyles.activityStateDot, isDemoPoints && fieldExperienceStyles.activityStateDotDemo]} /><Text style={[fieldExperienceStyles.activityStateText, isDemoPoints && fieldExperienceStyles.activityStateTextDemo]}>{isDemoPoints ? "DEMO" : "LIVE"}</Text></View>
           </View>
           <View style={fieldExperienceStyles.activityListHeading}><Text style={fieldExperienceStyles.activityListTitle}>POINTS</Text><MaterialCommunityIcons name="gesture-swipe-vertical" size={15} color="#7185A4" /></View>
@@ -7392,67 +7510,312 @@ function MissionActivityExperience({
         </View>
       )}
 
-      {isPointsExpanded && <Animated.View style={[fieldExperienceStyles.pointsPanel, { width: pointsPanelAnimatedWidth, height: activityCardHeight || 320 }]}>
-        <View style={fieldExperienceStyles.pointsPanelHeader}>
-          <View style={fieldExperienceStyles.expandedActivityTitle}>
-            <View style={fieldExperienceStyles.expandedActivityIcon}><MaterialCommunityIcons name="map-marker-path" size={21} color="#FFFFFF" /></View>
-            <Text style={fieldExperienceStyles.pointsPanelTitle}>Mission activity</Text>
+      {isPointsExpanded && (
+        <Animated.View
+          style={[
+            fieldExperienceStyles.pointsPanel,
+            {
+              width: pointsPanelAnimatedWidth,
+              top: 80,
+              bottom: 16,
+            },
+          ]}
+        >
+          {/* Header without redundant top Edit button */}
+          <View style={fieldExperienceStyles.pointsPanelHeader}>
+            <View style={fieldExperienceStyles.expandedActivityTitle}>
+              <View style={fieldExperienceStyles.expandedActivityIcon}>
+                <MaterialCommunityIcons name="map-marker-path" size={21} color="#FFFFFF" />
+              </View>
+              <View>
+                <Text style={fieldExperienceStyles.pointsPanelTitle}>Mission Points Editor</Text>
+                <Text style={fieldExperienceStyles.pointsPanelSub}>
+                  {isDeleteSelectMode
+                    ? `Delete mode: ${selectedDeleteIndices.length} point${selectedDeleteIndices.length === 1 ? "" : "s"} selected`
+                    : `${listWaypoints.length} waypoints · Tap Add to edit on map`}
+                </Text>
+              </View>
+            </View>
+            <View style={fieldExperienceStyles.pointsPanelHeaderActions}>
+              <TouchableOpacity
+                style={fieldExperienceStyles.pointsPanelClose}
+                onPress={() => {
+                  if (isDraftDirty) {
+                    Alert.alert(
+                      "Unsaved changes",
+                      "Apply your edits using the APPLY button, or discard them.",
+                      [
+                        { text: "Keep Editing", style: "cancel" },
+                        {
+                          text: "Discard",
+                          style: "destructive",
+                          onPress: () => {
+                            editHistory.end();
+                            closePointsPanel();
+                          },
+                        },
+                      ]
+                    );
+                    return;
+                  }
+                  closePointsPanel();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Close mission points editor"
+              >
+                <MaterialCommunityIcons name="close" size={20} color="#173563" />
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={fieldExperienceStyles.pointsPanelHeaderActions}>
-            <TouchableOpacity
-              style={[fieldExperienceStyles.editAllButton, { minHeight: 48, minWidth: 72 }, isEditingPoints && fieldExperienceStyles.editAllButtonActive, !isEditingPoints && editBlocked != null && fieldExperienceStyles.disabled]}
-              onPress={handleToggleEdit}
-              accessibilityRole="button"
-              accessibilityLabel={isEditingPoints ? "Finish editing mission points" : "Edit mission points"}
-              accessibilityState={{ disabled: !isEditingPoints && editBlocked != null }}
-            >
-              <MaterialCommunityIcons name={isEditingPoints ? "check" : "pencil-outline"} size={16} color={isEditingPoints ? "#FFFFFF" : "#1475EE"} />
-              <Text style={[fieldExperienceStyles.editAllText, { fontSize: 12 }, isEditingPoints && fieldExperienceStyles.editAllTextActive]}>{isEditingPoints ? "Done" : "Edit"}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[fieldExperienceStyles.pointsPanelClose, { minHeight: 48, minWidth: 48 }]}
-              onPress={() => {
-                if (isDraftDirty) {
-                  Alert.alert("Unsaved changes", "Apply or discard your point edits before closing.");
-                  return;
+
+          {/* Main Body Row: Left Vertical Action Rail + Right Full-Height Points List */}
+          <View style={fieldExperienceStyles.editorBodyRow}>
+            {/* Left Vertical Action Rail: Reverse, Add, Redo, Undo, Delete */}
+            <View style={fieldExperienceStyles.verticalActionRail}>
+              {/* 1. Reverse */}
+              <TouchableOpacity
+                style={[
+                  fieldExperienceStyles.verticalRailBtn,
+                  listWaypoints.length < 2 && fieldExperienceStyles.verticalRailBtnDisabled,
+                ]}
+                onPress={handleReverseDraft}
+                disabled={listWaypoints.length < 2 || isApplyingEdit}
+                accessibilityRole="button"
+                accessibilityLabel="Reverse waypoint sequence"
+              >
+                <MaterialCommunityIcons
+                  name="swap-vertical"
+                  size={20}
+                  color={listWaypoints.length < 2 ? "#94A3B8" : "#1475EE"}
+                />
+                <Text
+                  style={[
+                    fieldExperienceStyles.verticalRailBtnText,
+                    listWaypoints.length < 2 && fieldExperienceStyles.verticalRailBtnTextDisabled,
+                  ]}
+                >
+                  Reverse
+                </Text>
+              </TouchableOpacity>
+
+              {/* 2. Add */}
+              <TouchableOpacity
+                style={[
+                  fieldExperienceStyles.verticalRailBtn,
+                  fieldExperienceStyles.verticalRailBtnAdd,
+                ]}
+                onPress={handleStartAddPointMode}
+                disabled={isApplyingEdit}
+                accessibilityRole="button"
+                accessibilityLabel="Add points on map"
+              >
+                <MaterialCommunityIcons name="plus-circle-outline" size={20} color="#10B981" />
+                <Text style={[fieldExperienceStyles.verticalRailBtnText, { color: "#065F46" }]}>
+                  Add
+                </Text>
+              </TouchableOpacity>
+
+              {/* 3. Redo */}
+              <TouchableOpacity
+                style={[
+                  fieldExperienceStyles.verticalRailBtn,
+                  !editHistory.canRedo && fieldExperienceStyles.verticalRailBtnDisabled,
+                ]}
+                onPress={editHistory.redo}
+                disabled={!editHistory.canRedo || isApplyingEdit}
+                accessibilityRole="button"
+                accessibilityLabel="Redo last change"
+              >
+                <MaterialCommunityIcons
+                  name="redo-variant"
+                  size={20}
+                  color={!editHistory.canRedo ? "#94A3B8" : "#1475EE"}
+                />
+                <Text
+                  style={[
+                    fieldExperienceStyles.verticalRailBtnText,
+                    !editHistory.canRedo && fieldExperienceStyles.verticalRailBtnTextDisabled,
+                  ]}
+                >
+                  Redo
+                </Text>
+              </TouchableOpacity>
+
+              {/* 4. Undo */}
+              <TouchableOpacity
+                style={[
+                  fieldExperienceStyles.verticalRailBtn,
+                  !editHistory.canUndo && fieldExperienceStyles.verticalRailBtnDisabled,
+                ]}
+                onPress={editHistory.undo}
+                disabled={!editHistory.canUndo || isApplyingEdit}
+                accessibilityRole="button"
+                accessibilityLabel="Undo last change"
+              >
+                <MaterialCommunityIcons
+                  name="undo-variant"
+                  size={20}
+                  color={!editHistory.canUndo ? "#94A3B8" : "#1475EE"}
+                />
+                <Text
+                  style={[
+                    fieldExperienceStyles.verticalRailBtnText,
+                    !editHistory.canUndo && fieldExperienceStyles.verticalRailBtnTextDisabled,
+                  ]}
+                >
+                  Undo
+                </Text>
+              </TouchableOpacity>
+
+              {/* 5. Delete (Toggles selection mode; clicking again deletes selected points) */}
+              <TouchableOpacity
+                style={[
+                  fieldExperienceStyles.verticalRailBtn,
+                  isDeleteSelectMode
+                    ? fieldExperienceStyles.verticalRailBtnDeleteActive
+                    : fieldExperienceStyles.verticalRailBtnDelete,
+                ]}
+                onPress={handleToggleDeleteMode}
+                disabled={isApplyingEdit || listWaypoints.length <= 2}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isDeleteSelectMode
+                    ? `Confirm delete of ${selectedDeleteIndices.length} points`
+                    : "Enter delete selection mode"
                 }
-                closePointsPanel();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Close mission activity"
-            >
-              <MaterialCommunityIcons name="chevron-right" size={23} color="#173563" />
-            </TouchableOpacity>
+              >
+                <MaterialCommunityIcons
+                  name={isDeleteSelectMode ? "trash-can" : "trash-can-outline"}
+                  size={20}
+                  color={isDeleteSelectMode ? "#FFFFFF" : "#DC2626"}
+                />
+                <Text
+                  style={[
+                    fieldExperienceStyles.verticalRailBtnText,
+                    isDeleteSelectMode
+                      ? fieldExperienceStyles.verticalRailBtnTextDeleteActive
+                      : { color: "#DC2626" },
+                  ]}
+                >
+                  {isDeleteSelectMode && selectedDeleteIndices.length > 0 ? "Delete!" : "Delete"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Right: Full-Height Points List */}
+            <View style={fieldExperienceStyles.fullHeightPointsListWrap}>
+              {/* Delete Mode Selection Banner */}
+              {isDeleteSelectMode && (
+                <View style={fieldExperienceStyles.deleteSelectBanner}>
+                  <MaterialCommunityIcons name="checkbox-marked-circle-outline" size={16} color="#DC2626" />
+                  <Text style={fieldExperienceStyles.deleteSelectBannerText}>
+                    Tap points to select ·{" "}
+                    <Text style={{ fontWeight: "900", color: "#DC2626" }}>
+                      {selectedDeleteIndices.length} selected
+                    </Text>
+                  </Text>
+                </View>
+              )}
+
+              <ScrollView
+                style={fieldExperienceStyles.fullHeightPointsScroll}
+                contentContainerStyle={fieldExperienceStyles.fullHeightPointsScrollContent}
+                showsVerticalScrollIndicator
+              >
+                {listWaypoints.map((waypoint, index) => {
+                  const isSelectedForDelete = selectedDeleteIndices.includes(index);
+                  return (
+                    <TouchableOpacity
+                      key={`${waypoint.sn}-${index}`}
+                      style={[
+                        fieldExperienceStyles.pointRow,
+                        fieldExperienceStyles.readableExpandedPointRow,
+                        isSelectedForDelete && fieldExperienceStyles.pointRowSelectedForDelete,
+                      ]}
+                      onPress={() => {
+                        if (isDeleteSelectMode) {
+                          handleToggleSelectPointForDelete(index);
+                        }
+                      }}
+                      activeOpacity={isDeleteSelectMode ? 0.7 : 1}
+                    >
+                      {/* Checkbox badge when in delete selection mode */}
+                      {isDeleteSelectMode && (
+                        <View
+                          style={[
+                            fieldExperienceStyles.deleteItemCheckbox,
+                            isSelectedForDelete && fieldExperienceStyles.deleteItemCheckboxSelected,
+                          ]}
+                        >
+                          <MaterialCommunityIcons
+                            name={isSelectedForDelete ? "check" : "minus"}
+                            size={14}
+                            color={isSelectedForDelete ? "#FFFFFF" : "#CBD5E1"}
+                          />
+                        </View>
+                      )}
+
+                      <View
+                        style={[
+                          fieldExperienceStyles.pointIcon,
+                          fieldExperienceStyles.readableExpandedPointIcon,
+                          isSelectedForDelete && { backgroundColor: "#DC2626" },
+                        ]}
+                      >
+                        <Text style={[fieldExperienceStyles.pointIconText, fieldExperienceStyles.readablePointNumber]}>
+                          {String(index + 1).padStart(2, "0")}
+                        </Text>
+                      </View>
+
+                      <View style={[fieldExperienceStyles.pointDetails, fieldExperienceStyles.pointDataCentered]}>
+                        <View style={fieldExperienceStyles.pointCoordinatePair}>
+                          <View style={fieldExperienceStyles.pointCoordinateItem}>
+                            <Text style={[fieldExperienceStyles.pointCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>
+                              LAT
+                            </Text>
+                            <Text style={[fieldExperienceStyles.pointCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>
+                              {commandCoordinate(waypoint.lat)}
+                            </Text>
+                          </View>
+                          <View style={fieldExperienceStyles.pointCoordinateDivider} />
+                          <View style={fieldExperienceStyles.pointCoordinateItem}>
+                            <Text style={[fieldExperienceStyles.pointCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>
+                              LON
+                            </Text>
+                            <Text style={[fieldExperienceStyles.pointCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>
+                              {commandCoordinate(waypoint.lon)}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={fieldExperienceStyles.pointDistance}>
+                          <MaterialCommunityIcons
+                            name={index === 0 ? "flag-variant-outline" : "ruler"}
+                            size={12}
+                            color="#60799D"
+                          />
+                          <Text style={[fieldExperienceStyles.pointDistanceText, fieldExperienceStyles.readableDistanceText]}>
+                            {index === 0
+                              ? "Start"
+                              : commandDistanceLabel(
+                                  commandSegmentDistanceM(listWaypoints[index - 1], waypoint)
+                                ).replace(" from previous", "")}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {isSelectedForDelete && (
+                        <View style={fieldExperienceStyles.deleteRowBadge}>
+                          <Text style={fieldExperienceStyles.deleteRowBadgeText}>TO DELETE</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
           </View>
-        </View>
-        {isEditingPoints && (
-          <MissionEditToolbar
-            pointCount={listWaypoints.length}
-            canReverse={listWaypoints.length >= 2}
-            canUndo={editHistory.canUndo}
-            canRedo={editHistory.canRedo}
-            isDirty={isDraftDirty}
-            isApplying={isApplyingEdit}
-            isAddPointActive={isAddPointMode}
-            onAddPoint={handleToggleAddPoint}
-            onReverse={handleReverseDraft}
-            onUndo={editHistory.undo}
-            onRedo={editHistory.redo}
-            onCancel={handleDiscardEdit}
-            onApply={handleApplyEdit}
-          />
-        )}
-        <ScrollView showsVerticalScrollIndicator contentContainerStyle={fieldExperienceStyles.pointsPanelList}>
-          {listWaypoints.map((waypoint, index) => <View key={`${waypoint.sn}-${index}`} style={[fieldExperienceStyles.pointRow, fieldExperienceStyles.readableExpandedPointRow, { width: expandedPointCardWidth }]}>
-            <View style={[fieldExperienceStyles.pointIcon, fieldExperienceStyles.readableExpandedPointIcon]}><Text style={[fieldExperienceStyles.pointIconText, fieldExperienceStyles.readablePointNumber]}>{String(index + 1).padStart(2, "0")}</Text></View>
-            <View style={[fieldExperienceStyles.pointDetails, fieldExperienceStyles.pointDataCentered]}><View style={fieldExperienceStyles.pointCoordinatePair}><View style={fieldExperienceStyles.pointCoordinateItem}><Text style={[fieldExperienceStyles.pointCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>LAT</Text><Text style={[fieldExperienceStyles.pointCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>{commandCoordinate(waypoint.lat)}</Text></View><View style={fieldExperienceStyles.pointCoordinateDivider} /><View style={fieldExperienceStyles.pointCoordinateItem}><Text style={[fieldExperienceStyles.pointCoordinateLabel, fieldExperienceStyles.readableCoordinateLabel]}>LON</Text><Text style={[fieldExperienceStyles.pointCoordinateValue, fieldExperienceStyles.readableCoordinateValue]}>{commandCoordinate(waypoint.lon)}</Text></View></View><View style={fieldExperienceStyles.pointDistance}><MaterialCommunityIcons name={index === 0 ? "flag-variant-outline" : "ruler"} size={12} color="#60799D" /><Text style={[fieldExperienceStyles.pointDistanceText, fieldExperienceStyles.readableDistanceText]}>{index === 0 ? "Start" : commandDistanceLabel(commandSegmentDistanceM(listWaypoints[index - 1], waypoint)).replace(" from previous", "")}</Text></View></View>
-            {isEditingPoints && <View style={fieldExperienceStyles.pointActions}>
-              <TouchableOpacity style={[fieldExperienceStyles.pointAction, { minHeight: 48 }, isApplyingEdit && fieldExperienceStyles.disabled]} disabled={isApplyingEdit} onPress={() => { if (!isDemoPoints) openPlanGuarded(); }} accessibilityRole="button" accessibilityLabel={`Edit point ${index + 1} in planner`}><MaterialCommunityIcons name="pencil-outline" size={17} color="#1475EE" /><Text style={[fieldExperienceStyles.pointActionText, fieldExperienceStyles.readableActionText]}>Edit</Text></TouchableOpacity>
-              <TouchableOpacity style={[fieldExperienceStyles.pointAction, fieldExperienceStyles.pointDeleteAction, { minHeight: 48 }, (isApplyingEdit || listWaypoints.length <= 2) && fieldExperienceStyles.disabled]} disabled={isApplyingEdit || listWaypoints.length <= 2} onPress={() => handleDeleteDraftPoint(index)} accessibilityRole="button" accessibilityLabel={`Delete point ${index + 1}`}><MaterialCommunityIcons name="trash-can-outline" size={17} color="#DC2626" /><Text style={[fieldExperienceStyles.pointDeleteText, fieldExperienceStyles.readableActionText]}>Delete</Text></TouchableOpacity>
-            </View>}
-          </View>)}
-        </ScrollView>
-      </Animated.View>}
+        </Animated.View>
+      )}
       <MissionExportSheet
         visible={isExportSheetOpen}
         onClose={closeExportSheet}

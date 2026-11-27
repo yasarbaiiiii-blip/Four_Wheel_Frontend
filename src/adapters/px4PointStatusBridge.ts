@@ -3,8 +3,11 @@
  *
  * The active backend uses zero-based point_index values. The UI table is keyed
  * by the waypoint serial number (wp.sn). Accuracy is calculated from the target
- * GPS coordinate and the rover coordinate captured when the terminal point
- * event arrives.
+ * GPS coordinate and the coordinate in the point event. The rover sends the
+ * position where it STOPPED (the raw-GNSS measurement it decided the point
+ * with), so the value equals the 31-35 mm popup and the report, also for a
+ * FAILED or SKIPPED point. A point the rover could not measure has no position
+ * and gets no value.
  */
 
 import type { PointMissionEvent } from "../types/px4/mission";
@@ -80,6 +83,8 @@ function accuracyForEntry(
     "arrived",
     "marked",
     "completed",
+    "failed",
+    "skipped",
   ].includes(entry.status);
 
   if (!terminalOrArrival || !targetWaypoint) return {};

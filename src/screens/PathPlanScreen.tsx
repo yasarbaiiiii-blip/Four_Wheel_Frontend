@@ -4736,11 +4736,9 @@ export default function PathPlanScreen({
         editable={missionExtension.editable}
         lockedReason={missionExtension.lockedReason}
         lockMessage={missionExtension.message}
-        blockedReason={preview.acceptedForStart
-          ? "The mission is already loaded. Its row extension cannot be changed."
-          : !planNeedsUpload && preview.missionId && missionExtension.availability !== "available"
-            ? missionExtension.message ?? "Wait for the rover's row extension settings."
-            : null}
+        blockedReason={!planNeedsUpload && preview.missionId && missionExtension.availability !== "available"
+          ? missionExtension.message ?? "Wait for the rover's row extension settings."
+          : null}
         previewState={missionExtension.previewState}
         previewError={missionExtension.previewError}
         previewPending={missionExtension.previewPending}
