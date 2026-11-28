@@ -6555,6 +6555,34 @@ function MissionActivityExperience({
   const isDraftDirty =
     editHistory.draft !== null && !sameMissionRoute(editHistory.draft, waypoints);
 
+  const changesSummary = useMemo(() => {
+    if (!isDraftDirty || !editHistory.draft) return null;
+    const originalCount = waypoints.length;
+    const draftCount = editHistory.draft.length;
+    const countDiff = draftCount - originalCount;
+
+    // Check if reversed
+    const isReversed =
+      draftCount === originalCount &&
+      draftCount > 1 &&
+      editHistory.draft.every((pt, i) => {
+        const orig = waypoints[originalCount - 1 - i];
+        return Math.abs(pt.lat - orig.lat) < 1e-6 && Math.abs(pt.lon - orig.lon) < 1e-6;
+      });
+
+    if (isReversed) {
+      return "Route reversed";
+    }
+
+    if (countDiff > 0) {
+      return `+${countDiff} point${countDiff === 1 ? "" : "s"} added`;
+    }
+    if (countDiff < 0) {
+      return `${Math.abs(countDiff)} point${Math.abs(countDiff) === 1 ? "" : "s"} deleted`;
+    }
+    return "Point sequence modified";
+  }, [isDraftDirty, editHistory.draft, waypoints]);
+
   const handleToggleEdit = useCallback(() => {
     if (editHistory.isEditing) {
       if (!isDraftDirty) {
@@ -6609,55 +6637,45 @@ function MissionActivityExperience({
   );
 
   const handleApplyEdit = useCallback(() => {
-    setIsAddPointMode(false);
     const draft = editHistory.draft;
     if (!draft || !isDraftDirty || applyingEditRef.current || !onCommitEdit) return;
-    Alert.alert(
-      "Apply changes to the rover?",
-      `${draft.length} points will replace the uploaded mission. ` +
-        "The mission must be loaded again before it can start.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Apply",
-          onPress: () => {
-            if (applyingEditRef.current) return;
-            applyingEditRef.current = true;
-            setIsApplyingEdit(true);
-            void (async () => {
-              try {
-                const result = await onCommitEdit(draft);
-                if (!deckMountedRef.current) return;
-                if (result.success) {
-                  editHistory.end();
-                  onNotify?.(
-                    "success",
-                    "Mission updated",
-                    result.message ?? "The rover has the edited mission. Load it again before starting.",
-                  );
-                } else {
-                  onNotify?.(
-                    "error",
-                    "Update failed",
-                    result.message ?? "The rover did not accept the edited mission. Your changes are kept.",
-                  );
-                }
-              } catch (error) {
-                onNotify?.(
-                  "error",
-                  "Update failed",
-                  error instanceof Error ? error.message : "Could not update the mission. Your changes are kept.",
-                );
-              } finally {
-                applyingEditRef.current = false;
-                if (deckMountedRef.current) setIsApplyingEdit(false);
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [editHistory, isDraftDirty, onCommitEdit, onNotify]);
+
+    applyingEditRef.current = true;
+    setIsApplyingEdit(true);
+    void (async () => {
+      try {
+        const result = await onCommitEdit(draft);
+        if (!deckMountedRef.current) return;
+        if (result.success) {
+          setIsAddPointMode(false);
+          setIsDeleteSelectMode(false);
+          setSelectedDeleteIndices([]);
+          // Note: editHistory.end() is deliberately omitted so that draft,
+          // past, and future stacks are preserved, enabling Undo and Redo to continue working.
+          onNotify?.(
+            "success",
+            "Mission updated",
+            result.message ?? "The rover has the edited mission. Load it again before starting.",
+          );
+        } else {
+          onNotify?.(
+            "error",
+            "Update failed",
+            result.message ?? "The rover did not accept the edited mission. Your changes are kept.",
+          );
+        }
+      } catch (error) {
+        onNotify?.(
+          "error",
+          "Update failed",
+          error instanceof Error ? error.message : "Could not update the mission. Your changes are kept.",
+        );
+      } finally {
+        applyingEditRef.current = false;
+        if (deckMountedRef.current) setIsApplyingEdit(false);
+      }
+    })();
+  }, [editHistory.draft, isDraftDirty, onCommitEdit, onNotify]);
 
   // The mission was cleared while editing: there is nothing left to edit.
   useEffect(() => {
@@ -6770,7 +6788,7 @@ function MissionActivityExperience({
     waitingForManual: Boolean(waitingForManual),
     canStart,
     isPreparing,
-    isEditing: isEditingPoints,
+    isEditing: isDraftDirty || isAddPointMode || isDeleteSelectMode,
     isBusy: pendingAction !== null,
     isStopping,
     isStarting,
@@ -6856,24 +6874,19 @@ function MissionActivityExperience({
         </View>
         <View style={[fieldExperienceStyles.homeControls, !isLightHeader && fieldExperienceStyles.homeControlsDark]}><EstopControls variant="mission" stopLatched={stopLatched} onStopRecorded={onEmergencyStopRecorded} /><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeThemeButton, !isLightHeader && fieldExperienceStyles.homeThemeButtonDark]} onPress={() => setIsLightHeader((value) => !value)} accessibilityRole="button" accessibilityLabel="Toggle light and dark top bar"><MaterialCommunityIcons name={isLightHeader ? "weather-night" : "white-balance-sunny"} size={19} color="#FFFFFF" /><Text style={fieldExperienceStyles.homeControlLabel}>THEME</Text></TouchableOpacity><TouchableOpacity style={[fieldExperienceStyles.homeControl, fieldExperienceStyles.homeSettingsButton, !isLightHeader && fieldExperienceStyles.homeControlDark]} onPress={() => setShowSettings(true)} accessibilityRole="button" accessibilityLabel="Open settings"><MaterialCommunityIcons name="tune-variant" size={19} color={isLightHeader ? "#173563" : "#F8FAFC"} /><Text style={[fieldExperienceStyles.homeSettingsLabel, !isLightHeader && fieldExperienceStyles.homeSettingsLabelDark]}>SETTINGS</Text></TouchableOpacity></View>
       </View>
-      {/* Redesigned Aerospace Heading HUD Card */}
+      {/* Compact Modern Heading HUD Pill */}
       <View style={fieldExperienceStyles.homeHeadingCard}>
         <View style={fieldExperienceStyles.homeHeadingDial}>
           <MaterialCommunityIcons
             name="navigation"
-            size={20}
-            color="#DC2626"
+            size={13}
+            color="#1475EE"
             style={{ transform: [{ rotate: `${headingRotation}deg` }] }}
           />
         </View>
-        <View style={fieldExperienceStyles.homeHeadingTextGroup}>
-          <Text style={fieldExperienceStyles.homeHeadingValue}>{headingValue}°</Text>
-          <View style={fieldExperienceStyles.homeHeadingSubRow}>
-            <View style={fieldExperienceStyles.homeHeadingDirBadge}>
-              <Text style={fieldExperienceStyles.homeHeadingDirText}>{headingDirection}</Text>
-            </View>
-            <Text style={fieldExperienceStyles.homeHeadingLabel}>HEADING</Text>
-          </View>
+        <Text style={fieldExperienceStyles.homeHeadingValue}>{headingValue}°</Text>
+        <View style={fieldExperienceStyles.homeHeadingDirBadge}>
+          <Text style={fieldExperienceStyles.homeHeadingDirText}>{headingDirection}</Text>
         </View>
       </View>
 
@@ -7536,6 +7549,14 @@ function MissionActivityExperience({
                 </Text>
               </View>
             </View>
+            {changesSummary ? (
+              <View style={fieldExperienceStyles.pointsPanelChangesBadge}>
+                <MaterialCommunityIcons name="circle-edit-outline" size={15} color="#D97706" />
+                <Text style={fieldExperienceStyles.pointsPanelChangesText} numberOfLines={1}>
+                  {changesSummary}
+                </Text>
+              </View>
+            ) : null}
             <View style={fieldExperienceStyles.pointsPanelHeaderActions}>
               <TouchableOpacity
                 style={fieldExperienceStyles.pointsPanelClose}
@@ -7700,6 +7721,32 @@ function MissionActivityExperience({
                   {isDeleteSelectMode && selectedDeleteIndices.length > 0 ? "Delete!" : "Delete"}
                 </Text>
               </TouchableOpacity>
+
+              {/* 6. Apply Draft (Round Green Button with White Tick) */}
+              <TouchableOpacity
+                style={[
+                  fieldExperienceStyles.verticalRailApplyRoundBtn,
+                  (!isDraftDirty || isApplyingEdit) && fieldExperienceStyles.verticalRailApplyRoundBtnDisabled,
+                ]}
+                onPress={handleApplyEdit}
+                disabled={!isDraftDirty || isApplyingEdit}
+                accessibilityRole="button"
+                accessibilityLabel="Apply changes to rover"
+              >
+                <MaterialCommunityIcons
+                  name="check-bold"
+                  size={20}
+                  color={!isDraftDirty ? "#A7F3D0" : "#FFFFFF"}
+                />
+              </TouchableOpacity>
+              <Text
+                style={[
+                  fieldExperienceStyles.verticalRailBtnText,
+                  { color: !isDraftDirty ? "#94A3B8" : "#059669", fontWeight: "800", marginTop: -2 },
+                ]}
+              >
+                Apply
+              </Text>
             </View>
 
             {/* Right: Full-Height Points List */}
@@ -7873,8 +7920,28 @@ const fieldExperienceStyles = StyleSheet.create({
   missionToolGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 12, marginTop: 14 }, missionToolTile: { width: "48.6%", height: 62, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderRadius: 16, backgroundColor: "#F7FAFF", borderWidth: 1, borderColor: "#D5E3F5", shadowColor: "#315987", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 }, missionToolTilePrimary: { backgroundColor: "#1475EE", borderColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.28, shadowRadius: 9, elevation: 5 }, missionToolTileDisabled: { backgroundColor: "#F3F6FA", borderColor: "#E0E7F0", shadowOpacity: 0, elevation: 0 }, missionToolTileClear: { backgroundColor: "#FFF7F5", borderColor: "#FFD9D2" }, missionToolTileText: { color: "#315987", fontSize: 13, fontWeight: "900", letterSpacing: 0.1 }, missionToolTileTextDisabled: { color: "#9BAABD" }, missionToolTilePrimaryText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", letterSpacing: 0.1 }, missionToolTileClearText: { color: "#D94A42", fontSize: 11, fontWeight: "900", letterSpacing: 0.1 },
   uploadMissionOnly: { height: 58, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 11, borderRadius: 14, backgroundColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.24, shadowRadius: 8, elevation: 3 }, uploadMissionOnlyIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" }, uploadMissionOnlyTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" }, uploadMissionOnlySub: { color: "#DCEBFF", fontSize: 10, fontWeight: "600", marginTop: 2 },
   missionTools: { height: 58, flexDirection: "row", gap: 8, marginBottom: 12 }, missionTool: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 12, backgroundColor: "#F4F8FE", borderWidth: 1, borderColor: "#DCE8F7" }, missionToolPrimary: { backgroundColor: "#1475EE", borderColor: "#1475EE", shadowColor: "#1475EE", shadowOpacity: 0.22, shadowRadius: 6, elevation: 3 }, missionToolText: { color: "#315987", fontSize: 9, fontWeight: "900" }, missionToolPrimaryText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
-  homeHeadingCard: { position: "absolute", top: 80, left: 18, width: 162, height: 64, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.97)", borderWidth: 1, borderColor: "#DDE8F6", shadowColor: "#173563", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 9, elevation: 5, zIndex: 22 },
-  homeHeadingDial: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF3FF", borderWidth: 1, borderColor: "#D6E6FF" }, homeHeadingLabel: { color: "#7183A1", fontSize: 8, fontWeight: "900", letterSpacing: 0.7, marginTop: 1 }, homeHeadingValue: { color: "#10244B", fontSize: 25, fontWeight: "900", letterSpacing: -0.8 },
+  homeHeadingCard: { position: "absolute", top: 76, left: 16, height: 34, flexDirection: "row", alignItems: "center", gap: 7, paddingLeft: 5, paddingRight: 9, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.95)", borderWidth: 1, borderColor: "#DCE6F2", shadowColor: "#0F172A", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 4, zIndex: 22 },
+  homeHeadingDial: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#EBF3FE", borderWidth: 1, borderColor: "#CFE0FC" },
+  homeHeadingLabel: { color: "#7183A1", fontSize: 8, fontWeight: "900", letterSpacing: 0.7, marginTop: 1 },
+  homeHeadingValue: { color: "#0F2B48", fontSize: 14, fontWeight: "900", letterSpacing: -0.3 },
+  homeHeadingTextGroup: { justifyContent: "center" },
+  homeHeadingSubRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1 },
+  homeHeadingDirBadge: { backgroundColor: "#1475EE", paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 6 },
+  homeHeadingDirText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
+  pointsPanelChangesBadge: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#FCD34D", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, alignSelf: "center" },
+  pointsPanelChangesText: { color: "#B45309", fontSize: 11, fontWeight: "800", letterSpacing: 0.2 },
+  verticalRailApplyRoundBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#10B981", alignItems: "center", justifyContent: "center", shadowColor: "#059669", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 5, elevation: 4, marginTop: 6 },
+  verticalRailApplyRoundBtnDisabled: { backgroundColor: "#E2E8F0", shadowOpacity: 0, elevation: 0 },
+  floatingApplyWrap: { position: "absolute", top: 80, right: 18, zIndex: 25 },
+  floatingApplyButton: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#10B981", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, elevation: 5, shadowColor: "#065F46", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 6 },
+  floatingApplyText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
+  compactToolHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  compactToolTitleRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  compactToolIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF3FF" },
+  compactToolTitle: { color: "#152A50", fontSize: 14, fontWeight: "900" },
+  compactToolSubtitle: { color: "#7A8DA8", fontSize: 10, fontWeight: "600", marginTop: 2 },
+  compactToolStatusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  compactToolStatusText: { fontSize: 10, fontWeight: "900", letterSpacing: 0.5 },
   homeStatusGroup: { flexDirection: "row", alignItems: "center", gap: 12, marginLeft: 28, marginRight: 0 },
   homeStatusBlock: { minWidth: 114, height: 42, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderRadius: 13, borderWidth: 1, shadowColor: "#173563", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 }, homeStatusBlockFirst: {}, homeStatusBlockDark: {},
   homeStatusIconCircle: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", transform: [{ scale: 1.08 }], shadowColor: "#173563", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3, elevation: 2 }, homeStatusIconGood: { backgroundColor: "#16B980" }, homeStatusIconAlert: { backgroundColor: "#F08A24" }, homeStatusIconInfo: { backgroundColor: "#1475EE" },
@@ -7904,7 +7971,28 @@ const fieldExperienceStyles = StyleSheet.create({
   activityPointIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", alignSelf: "center", backgroundColor: "#1475EE" }, activityPointIconText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" }, activityPointSequence: { color: "#203B62", fontSize: 11, fontWeight: "900" }, activityCoordinateLine: { color: "#60799D", fontSize: 8, fontWeight: "800", lineHeight: 16 }, activityCoordinatePair: { flexDirection: "row", alignItems: "center" }, activityCoordinateItem: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 4 }, activityPointDistanceBottom: { alignSelf: "flex-start", marginTop: 5 },
   expandPointsButton: { minHeight: 52, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#1475EE", flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#1475EE", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 6 }, expandPointsIcon: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)", borderWidth: 1, borderColor: "rgba(255,255,255,0.24)" }, expandPointsText: { flex: 1, color: "#FFFFFF", fontSize: 12, fontWeight: "900", letterSpacing: 0.2 }, disabled: { opacity: 0.45 },
   actionRow: { flexDirection: "row", gap: 8, marginTop: 9 }, actionButtonHalf: { flex: 1, marginTop: 0 },
-  pointsPanel: { position: "absolute", right: 16, bottom: 16, zIndex: 26, borderRadius: 20, overflow: "hidden", backgroundColor: "rgba(250,252,255,0.99)", borderWidth: 1, borderColor: "#D8E5F5", shadowColor: "#10244B", shadowOffset: { width: -7, height: 5 }, shadowOpacity: 0.22, shadowRadius: 22, elevation: 14 }, pointsPanelHeader: { minHeight: 66, paddingHorizontal: 14, paddingVertical: 11, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#E0EAF6", backgroundColor: "#F6FAFF" }, expandedActivityTitle: { flexDirection: "row", alignItems: "center", gap: 9 }, expandedActivityIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#1475EE" }, pointsPanelHeaderActions: { flexDirection: "row", alignItems: "center", gap: 7 }, pointsPanelTitle: { color: "#142B54", fontSize: 15, fontWeight: "900" }, pointsPanelSub: { color: "#7084A2", fontSize: 9, fontWeight: "700", marginTop: 3 }, pointsPanelClose: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#E8F1FF" }, pointsPanelList: { padding: 9, gap: 7, flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start" }, pointRow: { minHeight: 98, flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 9, borderRadius: 12, borderWidth: 1, borderColor: "#E5EBF2", backgroundColor: "#FFFFFF" }, pointIndex: { width: 29, height: 29, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F6FD", borderWidth: 1, borderColor: "#BFD7F5" }, pointIndexText: { color: "#1475EE", fontSize: 9, fontWeight: "900" }, pointDetails: { flex: 1, minWidth: 0 }, pointTitle: { color: "#203B62", fontSize: 11, fontWeight: "900", marginBottom: 3 }, pointCoordinate: { color: "#60799D", fontSize: 8, fontWeight: "800", lineHeight: 15 }, pointCoordinatePair: { flexDirection: "row", alignItems: "center" }, pointCoordinateItem: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 4 }, pointCoordinateLabel: { color: "#94A2B5", fontSize: 7, fontWeight: "900" }, pointCoordinateValue: { color: "#456184", fontSize: 9, fontWeight: "800", marginTop: 0 }, pointCoordinateDivider: { width: 1, height: 18, marginHorizontal: 6, backgroundColor: "#E1E7EF" }, pointDistance: { alignSelf: "flex-start", minHeight: 20, paddingHorizontal: 6, borderRadius: 7, flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5, backgroundColor: "#F1F5FA" }, pointDistanceText: { color: "#60799D", fontSize: 7, fontWeight: "800", flexShrink: 1 }, pointActions: { width: 48, gap: 5 }, pointAction: { minHeight: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", gap: 1, backgroundColor: "#F2F7FD", borderWidth: 1, borderColor: "#DDE9F8" }, pointActionText: { color: "#2878D8", fontSize: 6, fontWeight: "900" }, pointDeleteAction: { backgroundColor: "#FFF8F7", borderColor: "#F7DFDB" }, pointDeleteText: { color: "#CA554D", fontSize: 6, fontWeight: "900" }, previewAction: { backgroundColor: "#F4F6F9", borderColor: "#E1E6ED" }, previewActionText: { color: "#8EA0B8" },
+  pointsPanel: { position: "absolute", right: 16, bottom: 16, zIndex: 26, borderRadius: 20, overflow: "hidden", backgroundColor: "rgba(250,252,255,0.99)", borderWidth: 1, borderColor: "#D8E5F5", shadowColor: "#10244B", shadowOffset: { width: -7, height: 5 }, shadowOpacity: 0.22, shadowRadius: 22, elevation: 14 },
+  editorBodyRow: { flex: 1, flexDirection: "row", gap: 12, padding: 12 },
+  verticalActionRail: { width: 68, gap: 8, alignItems: "center" },
+  verticalRailBtn: { width: 64, height: 52, borderRadius: 10, backgroundColor: "#F1F5FB", borderWidth: 1, borderColor: "#DDE8F6", alignItems: "center", justifyContent: "center", gap: 2 },
+  verticalRailBtnDisabled: { opacity: 0.4 },
+  verticalRailBtnAdd: { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0" },
+  verticalRailBtnDelete: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
+  verticalRailBtnDeleteActive: { backgroundColor: "#DC2626", borderColor: "#B91C1C" },
+  verticalRailBtnText: { fontSize: 9, fontWeight: "700", color: "#1E293B" },
+  verticalRailBtnTextDisabled: { color: "#94A3B8" },
+  verticalRailBtnTextDeleteActive: { color: "#FFFFFF" },
+  fullHeightPointsListWrap: { flex: 1 },
+  deleteSelectBanner: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: "#FECACA", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginBottom: 8 },
+  deleteSelectBannerText: { color: "#991B1B", fontSize: 11, fontWeight: "600" },
+  fullHeightPointsScroll: { flex: 1 },
+  fullHeightPointsScrollContent: { paddingBottom: 24, gap: 6 },
+  pointRowSelectedForDelete: { backgroundColor: "#FEF2F2", borderColor: "#DC2626", borderWidth: 1.5 },
+  deleteItemCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: "#CBD5E1", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", marginRight: 8 },
+  deleteItemCheckboxSelected: { backgroundColor: "#DC2626", borderColor: "#DC2626" },
+  deleteRowBadge: { backgroundColor: "#FEE2E2", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: "center", marginLeft: 8 },
+  deleteRowBadgeText: { color: "#DC2626", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
+  pointsPanelHeader: { minHeight: 66, paddingHorizontal: 14, paddingVertical: 11, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#E0EAF6", backgroundColor: "#F6FAFF" }, expandedActivityTitle: { flexDirection: "row", alignItems: "center", gap: 9 }, expandedActivityIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#1475EE" }, pointsPanelHeaderActions: { flexDirection: "row", alignItems: "center", gap: 7 }, pointsPanelTitle: { color: "#142B54", fontSize: 15, fontWeight: "900" }, pointsPanelSub: { color: "#7084A2", fontSize: 9, fontWeight: "700", marginTop: 3 }, pointsPanelClose: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#E8F1FF" }, pointsPanelList: { padding: 9, gap: 7, flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start" }, pointRow: { minHeight: 98, flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 9, borderRadius: 12, borderWidth: 1, borderColor: "#E5EBF2", backgroundColor: "#FFFFFF" }, pointIndex: { width: 29, height: 29, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F6FD", borderWidth: 1, borderColor: "#BFD7F5" }, pointIndexText: { color: "#1475EE", fontSize: 9, fontWeight: "900" }, pointDetails: { flex: 1, minWidth: 0 }, pointTitle: { color: "#203B62", fontSize: 11, fontWeight: "900", marginBottom: 3 }, pointCoordinate: { color: "#60799D", fontSize: 8, fontWeight: "800", lineHeight: 15 }, pointCoordinatePair: { flexDirection: "row", alignItems: "center" }, pointCoordinateItem: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 4 }, pointCoordinateLabel: { color: "#94A2B5", fontSize: 7, fontWeight: "900" }, pointCoordinateValue: { color: "#456184", fontSize: 9, fontWeight: "800", marginTop: 0 }, pointCoordinateDivider: { width: 1, height: 18, marginHorizontal: 6, backgroundColor: "#E1E7EF" }, pointDistance: { alignSelf: "flex-start", minHeight: 20, paddingHorizontal: 6, borderRadius: 7, flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5, backgroundColor: "#F1F5FA" }, pointDistanceText: { color: "#60799D", fontSize: 7, fontWeight: "800", flexShrink: 1 }, pointActions: { width: 48, gap: 5 }, pointAction: { minHeight: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", gap: 1, backgroundColor: "#F2F7FD", borderWidth: 1, borderColor: "#DDE9F8" }, pointActionText: { color: "#2878D8", fontSize: 6, fontWeight: "900" }, pointDeleteAction: { backgroundColor: "#FFF8F7", borderColor: "#F7DFDB" }, pointDeleteText: { color: "#CA554D", fontSize: 6, fontWeight: "900" }, previewAction: { backgroundColor: "#F4F6F9", borderColor: "#E1E6ED" }, previewActionText: { color: "#8EA0B8" },
   pointIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", alignSelf: "center", backgroundColor: "#1475EE" }, pointIconText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" }, pointTopline: { minHeight: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 5 }, pointSequence: { color: "#203B62", fontSize: 12, fontWeight: "900" }, pointDistanceTop: { marginTop: 0 },
   readableHomePointRow: { minHeight: 62, paddingVertical: 6, alignItems: "center" }, readableHomePointIcon: { width: 32, height: 32, borderRadius: 16 }, readableExpandedPointRow: { minHeight: 96, paddingVertical: 9, alignItems: "center" }, readableExpandedPointIcon: { width: 36, height: 36, borderRadius: 18 }, readablePointNumber: { fontSize: 10 }, readableCoordinateLabel: { fontSize: 7, letterSpacing: 0.45 }, readableCoordinateValue: { fontSize: 9, marginTop: 0 }, readableDistanceText: { fontSize: 8 }, readableActionText: { fontSize: 8 }, pointDataCentered: { justifyContent: "center" },
   activityScreen: { ...StyleSheet.absoluteFillObject, backgroundColor: "transparent", zIndex: 24 },
@@ -8798,7 +8886,7 @@ const fieldExperienceStyles = StyleSheet.create({
 
   /* Base Operations Card (Height: 216px with Chunky Rectangular Buttons) */
   deckRightBaseCard: {
-    height: 216,
+    minHeight: 216,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#DDE7F3",

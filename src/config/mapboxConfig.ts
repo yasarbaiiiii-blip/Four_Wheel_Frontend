@@ -28,6 +28,7 @@ export const MAPBOX_CSS_URL = `https://api.mapbox.com/mapbox-gl-js/v${MAPBOX_VER
 export const MAPBOX_FALLBACK_STYLE_JSON = JSON.stringify({
   version: 8,
   name: "OfflineFallback",
+  glyphs: "mapbox://fonts/mapbox/{fontstack}/{range}.pbf",
   sources: {},
   layers: [
     {

@@ -205,7 +205,11 @@ export type LineFeatureCollection = {
   type: "FeatureCollection";
   features: Array<{
     type: "Feature";
-    properties: { kind: "line" | "point"; index?: number };
+    properties: {
+      kind: "line" | "point";
+      lineStatus?: "finished" | "unfinished";
+      index?: number;
+    };
     geometry:
       | { type: "LineString"; coordinates: [number, number][] }
       | { type: "Point"; coordinates: [number, number] };
@@ -427,6 +431,8 @@ export function buildBackendTrajectoryCollection(
     sampleDisplayPoints?: boolean;
     maxSamplePoints?: number;
     maxLinePoints?: number;
+    activeWaypointIndex?: number;
+    totalWaypoints?: number;
   },
 ): LineFeatureCollection | null {
   const allCoordinates = points
@@ -452,16 +458,51 @@ export function buildBackendTrajectoryCollection(
         return allCoordinates[sourceIndex];
       });
 
-  const features: LineFeatureCollection["features"] = [
-    {
+  const features: LineFeatureCollection["features"] = [];
+
+  const activeIdx = options?.activeWaypointIndex;
+  const totalWp = options?.totalWaypoints;
+
+  if (activeIdx !== undefined && totalWp && totalWp > 1) {
+    const fraction = Math.min(1, Math.max(0, activeIdx / (totalWp - 1)));
+    const splitIndex = Math.round(fraction * (coordinates.length - 1));
+
+    const finishedCoords = coordinates.slice(0, splitIndex + 1);
+    const unfinishedCoords = coordinates.slice(splitIndex);
+
+    if (finishedCoords.length >= 2) {
+      features.push({
+        type: "Feature",
+        properties: { kind: "line", lineStatus: "finished" },
+        geometry: {
+          type: "LineString",
+          coordinates: finishedCoords,
+        },
+      });
+    }
+
+    if (unfinishedCoords.length >= 2) {
+      features.push({
+        type: "Feature",
+        properties: { kind: "line", lineStatus: "unfinished" },
+        geometry: {
+          type: "LineString",
+          coordinates: unfinishedCoords,
+        },
+      });
+    }
+  }
+
+  if (features.length === 0) {
+    features.push({
       type: "Feature",
-      properties: { kind: "line" },
+      properties: { kind: "line", lineStatus: "unfinished" },
       geometry: {
         type: "LineString",
         coordinates,
       },
-    },
-  ];
+    });
+  }
 
   if (options?.sampleDisplayPoints) {
     const maxSamplePoints = Math.max(2, options.maxSamplePoints ?? 400);

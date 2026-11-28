@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
-import { View, StyleSheet, Text } from "react-native";
+import { View, StyleSheet, Text, Animated, TouchableOpacity } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   MarkerView,
   MapView,
@@ -11,6 +12,7 @@ import {
   type WaypointUiStatus,
 } from "../../types/missionWaypointStatus";
 import { NativeExtensionPointLayer, NativeTrajectoryLayer, NativeWaypointLayer } from "../shared/NativeMapLayers";
+import { RadialOrbitDial, type OrbitClusterMember } from "../shared/RadialOrbitDial";
 import { TrajectoryStatusBanner } from "../shared/TrajectoryStatusBanner";
 import { OfflineMapStatusBadge } from "../shared/OfflineMapStatusBadge";
 import {
@@ -147,37 +149,174 @@ const MissionMapNativeBase: React.FC<Props> = ({
     return [80.2707, 13.0827];
   }, [mapRover, waypoints]);
 
+  const [activeClusterInfo, setActiveClusterInfo] = useState<{
+    clusterSize: number;
+    sequences: string;
+    sn: number;
+  } | null>(null);
+
+  const [activeOrbitMembers, setActiveOrbitMembers] = useState<OrbitClusterMember[]>([]);
+  const [isOrbitOpen, setIsOrbitOpen] = useState(false);
+
+  const clusterBarAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (activeClusterInfo) {
+      Animated.spring(clusterBarAnim, {
+        toValue: 1,
+        tension: 110,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+
+      const timer = setTimeout(() => {
+        Animated.timing(clusterBarAnim, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }).start(() => setActiveClusterInfo(null));
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [activeClusterInfo, clusterBarAnim]);
+
+  const handleWaypointPress = useCallback((event: any) => {
+    const feature = event?.features?.[0];
+    if (!feature || !feature.properties) return;
+    const { clusterSize, clusterPoints, clusterMembers, sequence, sn } = feature.properties;
+    const count = Number(clusterSize) || 1;
+    const seqStr = String(clusterPoints || sequence || "");
+
+    let members: OrbitClusterMember[] = [];
+    if (clusterMembers) {
+      try {
+        members = JSON.parse(clusterMembers);
+      } catch {}
+    }
+    if (members.length === 0) {
+      members = [
+        {
+          sn: Number(sn) || 0,
+          sequence: Number(sequence) || 1,
+          status: "pending",
+          lat: feature.geometry?.coordinates?.[1],
+          lon: feature.geometry?.coordinates?.[0],
+        },
+      ];
+    }
+
+    if (count > 1) {
+      setActiveOrbitMembers(members);
+      setIsOrbitOpen(true);
+      const coords = feature.geometry?.coordinates;
+      if (coords && coords.length >= 2 && isValidLngLat(coords[0], coords[1])) {
+        cameraRef.current?.flyTo([coords[0], coords[1]], 350);
+      }
+    } else {
+      setActiveClusterInfo({
+        clusterSize: 1,
+        sequences: seqStr,
+        sn: Number(sn) || 0,
+      });
+    }
+  }, []);
+
   const waypointCollection = useMemo(() => {
-    return {
-      type: "FeatureCollection" as const,
-      // Preserve the source sequence before sampling. A rendered subset must
-      // still display the same mission numbers as the Marking Plan map.
-      features: limitMapPoints(waypoints.map((waypoint, sequence) => ({ waypoint, sequence })))
-        .map(({ waypoint: wp, sequence }) => {
-          if (!isValidLngLat(wp.lon, wp.lat)) return null;
-          const status = statusMap?.[wp.sn]?.status;
-          const completed = status === "completed" || status === "skipped";
-          // Skipped and failed points get their own colour on the map.
-          const skipped = status === "skipped";
-          const failed = isErrorWaypointStatus(status as WaypointUiStatus | undefined);
+    const rawWaypoints = waypoints
+      .map((waypoint: any, sequence) => {
+        const lat = Number(waypoint.lat ?? waypoint.latitude);
+        const lon = Number(waypoint.lon ?? waypoint.lng ?? waypoint.longitude);
+        const sn = typeof waypoint.sn === "number" ? waypoint.sn : sequence + 1;
+        return {
+          lat,
+          lon,
+          sn,
+          sequence,
+          original: waypoint,
+        };
+      })
+      .filter((wp) => isValidLngLat(wp.lon, wp.lat));
+
+    const limited = limitMapPoints(rawWaypoints);
+
+    // Detect clusters within 2.5 meters so overlapping points can be dispersed sideways
+    const visited = new Set<number>();
+    const clusters: Array<typeof limited> = [];
+
+    for (let i = 0; i < limited.length; i++) {
+      if (visited.has(i)) continue;
+      const current = limited[i];
+      visited.add(i);
+      const group = [current];
+
+      for (let j = i + 1; j < limited.length; j++) {
+        if (visited.has(j)) continue;
+        const other = limited[j];
+        const dLat = (other.lat - current.lat) * 111139;
+        const dLon =
+          (other.lon - current.lon) *
+          111139 *
+          Math.cos((current.lat * Math.PI) / 180);
+        const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+        if (dist <= 2.5) {
+          visited.add(j);
+          group.push(other);
+        }
+      }
+      clusters.push(group);
+    }
+
+    // Build features, keeping original coordinates [item.lon, item.lat] while tracking cluster membership
+    const features = clusters.flatMap((group) => {
+      const N = group.length;
+      const clusterPointsStr = group.map((p) => p.sequence + 1).join(", ");
+      const clusterMembersJson = JSON.stringify(
+        group.map((m) => {
+          const mStatus = statusMap?.[m.sn]?.status;
           return {
-            type: "Feature" as const,
-            id: sequence,
-            properties: {
-              sn: wp.sn,
-              sequence: sequence + 1,
-              active: sequence === activeWaypointIndex ? 1 : 0,
-              completed: completed ? 1 : 0,
-              skipped: skipped ? 1 : 0,
-              failed: failed ? 1 : 0,
-            },
-            geometry: {
-              type: "Point" as const,
-              coordinates: [wp.lon, wp.lat],
-            },
+            sn: m.sn,
+            sequence: m.sequence + 1,
+            status: mStatus || "pending",
+            active: m.sequence === activeWaypointIndex,
+            lat: m.lat,
+            lon: m.lon,
           };
         })
-        .filter((feature): feature is NonNullable<typeof feature> => feature != null),
+      );
+
+      return group.map((item) => {
+        const sn = item.sn;
+        const sequence = item.sequence;
+        const status = statusMap?.[sn]?.status;
+        const completed = status === "completed" || status === "skipped";
+        const skipped = status === "skipped";
+        const failed = isErrorWaypointStatus(status as WaypointUiStatus | undefined);
+
+        return {
+          type: "Feature" as const,
+          id: sequence,
+          properties: {
+            sn,
+            sequence: sequence + 1,
+            active: sequence === activeWaypointIndex ? 1 : 0,
+            completed: completed ? 1 : 0,
+            skipped: skipped ? 1 : 0,
+            failed: failed ? 1 : 0,
+            clusterSize: N,
+            clusterPoints: clusterPointsStr,
+            clusterMembers: clusterMembersJson,
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates: [item.lon, item.lat],
+          },
+        };
+      });
+    });
+
+    return {
+      type: "FeatureCollection" as const,
+      features,
     };
   }, [waypoints, statusMap, activeWaypointIndex]);
 
@@ -350,6 +489,7 @@ const MissionMapNativeBase: React.FC<Props> = ({
             layerId="mission-points-layer"
             shape={waypointCollection as any}
             aboveLayerID={trajectoryCollection ? "generated-trajectory-line-centre" : undefined}
+            onPress={handleWaypointPress}
           />
         )}
 
@@ -373,6 +513,54 @@ const MissionMapNativeBase: React.FC<Props> = ({
           </Text>
         </View>
       )}
+
+      {activeClusterInfo && (
+        <Animated.View
+          style={[
+            styles.clusterBar,
+            {
+              opacity: clusterBarAnim,
+              transform: [
+                {
+                  translateY: clusterBarAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-16, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <View style={styles.clusterBadge}>
+            <MaterialCommunityIcons name="layers-outline" size={15} color="#FFFFFF" />
+            <Text style={styles.clusterBadgeText}>
+              {activeClusterInfo.clusterSize > 1
+                ? `${activeClusterInfo.clusterSize} Points Clustered`
+                : `Point #${activeClusterInfo.sequences}`}
+            </Text>
+          </View>
+          {activeClusterInfo.clusterSize > 1 && (
+            <Text style={styles.clusterSequencesText}>
+              Waypoints: #{activeClusterInfo.sequences}
+            </Text>
+          )}
+          <TouchableOpacity
+            style={styles.clusterCloseBtn}
+            onPress={() => setActiveClusterInfo(null)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Close cluster info"
+          >
+            <MaterialCommunityIcons name="close" size={16} color="#94A3B8" />
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
+      <RadialOrbitDial
+        visible={isOrbitOpen}
+        members={activeOrbitMembers}
+        onClose={() => setIsOrbitOpen(false)}
+      />
 
       <OfflineMapStatusBadge />
 
@@ -420,6 +608,49 @@ const styles = StyleSheet.create({
     color: "#cbd5e1",
     fontSize: 12,
     textAlign: "center",
+  },
+  clusterBar: {
+    position: "absolute",
+    top: 14,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(15, 23, 42, 0.92)",
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(56, 189, 248, 0.35)",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+    zIndex: 30,
+  },
+  clusterBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#1475EE",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  clusterBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  clusterSequencesText: {
+    color: "#E2E8F0",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  clusterCloseBtn: {
+    marginLeft: 4,
+    padding: 2,
   },
 });
 

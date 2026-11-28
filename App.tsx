@@ -27,6 +27,7 @@ import { ComponentReadinessProvider } from "./src/context/ComponentReadinessCont
 
 import { AuthProvider } from "./src/context/AuthContext";
 import { RoverIconProvider } from "./src/context/RoverIconContext";
+import { TrajectoryAppearanceProvider } from "./src/context/TrajectoryAppearanceContext";
 
 import { MissionStagingProvider } from "./src/context/MissionStagingContext";
 
@@ -474,13 +475,15 @@ export default function App(): React.ReactElement | null {
           <StatusBar barStyle="light-content" backgroundColor="#0A1628" hidden />
 
           <RoverIconProvider>
-            <ComponentReadinessProvider>
-              <AuthProvider>
-                <ErrorBoundary componentName="Main Content">
-                  <AppContent />
-                </ErrorBoundary>
-              </AuthProvider>
-            </ComponentReadinessProvider>
+            <TrajectoryAppearanceProvider>
+              <ComponentReadinessProvider>
+                <AuthProvider>
+                  <ErrorBoundary componentName="Main Content">
+                    <AppContent />
+                  </ErrorBoundary>
+                </AuthProvider>
+              </ComponentReadinessProvider>
+            </TrajectoryAppearanceProvider>
           </RoverIconProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>

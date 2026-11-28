@@ -26,6 +26,13 @@ jest.mock("react-native", () => ({
   View: "View",
   Text: "Text",
   StyleSheet: { create: (styles: unknown) => styles, absoluteFillObject: {} },
+  TouchableOpacity: "TouchableOpacity",
+  Animated: {
+    View: "Animated.View",
+    Value: jest.fn(() => ({ interpolate: jest.fn() })),
+    spring: jest.fn(() => ({ start: jest.fn() })),
+    timing: jest.fn(() => ({ start: jest.fn() })),
+  },
 }));
 jest.mock("@rnmapbox/maps", () => ({
   MapView: "MapView",
@@ -69,6 +76,7 @@ jest.mock("../RoverVehicleIcon", () => ({ RoverVehicleIcon: () => null }));
 jest.mock("../MapBottomControlsBar", () => ({ MapBottomControlsBar: () => null }));
 jest.mock("../TrajectoryStatusBanner", () => ({ TrajectoryStatusBanner: () => null }));
 jest.mock("../OfflineMapStatusBadge", () => ({ OfflineMapStatusBadge: () => null }));
+jest.mock("@expo/vector-icons", () => ({ MaterialCommunityIcons: "MaterialCommunityIcons" }));
 
 import { FieldMapHost } from "../FieldMapHost";
 import { NativeTrajectoryLayer, NativeWaypointLayer } from "../NativeMapLayers";
@@ -222,13 +230,13 @@ test("authoring layers retain their source options and visual styles", () => {
   expect(circles[0].props.aboveLayerID).toBe("path-layer-centre");
   expect(circles[1].props.aboveLayerID).toBe("waypoint-layer-glow");
   expect(circles[1].props.style).toMatchObject({
-    circleColor: "#1475EE",
-    circleStrokeColor: "#FFFFFF",
+    circleColor: "#FFFFFF",
+    circleStrokeColor: "#1475EE",
     circleStrokeWidth: 2.5,
   });
   expect(renderer!.root.findByType("SymbolLayer").props).toMatchObject({
     id: "waypoint-layer-sequence",
     aboveLayerID: "waypoint-layer",
-    style: { textField: "{sequence}", textAnchor: "center", textColor: "#FFFFFF" },
+    style: { textField: "{sequence}", textAnchor: "center" },
   });
 });

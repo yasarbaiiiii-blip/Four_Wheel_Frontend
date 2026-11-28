@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../../theme/colors';
 import { useRover } from '../../context/RoverContext';
@@ -21,6 +21,7 @@ const languages = [
 export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ visible, onClose, onTTSStatusChange }) => {
   const { services, ttsLanguage, setTTSLanguage } = useRover();
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [isAvailable, setIsAvailable] = useState<boolean>(true);
   const [loading, setLoading] = useState(false);
 
   // Use global language state from context
@@ -37,10 +38,19 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ visible,
         setLoading(true);
         const res: any = await services.getTTSStatus();
         if (!mounted) return;
-        setEnabled(Boolean(res?.enabled));
+        if (res && res.success !== false) {
+          setIsAvailable(true);
+          setEnabled(Boolean(res?.enabled));
+        } else {
+          setIsAvailable(false);
+          setEnabled(false);
+        }
       } catch (err) {
-        console.error('[VoiceSettingsModal] Failed to get TTS status', err);
-        if (mounted) setEnabled(false);
+        console.warn('[VoiceSettingsModal] TTS not available on this rover:', err);
+        if (mounted) {
+          setIsAvailable(false);
+          setEnabled(false);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -54,13 +64,24 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ visible,
     try {
       setLoading(true);
       const res: any = await services.controlTTS(on);
-      const newEnabled = Boolean(res?.enabled ?? on);
-      setEnabled(newEnabled);
-
-      // Notify parent component about TTS status change
-      onTTSStatusChange?.(newEnabled);
+      if (res && res.success !== false) {
+        const newEnabled = Boolean(res?.enabled ?? on);
+        setEnabled(newEnabled);
+        onTTSStatusChange?.(newEnabled);
+      } else {
+        Alert.alert(
+          "Voice Not Available",
+          "Voice announcements are not available on this rover backend yet."
+        );
+        setEnabled(false);
+      }
     } catch (err) {
-      console.error('[VoiceSettingsModal] controlTTS failed', err);
+      console.warn('[VoiceSettingsModal] controlTTS failed:', err);
+      Alert.alert(
+        "Voice Not Available",
+        "Voice announcements are not available on this rover backend yet."
+      );
+      setEnabled(false);
     } finally {
       setLoading(false);
     }
@@ -114,6 +135,13 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ visible,
           </View>
 
           <Text style={styles.sectionTitle}>Text-to-Speech</Text>
+          {!isAvailable && (
+            <View style={styles.unavailableBanner}>
+              <Text style={styles.unavailableText}>
+                Voice announcements are not available on this rover backend yet.
+              </Text>
+            </View>
+          )}
           <View style={styles.controlsRow}>
             <TouchableOpacity
               style={[styles.controlBtn, enabled ? styles.btnDisabled : styles.btnPrimary]}
@@ -170,6 +198,21 @@ const styles = StyleSheet.create({
   langText: { color: '#cfefff', fontWeight: '600' },
   langTextActive: { color: '#fff' },
   controlsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
+  unavailableBanner: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+  },
+  unavailableText: {
+    color: '#FCA5A5',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
   controlBtn: { flex: 1, paddingVertical: 12, marginHorizontal: 6, borderRadius: 8, alignItems: 'center' },
   controlText: { color: '#fff', fontWeight: '700' },
   btnPrimary: { backgroundColor: colors.greenBtn || '#10B981' },

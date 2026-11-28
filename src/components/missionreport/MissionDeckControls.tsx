@@ -65,6 +65,24 @@ export function MissionDeckControls({
 
   return (
     <View style={styles.container}>
+      {notice && (
+        <View
+          style={[styles.notice, notice.blocking ? styles.noticeBlocking : styles.noticeClear]}
+          accessibilityRole="alert"
+          accessibilityLabel={`${notice.title}. ${notice.detail}`}
+        >
+          <MaterialCommunityIcons
+            name={notice.blocking ? "alert-circle-outline" : "check-circle-outline"}
+            size={20}
+            color={notice.blocking ? "#DC2626" : "#16B980"}
+          />
+          <View style={styles.noticeCopy}>
+            <Text style={styles.noticeTitle} numberOfLines={1}>{notice.title}</Text>
+            <Text style={styles.noticeDetail} numberOfLines={2}>{notice.detail}</Text>
+          </View>
+        </View>
+      )}
+
       <TouchableOpacity
         style={[
           styles.hero,
@@ -87,24 +105,6 @@ export function MissionDeckControls({
           {primaryLabel(controls, isPreparing, pending)}
         </Text>
       </TouchableOpacity>
-
-      {notice && (
-        <View
-          style={[styles.notice, notice.blocking ? styles.noticeBlocking : styles.noticeClear]}
-          accessibilityRole="alert"
-          accessibilityLabel={`${notice.title}. ${notice.detail}`}
-        >
-          <MaterialCommunityIcons
-            name={notice.blocking ? "alert-circle-outline" : "check-circle-outline"}
-            size={20}
-            color={notice.blocking ? "#DC2626" : "#16B980"}
-          />
-          <View style={styles.noticeCopy}>
-            <Text style={styles.noticeTitle} numberOfLines={1}>{notice.title}</Text>
-            <Text style={styles.noticeDetail} numberOfLines={2}>{notice.detail}</Text>
-          </View>
-        </View>
-      )}
 
       <View style={styles.subRow}>
         <TouchableOpacity

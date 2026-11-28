@@ -60,6 +60,10 @@ jest.mock("../../components/settings/RoverIconPicker", () => ({
   RoverIconPicker: () => null,
 }));
 
+jest.mock("../../components/settings/AppearanceSettingsCard", () => ({
+  AppearanceSettingsCard: () => null,
+}));
+
 jest.mock("../../components/settings/ParamBrowserModal", () => ({
   ParamBrowserModal: () => null,
 }));

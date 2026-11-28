@@ -1,11 +1,13 @@
 import React, {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, Animated, TouchableOpacity } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   Camera,
   MapView,
@@ -13,12 +15,18 @@ import {
 } from "@rnmapbox/maps";
 import { RoverVehicleIcon } from "./RoverVehicleIcon";
 import { NativeTrajectoryLayer, NativeWaypointLayer } from "./NativeMapLayers";
+import { RadialOrbitDial, type OrbitClusterMember } from "./RadialOrbitDial";
+import {
+  isErrorWaypointStatus,
+  type WaypointUiStatus,
+} from "../../types/missionWaypointStatus";
 import {
   MAPBOX_FALLBACK_STYLE_JSON,
   mapboxStyleUrlForMode,
 } from "../../config/mapboxConfig";
 import { useBackendTrajectory } from "../../context/BackendTrajectoryContext";
 import { useFieldMap } from "../../context/FieldMapContext";
+import MissionContext from "../../context/MissionContext";
 import { useMissionProgressOverlayOptional } from "../../context/MissionProgressOverlayContext";
 import {
   shallowEqual,
@@ -167,60 +175,236 @@ const FieldMapHostBase: React.FC = () => {
       ? "rtk"
       : "disarmed";
 
+  const [activeClusterInfo, setActiveClusterInfo] = useState<{
+    clusterSize: number;
+    sequences: string;
+    sn: number;
+  } | null>(null);
+
+  const [activeOrbitMembers, setActiveOrbitMembers] = useState<OrbitClusterMember[]>([]);
+  const [isOrbitOpen, setIsOrbitOpen] = useState(false);
+
+  const clusterBarAnim = useRef(
+    typeof Animated !== "undefined" && Animated?.Value
+      ? new Animated.Value(0)
+      : null,
+  ).current;
+
+  useEffect(() => {
+    if (activeClusterInfo && clusterBarAnim && Animated?.spring) {
+      Animated.spring(clusterBarAnim, {
+        toValue: 1,
+        tension: 110,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+
+      const timer = setTimeout(() => {
+        if (Animated?.timing) {
+          Animated.timing(clusterBarAnim, {
+            toValue: 0,
+            duration: 250,
+            useNativeDriver: true,
+          }).start(() => setActiveClusterInfo(null));
+        } else {
+          setActiveClusterInfo(null);
+        }
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [activeClusterInfo, clusterBarAnim]);
+
+  const handleWaypointPress = useCallback((event: any) => {
+    const feature = event?.features?.[0];
+    if (!feature || !feature.properties) return;
+    const { clusterSize, clusterPoints, clusterMembers, sequence, sn } = feature.properties;
+    const count = Number(clusterSize) || 1;
+    const seqStr = String(clusterPoints || sequence || "");
+
+    let members: OrbitClusterMember[] = [];
+    if (clusterMembers) {
+      try {
+        members = JSON.parse(clusterMembers);
+      } catch {}
+    }
+    if (members.length === 0) {
+      members = [
+        {
+          sn: Number(sn) || 0,
+          sequence: Number(sequence) || 1,
+          status: "pending",
+          lat: feature.geometry?.coordinates?.[1],
+          lon: feature.geometry?.coordinates?.[0],
+        },
+      ];
+    }
+
+    if (count > 1) {
+      setActiveOrbitMembers(members);
+      setIsOrbitOpen(true);
+      const coords = feature.geometry?.coordinates;
+      if (coords && coords.length >= 2 && isValidLngLat(coords[0], coords[1])) {
+        cameraRef.current?.flyTo([coords[0], coords[1]], 350);
+      }
+    } else {
+      setActiveClusterInfo({
+        clusterSize: 1,
+        sequences: seqStr,
+        sn: Number(sn) || 0,
+      });
+    }
+  }, []);
+
+  const missionCtx = useContext(MissionContext);
+  const missionWaypoints = missionCtx?.missionWaypoints ?? [];
+
+  const effectiveWaypoints = useMemo(() => {
+    if (fallbackSnapshot.waypoints && fallbackSnapshot.waypoints.length > 0) {
+      return fallbackSnapshot.waypoints;
+    }
+    if (missionWaypoints && missionWaypoints.length > 0) {
+      return missionWaypoints;
+    }
+    // Fallback: extract marking points from backend trajectory preview if fallbackSnapshot is empty
+    const markingPts = (preview.points ?? []).filter(
+      (p) => p.type === "marking" || (typeof p.marking_index === "number" && p.marking_index >= 0)
+    );
+    if (markingPts.length > 0) {
+      return markingPts.map((p, i) => ({
+        lat: p.latitude,
+        lon: p.longitude,
+        sn: typeof p.marking_index === "number" ? p.marking_index + 1 : i + 1,
+      }));
+    }
+    if (preview.points && preview.points.length > 0 && preview.points.length <= 200) {
+      return preview.points.map((p, i) => ({
+        lat: p.latitude,
+        lon: p.longitude,
+        sn: i + 1,
+      }));
+    }
+    return [];
+  }, [fallbackSnapshot.waypoints, missionWaypoints, preview.points]);
+
   const defaultCenter = useMemo<[number, number]>(() => {
     if (hasRoverPosition) return [rover.lon, rover.lat];
-    const first = fallbackSnapshot.waypoints.find((wp) =>
-      isValidLngLat(wp.lon, wp.lat),
+    const first = effectiveWaypoints.find((wp: any) =>
+      isValidLngLat(wp.lon ?? wp.lng ?? wp.longitude, wp.lat ?? wp.latitude),
     );
-    if (first) return [first.lon, first.lat];
+    if (first) {
+      const firstLon = Number(first.lon ?? (first as any).lng ?? (first as any).longitude);
+      const firstLat = Number(first.lat ?? (first as any).latitude);
+      if (isValidLngLat(firstLon, firstLat)) return [firstLon, firstLat];
+    }
     return CHENNAI;
-  }, [hasRoverPosition, rover.lat, rover.lon, fallbackSnapshot.waypoints]);
+  }, [hasRoverPosition, rover.lat, rover.lon, effectiveWaypoints]);
 
   if (
     initialCenterRef.current == null &&
-    (hasRoverPosition || fallbackSnapshot.waypoints.length > 0)
+    (hasRoverPosition || effectiveWaypoints.length > 0)
   ) {
     initialCenterRef.current = defaultCenter;
   }
 
   const waypointCollection = useMemo(() => {
-    return {
-      type: "FeatureCollection" as const,
-      // Keep the source index before applying the render limit. The marker
-      // number must reflect its actual mission order, not its position inside
-      // a sampled subset of a large plan.
-      features: limitMapPoints(
-        fallbackSnapshot.waypoints.map((waypoint, sequence) => ({
-          waypoint,
+    const rawWaypoints = effectiveWaypoints
+      .map((waypoint: any, sequence) => {
+        const lat = Number(waypoint.lat ?? waypoint.latitude);
+        const lon = Number(waypoint.lon ?? waypoint.lng ?? waypoint.longitude);
+        const sn = typeof waypoint.sn === "number" ? waypoint.sn : sequence + 1;
+        return {
+          lat,
+          lon,
+          sn,
           sequence,
-        })),
-      )
-        .map(({ waypoint: wp, sequence }) => {
-          if (!isValidLngLat(wp.lon, wp.lat)) return null;
-          const sn = typeof wp.sn === "number" ? wp.sn : sequence + 1;
-          const status = fallbackSnapshot.statusMap?.[sn]?.status;
-          const completed = status === "completed" || status === "skipped";
+          original: waypoint,
+        };
+      })
+      .filter((wp) => isValidLngLat(wp.lon, wp.lat));
+
+    const limited = limitMapPoints(rawWaypoints);
+
+    // Detect clusters within 2.5 meters so overlapping points can be dispersed sideways
+    const visited = new Set<number>();
+    const clusters: Array<typeof limited> = [];
+
+    for (let i = 0; i < limited.length; i++) {
+      if (visited.has(i)) continue;
+      const current = limited[i];
+      visited.add(i);
+      const group = [current];
+
+      for (let j = i + 1; j < limited.length; j++) {
+        if (visited.has(j)) continue;
+        const other = limited[j];
+        const dLat = (other.lat - current.lat) * 111139;
+        const dLon =
+          (other.lon - current.lon) *
+          111139 *
+          Math.cos((current.lat * Math.PI) / 180);
+        const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+        if (dist <= 2.5) {
+          visited.add(j);
+          group.push(other);
+        }
+      }
+      clusters.push(group);
+    }
+
+    // Build features, keeping original coordinates [item.lon, item.lat] while tracking cluster membership
+    const features = clusters.flatMap((group) => {
+      const N = group.length;
+      const clusterPointsStr = group.map((p) => p.sequence + 1).join(", ");
+      const clusterMembersJson = JSON.stringify(
+        group.map((m) => {
+          const mStatus = fallbackSnapshot.statusMap?.[m.sn]?.status;
           return {
-            type: "Feature" as const,
-            id: sequence,
-            properties: {
-              sn,
-              sequence: sequence + 1,
-              active: sequence === fallbackSnapshot.activeWaypointIndex ? 1 : 0,
-              completed: completed ? 1 : 0,
-            },
-            geometry: {
-              type: "Point" as const,
-              coordinates: [wp.lon, wp.lat],
-            },
+            sn: m.sn,
+            sequence: m.sequence + 1,
+            status: mStatus || "pending",
+            active: m.sequence === fallbackSnapshot.activeWaypointIndex,
+            lat: m.lat,
+            lon: m.lon,
           };
         })
-        .filter(
-          (feature): feature is NonNullable<typeof feature> => feature != null,
-        ),
+      );
+
+      return group.map((item) => {
+        const sn = item.sn;
+        const sequence = item.sequence;
+        const status = fallbackSnapshot.statusMap?.[sn]?.status;
+        const completed = status === "completed" || status === "skipped";
+        const skipped = status === "skipped";
+        const failed = isErrorWaypointStatus(status as WaypointUiStatus | undefined);
+
+        return {
+          type: "Feature" as const,
+          id: sequence,
+          properties: {
+            sn,
+            sequence: sequence + 1,
+            active: sequence === fallbackSnapshot.activeWaypointIndex ? 1 : 0,
+            completed: completed ? 1 : 0,
+            skipped: skipped ? 1 : 0,
+            failed: failed ? 1 : 0,
+            clusterSize: N,
+            clusterPoints: clusterPointsStr,
+            clusterMembers: clusterMembersJson,
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates: [item.lon, item.lat],
+          },
+        };
+      });
+    });
+
+    return {
+      type: "FeatureCollection" as const,
+      features,
     };
   }, [
-    fallbackSnapshot.waypoints,
+    effectiveWaypoints,
     fallbackSnapshot.statusMap,
     fallbackSnapshot.activeWaypointIndex,
   ]);
@@ -489,8 +673,9 @@ const FieldMapHostBase: React.FC = () => {
               sourceId="field-points"
               layerId="field-points-layer"
               shape={waypointCollection as any}
-              variant="authoring"
               aboveLayerID={visibleRouteCollection ? "field-trajectory-layer-centre" : undefined}
+              variant={activeSurface === "marking" ? "authoring" : "mission"}
+              onPress={handleWaypointPress}
             />
           )}
 
@@ -516,6 +701,56 @@ const FieldMapHostBase: React.FC = () => {
           </Text>
         </View>
       )}
+
+      {activeClusterInfo && (
+        <Animated.View
+          style={[
+            styles.clusterBar,
+            clusterBarAnim?.interpolate
+              ? {
+                  opacity: clusterBarAnim,
+                  transform: [
+                    {
+                      translateY: clusterBarAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-16, 0],
+                      }),
+                    },
+                  ],
+                }
+              : {},
+          ]}
+        >
+          <View style={styles.clusterBadge}>
+            <MaterialCommunityIcons name="layers-outline" size={15} color="#FFFFFF" />
+            <Text style={styles.clusterBadgeText}>
+              {activeClusterInfo.clusterSize > 1
+                ? `${activeClusterInfo.clusterSize} Points Clustered`
+                : `Point #${activeClusterInfo.sequences}`}
+            </Text>
+          </View>
+          {activeClusterInfo.clusterSize > 1 && (
+            <Text style={styles.clusterSequencesText}>
+              Waypoints: #{activeClusterInfo.sequences}
+            </Text>
+          )}
+          <TouchableOpacity
+            style={styles.clusterCloseBtn}
+            onPress={() => setActiveClusterInfo(null)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Close cluster info"
+          >
+            <MaterialCommunityIcons name="close" size={16} color="#94A3B8" />
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
+      <RadialOrbitDial
+        visible={isOrbitOpen}
+        members={activeOrbitMembers}
+        onClose={() => setIsOrbitOpen(false)}
+      />
 
       <OfflineMapStatusBadge />
 
@@ -564,6 +799,49 @@ const styles = StyleSheet.create({
     color: "#cbd5e1",
     fontSize: 12,
     textAlign: "center",
+  },
+  clusterBar: {
+    position: "absolute",
+    top: 14,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(15, 23, 42, 0.92)",
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(56, 189, 248, 0.35)",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+    zIndex: 30,
+  },
+  clusterBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#1475EE",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  clusterBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  clusterSequencesText: {
+    color: "#E2E8F0",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  clusterCloseBtn: {
+    marginLeft: 4,
+    padding: 2,
   },
 });
 
